@@ -665,33 +665,6 @@ class HistoryService:
             logger.error(f"查询新闻情报失败: {e}", exc_info=True)
             return []
 
-    def get_news_intel_by_record_id(self, record_id: int, limit: int = 20) -> List[Dict[str, str]]:
-        """
-        Get associated news intelligence based on analysis history record ID.
-
-        Parses record_id to query_id, then calls get_news_intel.
-
-        Args:
-            record_id: Analysis history primary key ID
-            limit: Result limit
-
-        Returns:
-            List of news intelligence (containing title, snippet, and url)
-        """
-        try:
-            # Look up the corresponding AnalysisHistory record by record_id
-            record = self.db.get_analysis_history_by_id(record_id)
-            if not record:
-                logger.warning(f"No analysis record found for record_id={record_id}")
-                return []
-
-            # Get query_id from record, then call original method
-            return self.get_news_intel(query_id=record.query_id, limit=limit)
-
-        except Exception as e:
-            logger.error(f"根据 record_id 查询新闻情报失败: {e}", exc_info=True)
-            return []
-
     def _fallback_news_by_analysis_context(self, query_id: str, limit: int) -> List[Any]:
         """
         Fallback by analysis context when direct query_id lookup returns no news.
