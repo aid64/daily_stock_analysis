@@ -3,7 +3,7 @@
 
 Covers:
 - Local mapping (STOCK_NAME_MAP reverse)
-- Code format boundary (_is_code_like, _normalize_code)
+- Code format boundary (is_code_like, normalize_code)
 - Pinyin match (when pypinyin available)
 - AkShare fallback (mocked)
 - Fuzzy match (difflib)
@@ -15,77 +15,76 @@ from unittest.mock import patch
 
 from src.services.name_to_code_resolver import (
     resolve_name_to_code,
-    _is_code_like,
-    _normalize_code,
     _build_reverse_map_no_duplicates,
 )
+from src.services.stock_code_utils import is_code_like, normalize_code
 
 
 # ---------------------------------------------------------------------------
-# _is_code_like
+# is_code_like
 # ---------------------------------------------------------------------------
 
 class TestIsCodeLike:
     def test_a_share_5_digits(self):
-        assert _is_code_like("60051") is True
-        assert _is_code_like("600519") is True
+        assert is_code_like("60051") is True
+        assert is_code_like("600519") is True
 
     def test_a_share_6_digits(self):
-        assert _is_code_like("300750") is True
+        assert is_code_like("300750") is True
 
     def test_bse_with_exchange_hint(self):
-        assert _is_code_like("920493.BJ") is True
-        assert _is_code_like("BJ920493") is True
+        assert is_code_like("920493.BJ") is True
+        assert is_code_like("BJ920493") is True
 
     def test_bj_exchange_hint_rejects_non_bse_code(self):
-        assert _is_code_like("600519.BJ") is False
-        assert _is_code_like("BJ600519") is False
+        assert is_code_like("600519.BJ") is False
+        assert is_code_like("BJ600519") is False
 
     def test_hk_5_digits(self):
-        assert _is_code_like("00700") is True
+        assert is_code_like("00700") is True
 
     def test_us_stock_letters(self):
-        assert _is_code_like("AAPL") is True
-        assert _is_code_like("TSLA") is True
-        assert _is_code_like("BRK.B") is True
+        assert is_code_like("AAPL") is True
+        assert is_code_like("TSLA") is True
+        assert is_code_like("BRK.B") is True
 
     def test_rejects_non_code(self):
-        assert _is_code_like("贵州茅台") is False
-        assert _is_code_like("1234") is False  # too short
-        assert _is_code_like("1234567") is False  # too long
-        assert _is_code_like("") is False
-        assert _is_code_like("   ") is False
+        assert is_code_like("贵州茅台") is False
+        assert is_code_like("1234") is False  # too short
+        assert is_code_like("1234567") is False  # too long
+        assert is_code_like("") is False
+        assert is_code_like("   ") is False
 
 
 # ---------------------------------------------------------------------------
-# _normalize_code
+# normalize_code
 # ---------------------------------------------------------------------------
 
 class TestNormalizeCode:
     def test_preserves_valid_a_share(self):
-        assert _normalize_code("600519") == "600519"
-        assert _normalize_code("  600519  ") == "600519"
+        assert normalize_code("600519") == "600519"
+        assert normalize_code("  600519  ") == "600519"
 
     def test_strips_suffix(self):
-        assert _normalize_code("600519.SH") == "600519"
-        assert _normalize_code("000001.SZ") == "000001"
-        assert _normalize_code("920493.BJ") == "920493"
+        assert normalize_code("600519.SH") == "600519"
+        assert normalize_code("000001.SZ") == "000001"
+        assert normalize_code("920493.BJ") == "920493"
 
     def test_strips_bse_prefix(self):
-        assert _normalize_code("BJ920493") == "920493"
+        assert normalize_code("BJ920493") == "920493"
 
     def test_bj_exchange_hint_rejects_non_bse_code(self):
-        assert _normalize_code("600519.BJ") is None
-        assert _normalize_code("BJ600519") is None
+        assert normalize_code("600519.BJ") is None
+        assert normalize_code("BJ600519") is None
 
     def test_preserves_us_stock(self):
-        assert _normalize_code("AAPL") == "AAPL"
-        assert _normalize_code("brk.b") == "BRK.B"
+        assert normalize_code("AAPL") == "AAPL"
+        assert normalize_code("brk.b") == "BRK.B"
 
     def test_returns_none_for_invalid(self):
-        assert _normalize_code("") is None
-        assert _normalize_code("1234") is None
-        assert _normalize_code("贵州茅台") is None
+        assert normalize_code("") is None
+        assert normalize_code("1234") is None
+        assert normalize_code("贵州茅台") is None
 
 
 # ---------------------------------------------------------------------------
