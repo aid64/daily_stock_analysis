@@ -29,16 +29,6 @@ def _contains_cjk(text: str) -> bool:
     return any("\u3400" <= ch <= "\u9fff" for ch in text)
 
 
-def _is_code_like(s: str) -> bool:
-    """Backward-compatible wrapper of shared code-like check."""
-    return is_code_like(s)
-
-
-def _normalize_code(raw: str) -> Optional[str]:
-    """Backward-compatible wrapper of shared code normalization."""
-    return normalize_code(raw)
-
-
 def _build_reverse_map_no_duplicates(
     code_to_name: Dict[str, str],
 ) -> Dict[str, str]:
@@ -160,8 +150,8 @@ def resolve_name_to_code(name: str) -> Optional[str]:
         return None
 
     # 1. Input looks like code
-    if _is_code_like(s):
-        return _normalize_code(s)
+    if is_code_like(s):
+        return normalize_code(s)
 
     # 2. Local reverse map (no duplicates)
     local_reverse = _LOCAL_REVERSE_MAP
