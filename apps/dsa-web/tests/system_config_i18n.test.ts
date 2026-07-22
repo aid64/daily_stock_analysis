@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { UI_TEXT } from '../src/i18n/uiText';
 import { getSettingsHelpContent } from '../src/locales/settingsHelp';
-import { getFieldDescriptionZh, getFieldOptionLabelZh, getFieldTitleZh } from '../src/utils/systemConfigI18n';
+import { getFieldDescriptionZh, getFieldOptionLabel, getFieldTitleZh } from '../src/utils/systemConfigI18n';
 
 const requiredLocalizedKeys = [
   'TICKFLOW_API_KEY',
@@ -162,7 +162,7 @@ describe('systemConfigI18n option label localization', () => {
 
   it('localizes all select options currently exposed by system config schema', () => {
     realSelectOptionCases.forEach(([key, value, fallbackLabel, expectedLabel]) => {
-      const label = getFieldOptionLabelZh(key, value, fallbackLabel);
+      const label = getFieldOptionLabel(key, value, fallbackLabel);
 
       expect(label).toBe(expectedLabel);
       expect(label).not.toBe(value);
@@ -173,8 +173,8 @@ describe('systemConfigI18n option label localization', () => {
   });
 
   it('treats free-text config keys as passthrough for option labels', () => {
-    expect(getFieldOptionLabelZh('MARKET_REVIEW_REGION', 'cn')).toBe('cn');
-    expect(getFieldOptionLabelZh('MARKET_REVIEW_REGION', 'cn,us,jp,kr')).toBe('cn,us,jp,kr');
+    expect(getFieldOptionLabel('MARKET_REVIEW_REGION', 'cn')).toBe('cn');
+    expect(getFieldOptionLabel('MARKET_REVIEW_REGION', 'cn,us,jp,kr')).toBe('cn,us,jp,kr');
   });
 });
 

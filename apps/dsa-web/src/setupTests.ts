@@ -66,3 +66,34 @@ if (!hasLocalStorage) {
     value: new MemoryStorageMock(),
   });
 }
+
+// jsdom does not implement matchMedia; provide a minimal mock so stores and
+// components that probe prefers-color-scheme can initialize in tests.
+if (!globalThis.matchMedia) {
+  Object.defineProperty(globalThis, 'matchMedia', {
+    writable: true,
+    value: (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  });
+}
+
+// jsdom does not implement ResizeObserver; provide a no-op mock so components
+// using react-measure or similar libraries can mount in tests.
+if (!globalThis.ResizeObserver) {
+  Object.defineProperty(globalThis, 'ResizeObserver', {
+    writable: true,
+    value: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  });
+}
