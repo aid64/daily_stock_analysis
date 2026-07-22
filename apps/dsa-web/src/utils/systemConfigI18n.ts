@@ -551,14 +551,6 @@ function normalizeOptionToken(raw: string): string {
   return raw.trim().toLowerCase();
 }
 
-export function getCategoryTitleZh(category: SystemConfigCategory, fallback?: string): string {
-  return getCategoryTitle(category, fallback, 'zh');
-}
-
-export function getCategoryDescriptionZh(category: SystemConfigCategory, fallback?: string): string {
-  return getCategoryDescription(category, fallback, 'zh');
-}
-
 export function getCategoryTitle(category: SystemConfigCategory, fallback?: string, locale: UiLanguage = 'zh'): string {
   return categoryTitleMap[locale][category] || fallback || category;
 }
@@ -573,10 +565,6 @@ export function getFieldTitleZh(key: string, fallback?: string): string {
 
 export function getFieldDescriptionZh(key: string, fallback?: string): string {
   return fieldDescriptionMap[key] || fallback || '';
-}
-
-export function getFieldOptionLabelZh(key: string, value: string, fallbackLabel?: string): string {
-  return getFieldOptionLabel(key, value, fallbackLabel, 'zh');
 }
 
 export function getFieldOptionLabel(
