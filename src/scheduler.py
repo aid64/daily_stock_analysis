@@ -1,16 +1,18 @@
 # -*- coding: utf-8 -*-
 """
 ===================================
-定时调度模块
+Daily Stock Analysis — 定时调度模块
 ===================================
 
 职责：
-1. 支持每日定时执行股票分析
-2. 支持定时执行大盘复盘
-3. 优雅处理信号，确保可靠退出
+1. 支持每日定时执行股票分析和大盘复盘
+2. 支持多时间调度与运行时热刷新
+3. 支持后台周期性任务注册
+4. 优雅处理 SIGTERM/SIGINT 信号，确保可靠退出
 
 依赖：
 - schedule: 轻量级定时任务库
+- multiprocessing: 进程安全（调度器实例非 fork-safe，可用单进程部署）
 """
 
 import logging
@@ -23,11 +25,17 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 logger = logging.getLogger(__name__)
 
+# ── Constants ──────────────────────────────────────────────────────────────
+_DEFAULT_SCHEDULE_TIME = "18:00"
+_TIME_RE = re.compile(r"(?:[01]\d|2[0-3]):[0-5]\d")
+_POLL_INTERVAL_SECONDS = 30
+_SEPARATOR = "=" * 50
+
 
 def normalize_schedule_times(
     schedule_times: Optional[Union[Sequence[str], str]],
     *,
-    fallback_time: str = "18:00",
+    fallback_time: str = _DEFAULT_SCHEDULE_TIME,
 ) -> List[str]:
     """Return sorted unique HH:MM schedule times with SCHEDULE_TIME fallback."""
     if isinstance(schedule_times, str):
@@ -40,11 +48,11 @@ def normalize_schedule_times(
     valid = {
         item
         for item in raw_items
-        if item and re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", item)
+        if item and _TIME_RE.fullmatch(item)
     }
     if not valid:
-        fallback = (fallback_time or "18:00").strip() or "18:00"
-        valid.add(fallback if re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", fallback) else "18:00")
+        fallback = (fallback_time or _DEFAULT_SCHEDULE_TIME).strip() or _DEFAULT_SCHEDULE_TIME
+        valid.add(fallback if _TIME_RE.fullmatch(fallback) else _DEFAULT_SCHEDULE_TIME)
     return sorted(valid)
 
 
@@ -91,7 +99,7 @@ class Scheduler:
 
     def __init__(
         self,
-        schedule_time: str = "18:00",
+        schedule_time: str = _DEFAULT_SCHEDULE_TIME,
         schedule_time_provider: Optional[Callable[[], str]] = None,
         schedule_times: Optional[Sequence[str]] = None,
         schedule_times_provider: Optional[Callable[[], Union[Sequence[str], str]]] = None,
@@ -193,23 +201,6 @@ class Scheduler:
             )
         return True
 
-    def _refresh_daily_schedule_if_needed(self) -> None:
-        """Reload daily schedule time from the latest runtime config if needed."""
-        if self._task_callback is None or self._schedule_time_provider is None:
-            return
-
-        try:
-            latest_schedule_time = (self._schedule_time_provider() or "").strip()
-        except Exception as exc:  # pragma: no cover - defensive branch
-            logger.warning("读取最新 SCHEDULE_TIME 失败，继续沿用 %s: %s", self.schedule_time, exc)
-            return
-
-        if not latest_schedule_time or latest_schedule_time == self.schedule_time:
-            return
-
-        if self._configure_daily_task(latest_schedule_time):
-            logger.info("更新后的下次执行时间: %s", self._get_next_run_time())
-
     def _configure_daily_tasks(self, schedule_times: Union[Sequence[str], str]) -> bool:
         """(Re)register daily jobs at the requested times."""
         raw_items = (
@@ -279,21 +270,27 @@ class Scheduler:
         self._refresh_daily_schedule_if_needed()
 
     def _safe_run_task(self):
-        """安全执行任务（带异常捕获）"""
+        """安全执行任务（带异常捕获和耗时统计）"""
         if self._task_callback is None:
             return
 
         try:
-            logger.info("=" * 50)
-            logger.info(f"定时任务开始执行 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            logger.info("=" * 50)
+            task_start = time.time()
+            logger.info(_SEPARATOR)
+            logger.info("定时任务开始执行 - %s", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+            logger.info(_SEPARATOR)
 
             self._task_callback()
 
-            logger.info(f"定时任务执行完成 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            elapsed = time.time() - task_start
+            logger.info(
+                "定时任务执行完成 - %s（耗时 %.1f 秒）",
+                datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                elapsed,
+            )
 
         except Exception as e:
-            logger.exception(f"定时任务执行失败: {e}")
+            logger.exception("定时任务执行失败: %s", e)
 
     def add_background_task(
         self,
@@ -304,15 +301,17 @@ class Scheduler:
     ) -> None:
         """Register a periodic background task executed inside the scheduler loop.
 
-        Note: The scheduler loop polls every 30 seconds, so *interval_seconds*
-        below 30 will be clamped to 30 to avoid promising unreachable precision.
-        """
-        clamped_interval = max(30, int(interval_seconds))
-        if int(interval_seconds) < 30:
+        Note: The scheduler loop polls every {poll}s, so *interval_seconds*
+        below {poll} will be clamped to {poll} to avoid promising unreachable precision.
+        """.format(poll=_POLL_INTERVAL_SECONDS)
+        clamped_interval = max(_POLL_INTERVAL_SECONDS, int(interval_seconds))
+        if int(interval_seconds) < _POLL_INTERVAL_SECONDS:
             logger.warning(
-                "后台任务 %s 请求间隔 %ds，但调度循环每 30s 轮询一次，已自动调整为 30s",
+                "后台任务 %s 请求间隔 %ds，但调度循环每 %ds 轮询一次，已自动调整为 %ds",
                 name or getattr(task, "__name__", "background_task"),
                 interval_seconds,
+                _POLL_INTERVAL_SECONDS,
+                _POLL_INTERVAL_SECONDS,
             )
         entry = {
             "task": task,
@@ -392,11 +391,12 @@ class Scheduler:
             self._refresh_daily_schedule_if_needed()
             self.schedule.run_pending()
             self._run_background_tasks()
-            time.sleep(30)  # 每30秒检查一次
+            time.sleep(_POLL_INTERVAL_SECONDS)
 
-            # 每小时打印一次心跳
-            if datetime.now().minute == 0 and datetime.now().second < 30:
-                logger.info(f"调度器运行中... 下次执行: {self._get_next_run_time()}")
+            # 整点心跳日志（限制为每小时最多一次）
+            now = datetime.now()
+            if now.minute == 0 and now.second < _POLL_INTERVAL_SECONDS:
+                logger.info("调度器运行中... 下次执行: %s", self._get_next_run_time())
 
         logger.info("调度器已停止")
 
@@ -408,15 +408,16 @@ class Scheduler:
             return next_run.strftime('%Y-%m-%d %H:%M:%S')
         return "未设置"
 
-    def stop(self):
+    def stop(self) -> None:
         """停止调度器"""
+        logger.info("调度器正在停止...")
         self._running = False
         self._cancel_daily_job()
 
 
 def run_with_schedule(
     task: Callable,
-    schedule_time: str = "18:00",
+    schedule_time: str = _DEFAULT_SCHEDULE_TIME,
     run_immediately: bool = True,
     background_tasks: Optional[List[Dict[str, Any]]] = None,
     schedule_time_provider: Optional[Callable[[], str]] = None,

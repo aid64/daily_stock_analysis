@@ -25,6 +25,7 @@ _AV_BASE_URL = "https://www.alphavantage.co/query"
 
 
 class AlphaVantageFetcher(BaseFetcher):
+    """AlphaVantage 美股日线数据 fetcher（需 ALPHAVANTAGE_API_KEY）。"""
     name = "AlphaVantageFetcher"
     priority = 3
 

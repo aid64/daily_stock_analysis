@@ -1,5 +1,14 @@
 # -*- coding: utf-8 -*-
-"""AlphaSift stock screening API routes."""
+"""
+===================================
+AlphaSift 选股接口
+===================================
+
+职责：
+1. 全市场批量选股（快照 / 日线 / 行业热度）
+2. LLM 重排与选股结果管理
+3. 选股引擎安装与状态查询
+"""
 
 from __future__ import annotations
 

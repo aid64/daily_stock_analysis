@@ -1,4 +1,5 @@
 import axios from 'axios';
+import camelcaseKeys from 'camelcase-keys';
 import { API_BASE_URL } from '../utils/constants';
 import { attachParsedApiError } from './error';
 
@@ -11,8 +12,14 @@ const apiClient = axios.create({
   },
 });
 
+// 自动 snake_case → camelCase 转换
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    if (response.data && typeof response.data === 'object') {
+      response.data = camelcaseKeys(response.data, { deep: true });
+    }
+    return response;
+  },
   (error) => {
     if (error.response?.status === 401) {
       const path = window.location.pathname + window.location.search;

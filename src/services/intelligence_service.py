@@ -111,6 +111,7 @@ class IntelligenceServiceError(ValueError):
 
 @dataclass(frozen=True)
 class FeedEntry:
+    """单条情报 feed 条目（标题 / 摘要 / URL / 来源 / 发布时间 / 原始 payload）。"""
     title: str
     summary: str
     url: str

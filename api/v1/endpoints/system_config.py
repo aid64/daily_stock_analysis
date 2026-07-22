@@ -1,9 +1,22 @@
-"""System configuration endpoints."""
+# -*- coding: utf-8 -*-
+"""
+===================================
+系统配置管理接口
+===================================
+
+职责：
+1. 系统配置读写（环境变量 / 运行时覆盖）
+2. 配置校验与热刷新
+3. Web 设置页持久化
+"""
 
 from __future__ import annotations
 
 import logging
 import os
+import time
+from functools import lru_cache
+from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -46,6 +59,31 @@ from src.services.runtime_scheduler import RuntimeSchedulerService
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Schema metadata is constant for a deployed build (field definitions are
+# registered at import time). Caching the response for a short TTL avoids
+# rebuilding the schema dict on every settings page mount and does not
+# affect config_version optimistic concurrency (schema has no version).
+# See desktop-startup-perf L6.3.
+_SCHEMA_CACHE_TTL_SEC = 60.0
+_schema_cached_at: float = 0.0
+
+
+@lru_cache(maxsize=1)
+def _build_schema_cached() -> Dict[str, Any]:
+    from src.core.config_registry import build_schema_response
+
+    return build_schema_response()
+
+
+def _get_schema_with_ttl() -> Dict[str, Any]:
+    """Return schema payload, rebuilding at most once per TTL window."""
+    global _schema_cached_at
+    now = time.monotonic()
+    if now - _schema_cached_at >= _SCHEMA_CACHE_TTL_SEC:
+        _build_schema_cached.cache_clear()
+        _schema_cached_at = now
+    return _build_schema_cached()
 
 
 @router.get(
@@ -714,7 +752,7 @@ def get_system_config_schema(
 ) -> SystemConfigSchemaResponse:
     """Return schema metadata for system configuration fields."""
     try:
-        payload = service.get_schema()
+        payload = _get_schema_with_ttl()
         return SystemConfigSchemaResponse.model_validate(payload)
     except Exception as exc:
         logger.error("Failed to load system configuration schema: %s", exc, exc_info=True)

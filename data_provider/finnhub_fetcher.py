@@ -25,6 +25,7 @@ _FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
 
 
 class FinnhubFetcher(BaseFetcher):
+    """Finnhub 美股实时与日线数据 fetcher（需 FINNHUB_API_KEY）。"""
     name = "FinnhubFetcher"
     priority = 2
 

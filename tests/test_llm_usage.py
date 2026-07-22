@@ -19,6 +19,7 @@ from sqlalchemy.exc import OperationalError
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from tests.conftest import safe_cleanup_temp_dir
 from tests.litellm_stub import ensure_litellm_stub, remove_litellm_stub
 
 remove_litellm_stub()
@@ -1811,8 +1812,9 @@ class TestLLMUsageMigration(unittest.TestCase):
         )
 
     def test_existing_sqlite_table_gets_missing_columns_idempotently(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "legacy.sqlite"
+        tmpdir = tempfile.TemporaryDirectory()
+        try:
+            db_path = Path(tmpdir.name) / "legacy.sqlite"
             self._create_legacy_usage_db(db_path)
 
             DatabaseManager.reset_instance()
@@ -1820,10 +1822,14 @@ class TestLLMUsageMigration(unittest.TestCase):
             db._ensure_llm_usage_telemetry_columns()
 
             self._assert_all_telemetry_columns(db_path)
+        finally:
+            DatabaseManager.reset_instance()
+            safe_cleanup_temp_dir(tmpdir)
 
     def test_existing_sqlite_table_gets_partial_missing_columns(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "legacy.sqlite"
+        tmpdir = tempfile.TemporaryDirectory()
+        try:
+            db_path = Path(tmpdir.name) / "legacy.sqlite"
             self._create_legacy_usage_db(
                 db_path,
                 telemetry_columns=(
@@ -1837,10 +1843,14 @@ class TestLLMUsageMigration(unittest.TestCase):
             DatabaseManager(db_url=f"sqlite:///{db_path}")
 
             self._assert_all_telemetry_columns(db_path)
+        finally:
+            DatabaseManager.reset_instance()
+            safe_cleanup_temp_dir(tmpdir)
 
     def test_existing_sqlite_table_with_all_telemetry_columns_is_noop(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "legacy.sqlite"
+        tmpdir = tempfile.TemporaryDirectory()
+        try:
+            db_path = Path(tmpdir.name) / "legacy.sqlite"
             self._create_legacy_usage_db(
                 db_path,
                 telemetry_columns=tuple(_LLM_USAGE_TELEMETRY_COLUMN_SQL),
@@ -1850,10 +1860,14 @@ class TestLLMUsageMigration(unittest.TestCase):
             DatabaseManager(db_url=f"sqlite:///{db_path}")
 
             self._assert_all_telemetry_columns(db_path)
+        finally:
+            DatabaseManager.reset_instance()
+            safe_cleanup_temp_dir(tmpdir)
 
     def test_existing_sqlite_table_ignores_concurrent_duplicate_column(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "legacy.sqlite"
+        tmpdir = tempfile.TemporaryDirectory()
+        try:
+            db_path = Path(tmpdir.name) / "legacy.sqlite"
             self._create_legacy_usage_db(db_path)
 
             original_exec_driver_sql = Connection.exec_driver_sql
@@ -1894,10 +1908,14 @@ class TestLLMUsageMigration(unittest.TestCase):
 
             self.assertTrue(race_fired["value"])
             self._assert_all_telemetry_columns(db_path)
+        finally:
+            DatabaseManager.reset_instance()
+            safe_cleanup_temp_dir(tmpdir)
 
     def test_existing_sqlite_table_retries_locked_column_backfill(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "legacy.sqlite"
+        tmpdir = tempfile.TemporaryDirectory()
+        try:
+            db_path = Path(tmpdir.name) / "legacy.sqlite"
             self._create_legacy_usage_db(db_path)
 
             original_exec_driver_sql = Connection.exec_driver_sql
@@ -1937,6 +1955,9 @@ class TestLLMUsageMigration(unittest.TestCase):
             ]
             self.assertEqual(len(storage_retry_sleeps), 1)
             self._assert_all_telemetry_columns(db_path)
+        finally:
+            DatabaseManager.reset_instance()
+            safe_cleanup_temp_dir(tmpdir)
 
 
 if __name__ == "__main__":

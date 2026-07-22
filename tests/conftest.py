@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import gc
+import shutil
 import time
 import threading
 from collections.abc import Awaitable, Callable
@@ -249,3 +251,35 @@ class _ThreadlessTestClient:
 
 fastapi.testclient.TestClient = _ThreadlessTestClient
 starlette.testclient.TestClient = _ThreadlessTestClient
+
+
+def safe_cleanup_temp_dir(temp_dir, *, max_retries: int = 3, base_delay: float = 0.05) -> None:
+    """Safely cleanup a TemporaryDirectory, tolerating Windows file lock errors.
+
+    On Windows, SQLAlchemy's engine.dispose() may not immediately release SQLite
+    file handles, causing TemporaryDirectory.cleanup() to raise PermissionError
+    [WinError 32]. This helper retries cleanup with exponential backoff, and
+    falls back to shutil.rmtree(ignore_errors=True) on persistent failure.
+
+    Args:
+        temp_dir: TemporaryDirectory instance to cleanup.
+        max_retries: Maximum number of cleanup attempts before fallback.
+        base_delay: Initial delay between retries in seconds (doubles each retry).
+    """
+    delay = base_delay
+    for attempt in range(max_retries):
+        try:
+            temp_dir.cleanup()
+            return
+        except PermissionError:
+            # Windows 文件句柄延迟释放，强制垃圾回收后重试
+            gc.collect()
+            if attempt < max_retries - 1:
+                time.sleep(delay)
+                delay *= 2
+            else:
+                # 最后一次重试失败，使用 ignore_errors 强制清理
+                shutil.rmtree(temp_dir.name, ignore_errors=True)
+        except Exception:
+            shutil.rmtree(temp_dir.name, ignore_errors=True)
+            return

@@ -16,6 +16,8 @@ from tests.litellm_stub import ensure_litellm_stub
 
 ensure_litellm_stub()
 
+from tests.conftest import safe_cleanup_temp_dir
+
 from api.middlewares.auth import add_auth_middleware
 from api.middlewares.error_handler import add_error_handlers
 from api.v1.endpoints import system_config
@@ -60,8 +62,8 @@ class SystemConfigApiTestCase(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
-        self._orig_dsa_desktop_mode = os.environ.get("DSA_DESKTOP_MODE")
-        self._orig_database_path = os.environ.get("DATABASE_PATH")
+        # 保存 os.environ 快照，tearDown 中恢复，避免 setup_env(override=True) 污染后续测试。
+        self._saved_environ = dict(os.environ)
         os.environ["ENV_FILE"] = str(self.env_path)
         os.environ["DATABASE_PATH"] = str(Path(self.temp_dir.name) / "system_config_api_test.db")
         Config.reset_instance()
@@ -73,17 +75,17 @@ class SystemConfigApiTestCase(unittest.TestCase):
 
     def tearDown(self) -> None:
         Config.reset_instance()
+        # 重置 _reload_runtime_singletons 触发的全局单例（fetcher_manager / search_service），
+        # 避免上一个测试 update(reload_now=True) 残留的单例污染后续测试。
+        try:
+            SystemConfigService._reload_runtime_singletons()
+        except Exception:
+            pass
         self._verify_session_patch.stop()
-        os.environ.pop("ENV_FILE", None)
-        if self._orig_dsa_desktop_mode is None:
-            os.environ.pop("DSA_DESKTOP_MODE", None)
-        else:
-            os.environ["DSA_DESKTOP_MODE"] = self._orig_dsa_desktop_mode
-        if self._orig_database_path is None:
-            os.environ.pop("DATABASE_PATH", None)
-        else:
-            os.environ["DATABASE_PATH"] = self._orig_database_path
-        self.temp_dir.cleanup()
+        # 恢复 os.environ，移除 setup_env(override=True) 写入的 .env 变量。
+        os.environ.clear()
+        os.environ.update(self._saved_environ)
+        safe_cleanup_temp_dir(self.temp_dir)
 
     @staticmethod
     def _build_request(cookies: dict[str, str] | None = None) -> SimpleNamespace:

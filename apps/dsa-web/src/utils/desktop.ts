@@ -25,6 +25,24 @@ interface DesktopBridge {
   backendUrl?: string;
   windowControls?: DesktopWindowControls;
   onStartupProgress?: (listener: (payload: unknown) => void) => () => void;
+  /**
+   * L2.4b：后端就绪事件监听（main → renderer）。
+   * main.js 在 waitForHealth 成功后发出 'dsa:backend-ready' 事件，
+   * BackendGate 收到后切到 ready 状态并渲染 App 内容。
+   */
+  onBackendReady?: (listener: (payload: unknown) => void) => () => void;
+  /**
+   * L2.4b：后端失败事件监听（main → renderer）。
+   * main.js 在 waitForHealth 抛错时发出 'dsa:backend-error' 事件，
+   * BackendGate 收到后切到 error 状态显示错误提示。
+   */
+  onBackendError?: (listener: (payload: unknown) => void) => () => void;
+  /**
+   * L2.4b：主动轮询后端 health（兜底机制）。
+   * IPC 事件丢失时 BackendGate 用此方法每 500ms 轮询 /api/v1/health，
+   * 避免永久卡在 connecting 状态。
+   */
+  pollBackendHealth?: (backendUrl: string) => Promise<boolean>;
   [key: string]: unknown;
 }
 
@@ -34,6 +52,13 @@ function readDesktopBridge(): DesktopBridge | undefined {
 }
 
 const desktopBridge = readDesktopBridge();
+
+/**
+ * 桌面端 bridge 对象本身（preload 注入）。
+ * L2.4c：BackendGate 需要直接访问 onBackendReady/onBackendError/pollBackendHealth，
+ * 而非通过预导出的单个字段，因为后端 ready/error 事件是启动阶段一次性消费的。
+ */
+export const desktopBridgeInstance: DesktopBridge | undefined = desktopBridge;
 
 /** 是否运行在 Electron 桌面端（preload 已注入 windowControls） */
 export const isDesktopRuntime = Boolean(desktopBridge?.windowControls);

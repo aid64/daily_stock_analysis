@@ -209,6 +209,24 @@ test('buildBackendEnvironment keeps non-macOS PATH unchanged', (t) => {
   assert.equal(env.PATH, '/custom/bin:/usr/bin');
 });
 
+test('buildBackendEnvironment injects startup acceleration env vars', (t) => {
+  // 启动加速 env：禁用 LiteLLM 远程 model cost map fetch、跳过 .pyc 写入与 user site-packages 扫描、
+  // 桌面端前端已打包到 static/ 跳过运行时 npm build 探测。详见 docs/CHANGELOG.md [Unreleased]。
+  const mainModule = loadMainModule(t, { platform: 'linux' });
+
+  const env = mainModule.buildBackendEnvironment({
+    envFile: '/tmp/dsa/.env',
+    dbPath: '/tmp/dsa/data.db',
+    logDir: '/tmp/dsa/logs',
+    sourceEnv: { PATH: '/usr/bin' },
+  });
+
+  assert.equal(env.LITELLM_LOCAL_MODEL_COST_MAP, 'True');
+  assert.equal(env.PYTHONDONTWRITEBYTECODE, '1');
+  assert.equal(env.PYTHONNOUSERSITE, '1');
+  assert.equal(env.WEBUI_AUTO_BUILD, 'false');
+});
+
 test('buildBackendEnvironment pins WEBUI_PORT to the Electron-selected backend port', (t) => {
   const mainModule = loadMainModule(t, { platform: 'win32' });
 

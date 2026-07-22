@@ -163,14 +163,28 @@ $pyInstallerArgs = @(
   '--onedir',
   '--noconfirm',
   '--noconsole',
-  '--add-data', 'static;static',
   '--add-data', 'strategies;strategies',
   '--collect-data', 'litellm',
   '--collect-data', 'tiktoken',
   '--collect-data', 'akshare',
   '--collect-all', 'alphasift',
-  '--collect-all', 'futu'
+  '--collect-all', 'futu',
+  '--collect-all', 'nacl',
+  '--optimize', '2',
+  '--exclude-module', 'playwright',
+  '--exclude-module', 'playwright._impl',
+  '--exclude-module', 'hf_xet',
+  '--exclude-module', 'discord',
+  '--exclude-module', 'pytest',
+  '--exclude-module', 'IPython',
+  '--exclude-module', 'jupyter'
 )
+# Web/CLI 模式需要 static/ 提供 SPA（PyInstaller --add-data static;static）；
+# 桌面模式 L2.4a 后通过 Electron loadFile 加载 renderer/web/，后端不再需要 _internal/static/，
+# 去除可省 ~5.3MB 桌面安装包体积。DSA_DESKTOP_BUILD 由 scripts/build-all.ps1 在调用前注入。
+if ($env:DSA_DESKTOP_BUILD -ne 'true') {
+  $pyInstallerArgs += @('--add-data', 'static;static')
+}
 $pyInstallerArgs += $hiddenImportArgs
 $pyInstallerArgs += 'main.py'
 
@@ -193,7 +207,7 @@ if (-not (Test-Path $packagedEntry)) {
 }
 $previousProbe = $env:DSA_PACKAGED_IMPORT_PROBE
 try {
-  foreach ($module in @('alphasift.dsa_adapter', 'futu', 'orjson')) {
+  foreach ($module in @('alphasift.dsa_adapter', 'futu', 'orjson', 'litellm', 'nacl.signing')) {
     $env:DSA_PACKAGED_IMPORT_PROBE = $module
     $probeProcess = Start-Process -FilePath $packagedEntry -Wait -PassThru
     if ($probeProcess.ExitCode -ne 0) {
@@ -227,6 +241,8 @@ if (Test-Path $packagedStatic) {
   if ($LASTEXITCODE -ne 0) {
     throw "Static asset sanity check failed for packaged $packagedStatic. See GitHub #1064."
   }
+} elseif ($env:DSA_DESKTOP_BUILD -eq 'true') {
+  Write-Host "DSA_DESKTOP_BUILD=true: static/ intentionally omitted from backend _internal; frontend is bundled via apps/dsa-desktop/renderer/web/."
 } else {
   Write-Warning "Could not locate packaged static directory under dist\backend\stock_analysis; skipping post-package check."
 }

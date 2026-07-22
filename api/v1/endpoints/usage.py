@@ -1,5 +1,14 @@
 # -*- coding: utf-8 -*-
-"""LLM usage tracking endpoint."""
+"""
+===================================
+LLM 用量追踪接口
+===================================
+
+职责：
+1. LLM API 调用次数与 Token 消耗统计
+2. 按模型 / 渠道 / 时间维度聚合
+3. 用量遥测 HMAC 校验
+"""
 
 from __future__ import annotations
 

@@ -8,13 +8,39 @@ interface consumed by the AgentExecutor, via LiteLLM.
 
 import json
 import logging
+import sys
 import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-import litellm
-from litellm import Router
+# 启动加速：顶层不 import litellm，改为 PEP 562 module __getattr__ 首次访问时加载。
+# 原因：litellm 在 import 时会同步从 GitHub 拉取 model cost map（DNS 失败 10s timeout），
+# 这会让 `from api.app import app` 触发的 FastAPI app 创建被卡住 ~10s。
+# 改造后只有真正调用 LLM 时才加载 litellm，FastAPI app 创建路径不再触发远程 fetch。
+# 文件内 `litellm.xxx` 通过函数级 `import litellm` 解析（litellm 模块对象共享，patch 生效）。
+# `Router(...)` 通过模块级 __getattr__ 解析（首次访问触发 import 并缓存到 globals），
+# 这样 @patch("src.agent.llm_adapter.Router") 才能生效；不要在函数内 `from litellm import Router`，
+# 否则局部 binding 会绕过模块属性，导致测试 patch 失效。
+# 注意：不要在顶层写 `litellm = None` / `Router = None`，否则 globals 命中后不会触发 __getattr__。
+# 关键限制：PEP 562 __getattr__ 只对 *模块属性访问*（如 `src.agent.llm_adapter.Router`、`from src.agent.llm_adapter import Router`）
+# 生效，对 *模块内部的裸 name lookup*（如函数体内直接写 `Router(...)`）不生效——后者走 LOAD_GLOBAL，
+# 只查 globals() 和 builtins，查不到就抛 NameError。因此 _init_litellm() 内部必须通过
+# `sys.modules[__name__].Router` 显式做模块属性访问，才能触发 __getattr__ 并尊重 @patch 写入的 __dict__。
+
+
+def __getattr__(name):
+    """PEP 562 lazy loader：首次访问 litellm / Router 时才触发 import。"""
+    if name == "litellm":
+        import litellm as _litellm  # type: ignore[import-not-found]
+        globals()["litellm"] = _litellm  # 缓存到 globals，后续访问不再走 __getattr__
+        return _litellm
+    if name == "Router":
+        from litellm import Router as _Router  # type: ignore[import-not-found]
+        globals()["Router"] = _Router
+        return _Router
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 from src.config import (
     extra_litellm_params,
@@ -56,6 +82,7 @@ logger = logging.getLogger(__name__)
 
 def _resolve_litellm_exception(name: str) -> type[BaseException]:
     """Return a catchable LiteLLM exception class even in stubbed test environments."""
+    import litellm  # lazy: avoid triggering LiteLLM remote cost-map fetch on FastAPI app create
     exc = getattr(litellm, name, None)
     if isinstance(exc, type) and issubclass(exc, BaseException):
         return exc
@@ -359,6 +386,7 @@ class LLMToolAdapter:
 
         This prevents cost calculation errors for MiniMax-M2.7 and similar models.
         """
+        import litellm  # lazy: avoid triggering LiteLLM remote cost-map fetch on FastAPI app create
         for model_name, pricing in _CUSTOM_MODEL_PRICING.items():
             try:
                 litellm.register_model(
@@ -377,6 +405,14 @@ class LLMToolAdapter:
 
     def _init_litellm(self) -> None:
         """Initialize litellm Router from channels / YAML / legacy keys."""
+        # Router 通过模块级 PEP 562 __getattr__ 解析（首次访问时 import），
+        # 这样 @patch("src.agent.llm_adapter.Router") 才能生效；不要在函数内 `from litellm import Router`，
+        # 否则局部 binding 会绕过模块属性，导致测试 patch 失效。
+        # 注意：PEP 562 __getattr__ 只对模块属性访问生效，对函数体内的裸 `Router(...)` name lookup
+        # 不生效（会抛 NameError）。这里通过 sys.modules[__name__].Router 显式做模块属性访问，
+        # 首次调用时触发 __getattr__ import 并缓存到 globals；@patch 应用时直接读取 __dict__ 中的 mock。
+        Router = sys.modules[__name__].Router
+
         config = self._config
         self._legacy_router_model_list = []
         try:
@@ -686,6 +722,7 @@ class LLMToolAdapter:
         timeout: Optional[float] = None,
     ) -> LLMResponse:
         """Call a specific litellm model with OpenAI-format messages and tools."""
+        import litellm  # lazy: avoid triggering LiteLLM remote cost-map fetch on FastAPI app create
         openai_messages = self._convert_messages(messages, target_model=model)
 
         # Use short model name (without provider prefix) for thinking model lookup
@@ -953,6 +990,7 @@ def register_fallback_model_pricing(models: Iterable[str]) -> None:
     """Register zero-cost pricing for unknown OpenAI-compatible models."""
     if not models:
         return
+    import litellm  # lazy: avoid triggering LiteLLM remote cost-map fetch on FastAPI app create
     register = getattr(litellm, "register_model", None)
     if not callable(register):
         return

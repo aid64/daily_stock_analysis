@@ -22,7 +22,7 @@ from typing import Optional, Dict, Any, List, Union
 
 from src.enums import ReportType
 from src.storage import get_db
-from bot.models import BotMessage
+from src.schemas.bot_messages import BotMessage
 from src.services.stock_code_utils import resolve_index_stock_code_for_analysis
 
 logger = logging.getLogger(__name__)

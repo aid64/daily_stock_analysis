@@ -24,6 +24,7 @@ import src.auth as auth
 from api.middlewares.auth import AuthMiddleware
 from api.v1.endpoints import auth as auth_endpoint
 from src.config import Config
+from tests.conftest import safe_cleanup_temp_dir
 
 
 def _reset_auth_globals() -> None:
@@ -61,7 +62,7 @@ class AuthApiTestCase(unittest.TestCase):
         Config.reset_instance()
         os.environ.pop("ENV_FILE", None)
         os.environ.pop("DATABASE_PATH", None)
-        self.temp_dir.cleanup()
+        safe_cleanup_temp_dir(self.temp_dir)
 
     def _read_auth_enabled_from_env(self) -> bool:
         values = dotenv_values(self.env_path)

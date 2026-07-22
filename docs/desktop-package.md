@@ -223,6 +223,13 @@ bash scripts/build-backend-macos.sh
 
 该脚本会在安装依赖后执行 `--collect-all alphasift`、`--collect-all futu` 和 `--collect-data akshare`。构建完成后会通过冻结可执行文件校验 `alphasift.dsa_adapter`、`futu`、`orjson` 均可导入，并确认 AkShare 的 `file_fold/calendar.json` 已进入冻结产物，避免发行包在热点题材、Futu 持仓导入或日线增强路径中因缺少依赖/package data 降级。PR 主 CI 在 `requirements.txt`、Futu broker、Desktop 打包入口或相关 workflow 变化时，会分别运行 `desktop-futu-package-windows` 与 `desktop-futu-package-macos` 阻断检查。
 
+**桌面端打包 vs Web/CLI 打包**：脚本通过 `DSA_DESKTOP_BUILD` 环境变量区分两种打包模式：
+
+- `DSA_DESKTOP_BUILD=true`（仅 `scripts/build-all.ps1` 自动注入）：跳过 `--add-data static;static`，后端 `_internal` 不含前端静态资源，前端由 Electron `loadFile` 加载 `apps/dsa-desktop/renderer/web/`，减少桌面安装包体积约 5.3MB。
+- 未设置 / 非 `true`（直接调用 `build-backend.ps1` 或 `build-backend-macos.sh`）：保留 `--add-data static;static`，后端可独立提供 SPA，用于 Web/CLI 部署或本地调试。
+
+两个脚本均会同步剔除 `playwright` / `hf_xet` / `discord` / `pytest` / `IPython` / `jupyter` 未使用模块，启用 `--optimize 2`，并通过 `--collect-all nacl` 显式收集 PyNaCl 全部子模块（避免 `--exclude-module discord` 误删 `nacl.signing` 间接 import 链）。打包后会运行 4 个 import 探针（`alphasift.dsa_adapter` / `orjson` / `litellm` / `nacl.signing`）验证运行时关键模块可加载。
+
 3) 打包 Electron 桌面应用
 
 ```bash
@@ -312,7 +319,7 @@ win-unpacked/
 
 ### 后端启动报 ModuleNotFoundError
 
-PyInstaller 打包时缺少模块，需要在 Windows 与 macOS 后端构建脚本中同步增加 `--hidden-import`，并对冻结产物执行运行时导入校验。当前脚本会显式安装、冻结并探测 LiteLLM 运行路径需要的 `orjson`；若日志包含 `No module named 'orjson'`，请升级到修复版本并重新构建，不能只在已发布目录中手工安装依赖。
+PyInstaller 打包时缺少模块，需要在 Windows 与 macOS 后端构建脚本中同步增加 `--hidden-import`，并对冻结产物执行运行时导入校验。当前脚本会显式安装、冻结并探测 LiteLLM 运行路径需要的 `orjson`、`alphasift.dsa_adapter`、`litellm` 以及 `nacl.signing` 四个关键模块；若日志包含 `No module named 'orjson'`、`No module named 'nacl.signing'` 等报错，请升级到修复版本并重新构建，不能只在已发布目录中手工安装依赖。注意：当 `--exclude-module discord` 移除 `discord.py` 间接 import 链后，PyInstaller `hook-nacl.py` 默认仅收集 `_sodium.pyd`，必须通过 `--collect-all nacl` 显式补齐 `nacl.signing` 等 Python 子模块，否则桌面端启动会报 `No module named 'nacl.signing'`。
 
 如果日志提示缺少 `akshare/file_fold/calendar.json`，说明后端冻结产物没有完整收集 AkShare package data。请使用仓库当前的 `scripts/build-backend.ps1` 或 `scripts/build-backend-macos.sh` 重新构建；脚本会在生成桌面包前检查该文件，缺失时直接终止构建。
 

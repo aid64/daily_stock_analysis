@@ -473,6 +473,7 @@ class RunDiagnosticContext:
             logger.warning("run-flow event sink failed: %s", exc)
 
     def snapshot(self) -> Dict[str, Any]:
+        """返回当前 run-flow 诊断上下文的可序列化快照（provider/llm/notification/history 四类 run）。"""
         return {
             "trace_id": self.trace_id,
             "task_id": self.task_id,

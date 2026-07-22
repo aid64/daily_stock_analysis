@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from tests.litellm_stub import ensure_litellm_stub
+from tests.conftest import safe_cleanup_temp_dir
 
 ensure_litellm_stub()
 
@@ -83,7 +84,7 @@ class MainScheduleModeTestCase(unittest.TestCase):
             os.environ.pop(key, None)
         for key, value in _MAIN_IMPORT_ENV_OVERRIDES.items():
             os.environ[key] = value
-        self.temp_dir.cleanup()
+        safe_cleanup_temp_dir(self.temp_dir)
 
     def _make_args(self, **overrides):
         defaults = {

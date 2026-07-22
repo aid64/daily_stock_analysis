@@ -1,5 +1,5 @@
 import type React from 'react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, ChevronDown, CircleAlert, CircleDashed, Clock, Play, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { useAuth, useSystemConfig } from '../hooks';
 import { useUiLanguage } from '../contexts/UiLanguageContext';
@@ -10,12 +10,7 @@ import { systemConfigApi } from '../api/systemConfig';
 import { ApiErrorAlert, Button, ConfirmDialog, EmptyState } from '../components/common';
 import {
   AgentBackendStatusPanel,
-  AuthSettingsCard,
-  ChangePasswordCard,
   GenerationBackendStatusPanel,
-  IntelligentImport,
-  LLMChannelEditor,
-  NotificationTestPanel,
   SettingsCategoryNav,
   SettingsAlert,
   SettingsField,
@@ -36,6 +31,27 @@ import type {
   SystemConfigUpdateItem,
 } from '../types/systemConfig';
 import type { UiLanguage, UiTextKey } from '../i18n/uiText';
+
+// Heavy settings panels are lazy-loaded so they only enter the bundle when
+// the user actually navigates to that settings tab. See desktop-startup-perf L7.1.
+const ApiTestPanel = lazy(() =>
+  import('../components/settings/ApiTestPanel').then((m) => ({ default: m.ApiTestPanel })),
+);
+const AuthSettingsCard = lazy(() =>
+  import('../components/settings/AuthSettingsCard').then((m) => ({ default: m.AuthSettingsCard })),
+);
+const ChangePasswordCard = lazy(() =>
+  import('../components/settings/ChangePasswordCard').then((m) => ({ default: m.ChangePasswordCard })),
+);
+const IntelligentImport = lazy(() =>
+  import('../components/settings/IntelligentImport').then((m) => ({ default: m.IntelligentImport })),
+);
+const LLMChannelEditor = lazy(() =>
+  import('../components/settings/LLMChannelEditor').then((m) => ({ default: m.LLMChannelEditor })),
+);
+const NotificationTestPanel = lazy(() =>
+  import('../components/settings/NotificationTestPanel').then((m) => ({ default: m.NotificationTestPanel })),
+);
 
 type DesktopWindow = Window & {
   dsaDesktop?: {
@@ -1613,7 +1629,11 @@ const SettingsPage: React.FC = () => {
                 ) : null}
               </SettingsSectionCard>
             ) : null}
-            {activeCategory === 'system' ? <AuthSettingsCard /> : null}
+            {activeCategory === 'system' ? (
+              <Suspense fallback={<SettingsLoading />}>
+                <AuthSettingsCard />
+              </Suspense>
+            ) : null}
             {activeCategory === 'system' ? (
               <SchedulerSettingsCard
                 items={rawActiveItems}
@@ -1781,23 +1801,30 @@ const SettingsPage: React.FC = () => {
                 </div>
               </SettingsSectionCard>
             ) : null}
+            {activeCategory === 'system' ? (
+              <Suspense fallback={<SettingsLoading />}>
+                <ApiTestPanel />
+              </Suspense>
+            ) : null}
             {activeCategory === 'base' ? (
               <SettingsSectionCard
                 title={t('settings.intelligentImport')}
                 description={t('settings.intelligentImportDescription')}
               >
-                <IntelligentImport
-                  stockListValue={
-                    (activeItems.find((i) => i.key === 'STOCK_LIST')?.value as string) ?? ''
-                  }
-                  configVersion={configVersion}
-                  maskToken={maskToken}
-                  onMerged={async () => {
-                    await refreshAfterExternalSave(['STOCK_LIST']);
-                    void refreshSetupStatus();
-                  }}
-                  disabled={isSaving || isLoading}
-                />
+                <Suspense fallback={<SettingsLoading />}>
+                  <IntelligentImport
+                    stockListValue={
+                      (activeItems.find((i) => i.key === 'STOCK_LIST')?.value as string) ?? ''
+                    }
+                    configVersion={configVersion}
+                    maskToken={maskToken}
+                    onMerged={async () => {
+                      await refreshAfterExternalSave(['STOCK_LIST']);
+                      void refreshSetupStatus();
+                    }}
+                    disabled={isSaving || isLoading}
+                  />
+                </Suspense>
               </SettingsSectionCard>
             ) : null}
             {activeCategory === 'ai_model' ? (
@@ -1810,22 +1837,26 @@ const SettingsPage: React.FC = () => {
                   maskToken={maskToken}
                   disabled={isSaving || isLoading}
                 />
-                <LLMChannelEditor
-                  items={rawActiveItems}
-                  configVersion={configVersion}
-                  maskToken={maskToken}
-                  onDraftItemsChange={handleLlmChannelDraftItemsChange}
-                  onSaved={async (updatedItems) => {
-                    setLlmChannelDraftItems([]);
-                    await refreshAfterExternalSave(updatedItems.map((item) => item.key));
-                    void refreshSetupStatus();
-                  }}
-                  disabled={isSaving || isLoading}
-                />
+                <Suspense fallback={<SettingsLoading />}>
+                  <LLMChannelEditor
+                    items={rawActiveItems}
+                    configVersion={configVersion}
+                    maskToken={maskToken}
+                    onDraftItemsChange={handleLlmChannelDraftItemsChange}
+                    onSaved={async (updatedItems) => {
+                      setLlmChannelDraftItems([]);
+                      await refreshAfterExternalSave(updatedItems.map((item) => item.key));
+                      void refreshSetupStatus();
+                    }}
+                    disabled={isSaving || isLoading}
+                  />
+                </Suspense>
               </SettingsSectionCard>
             ) : null}
             {activeCategory === 'system' && passwordChangeable ? (
-              <ChangePasswordCard />
+              <Suspense fallback={<SettingsLoading />}>
+                <ChangePasswordCard />
+              </Suspense>
             ) : null}
             {activeCategory === 'notification' ? (
               <SettingsPanelErrorBoundary
@@ -1833,11 +1864,13 @@ const SettingsPage: React.FC = () => {
                 resetKey={`notification-test:${configVersion}`}
                 diagnosticHint={settingsPanelDiagnosticHint}
               >
-                <NotificationTestPanel
-                  items={rawActiveItems.map((item) => ({ key: item.key, value: String(item.value ?? '') }))}
-                  maskToken={maskToken}
-                  disabled={isSaving || isLoading}
-                />
+                <Suspense fallback={<SettingsLoading />}>
+                  <NotificationTestPanel
+                    items={rawActiveItems.map((item) => ({ key: item.key, value: String(item.value ?? '') }))}
+                    maskToken={maskToken}
+                    disabled={isSaving || isLoading}
+                  />
+                </Suspense>
               </SettingsPanelErrorBoundary>
             ) : null}
             {activeCategory === 'agent' ? (

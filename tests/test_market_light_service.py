@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
+from tests.conftest import safe_cleanup_temp_dir
 from src.config import Config
 from src.core.market_review import MARKET_REVIEW_HISTORY_CODE, MARKET_REVIEW_REPORT_TYPE
 from src.market_analyzer import MarketIndex, MarketOverview
@@ -55,7 +56,7 @@ class MarketLightServiceTestCase(unittest.TestCase):
         DatabaseManager.reset_instance()
         Config.reset_instance()
         os.environ.pop("DATABASE_PATH", None)
-        self.temp_dir.cleanup()
+        safe_cleanup_temp_dir(self.temp_dir)
 
     def test_normalize_market_region_rejects_unknown_regions(self) -> None:
         for region in ("global", "tw"):

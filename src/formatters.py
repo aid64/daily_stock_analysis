@@ -10,7 +10,9 @@
 import re
 from typing import Callable, List, Optional
 
-import markdown2
+# markdown2 is deferred to `markdown_to_html_document()` to keep this module
+# cheap to import — it is pulled in by every notification sender and `src.md2img`,
+# none of which need markdown2 at import time. See desktop-startup-perf L5.1.
 
 TRUNCATION_SUFFIX = "\n\n...(本段内容过长已截断)"
 PAGE_MARKER_PREFIX = f"\n\n📄"
@@ -110,6 +112,8 @@ def markdown_to_html_document(markdown_text: str) -> str:
     Returns:
         Full HTML document string with DOCTYPE, head, and body.
     """
+    import markdown2
+
     html_content = markdown2.markdown(
         markdown_text,
         extras=["tables", "fenced-code-blocks", "break-on-newline", "cuddled-lists"],

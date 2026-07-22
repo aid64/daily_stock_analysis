@@ -837,6 +837,13 @@ class Config:
     newsnow_base_url: str = "https://newsnow.busiyi.world"  # NewsNow HTTP API base URL (数据源侧，不影响 LLM/provider base URL)
     bias_threshold: float = 5.0  # 乖离率阈值（%），超过此值提示不追高
 
+    # === 数据保留策略（自动清理过期数据，0=永不清理）===
+    llm_usage_retention_days: int = 90  # LLM 调用记录保留天数
+    decision_signal_retention_days: int = 180  # 决策信号保留天数
+    analysis_history_retention_days: int = 90  # 分析历史保留天数
+    report_retention_days: int = 30  # 报告文件（reports/*.md）保留天数
+    data_purge_interval_seconds: int = 86400  # 自动清理任务执行间隔（秒，默认 24 小时）
+
     # === Agent 模式配置 ===
     agent_backend: str = "auto"
     agent_generation_backend: str = AUTO_AGENT_BACKEND_ID
@@ -987,6 +994,11 @@ class Config:
     discord_max_words: int = 2000  # Discord 限制 2000 字，默认 2000 字
     wechat_msg_type: str = "markdown"  # 企业微信消息类型，默认 markdown 类型
 
+    # 企业微信分批推送配置（优化用户体验，避免单条消息过长）
+    wechat_batch_mode: bool = False  # 是否启用分批推送（汇总+逐条个股）
+    wechat_batch_delay_sec: float = 1.0  # 分批推送时消息间隔（秒）
+    wechat_summary_image_enabled: bool = False  # 是否生成汇总图片
+
     # Markdown 转图片（Issue #289）：对不支持 Markdown 的渠道以图片发送
     markdown_to_image_channels: List[str] = field(default_factory=list)  # 逗号分隔：telegram,wechat,custom,email
     markdown_to_image_max_chars: int = 15000  # 超过此长度不转换，避免超大图片
@@ -1045,6 +1057,15 @@ class Config:
     enable_chip_distribution: bool = True
     # 东财接口补丁开关
     enable_eastmoney_patch: bool = False
+    # A 股资金面数据源开关（直接对接 EastMoney push2 JSON API，无需 token）
+    # 启用后由 MoneyFlowFetcher 担任主路径，AkshareFundamentalAdapter 作为兜底
+    moneyflow_api_enabled: bool = True
+    # 资金面数据源单次请求超时秒数（建议 3-5s，覆盖个股即时 + 10 日 kline + 行业 + 北向共 4 个子请求）
+    moneyflow_api_timeout_seconds: float = 4.0
+    # 资金面 3 个子方法（个股 / 行业 / 北向）是否并行执行
+    # 默认 False：实测 EastMoney push2 在并发同源请求时易触发 ConnectionError 限流
+    # 启用 eastmoney_patch 且网络稳定时可设为 true 降低总耗时（sum → max）
+    moneyflow_parallel_enabled: bool = False
     # 实时行情数据源优先级（逗号分隔）
     # 推荐顺序：tencent > akshare_sina > efinance > akshare_em > tushare
     # - tencent: 腾讯财经，有量比/换手率/市盈率等，单股查询稳定（推荐）
@@ -1566,6 +1587,11 @@ class Config:
             # 未显式配置时，根据消息类型选择默认字节数
             wechat_max_bytes = 2048 if wechat_msg_type_lower == 'text' else 4000
 
+        # 企业微信分批推送配置
+        wechat_batch_mode = os.getenv('WECHAT_BATCH_MODE', 'false').lower() in ('true', '1', 'yes')
+        wechat_batch_delay_sec = parse_env_float(os.getenv('WECHAT_BATCH_DELAY_SEC'), 1.0, field_name='WECHAT_BATCH_DELAY_SEC', minimum=0.1, maximum=10.0)
+        wechat_summary_image_enabled = os.getenv('WECHAT_SUMMARY_IMAGE_ENABLED', 'false').lower() in ('true', '1', 'yes')
+
         # Preserve historical semantics for startup flags: only an explicit
         # literal "true" enables immediate execution; empty strings stay False.
         legacy_run_immediately_env = cls._resolve_env_value(
@@ -1720,6 +1746,41 @@ class Config:
                 field_name='NEWS_INTEL_RETENTION_DAYS',
                 minimum=1,
                 maximum=365,
+            ),
+            llm_usage_retention_days=parse_env_int(
+                os.getenv('LLM_USAGE_RETENTION_DAYS'),
+                90,
+                field_name='LLM_USAGE_RETENTION_DAYS',
+                minimum=0,
+                maximum=3650,
+            ),
+            decision_signal_retention_days=parse_env_int(
+                os.getenv('DECISION_SIGNAL_RETENTION_DAYS'),
+                180,
+                field_name='DECISION_SIGNAL_RETENTION_DAYS',
+                minimum=0,
+                maximum=3650,
+            ),
+            analysis_history_retention_days=parse_env_int(
+                os.getenv('ANALYSIS_HISTORY_RETENTION_DAYS'),
+                90,
+                field_name='ANALYSIS_HISTORY_RETENTION_DAYS',
+                minimum=0,
+                maximum=3650,
+            ),
+            report_retention_days=parse_env_int(
+                os.getenv('REPORT_RETENTION_DAYS'),
+                30,
+                field_name='REPORT_RETENTION_DAYS',
+                minimum=0,
+                maximum=3650,
+            ),
+            data_purge_interval_seconds=parse_env_int(
+                os.getenv('DATA_PURGE_INTERVAL_SECONDS'),
+                86400,
+                field_name='DATA_PURGE_INTERVAL_SECONDS',
+                minimum=3600,
+                maximum=604800,
             ),
             news_intel_fetch_timeout_sec=parse_env_float(
                 os.getenv('NEWS_INTEL_FETCH_TIMEOUT_SEC'),
@@ -1915,6 +1976,9 @@ class Config:
             feishu_send_as_file=os.getenv('FEISHU_SEND_AS_FILE', '').lower() in ('true', '1', 'yes'),
             wechat_max_bytes=wechat_max_bytes,
             wechat_msg_type=wechat_msg_type_lower,
+            wechat_batch_mode=wechat_batch_mode,
+            wechat_batch_delay_sec=wechat_batch_delay_sec,
+            wechat_summary_image_enabled=wechat_summary_image_enabled,
             discord_max_words=parse_env_int(os.getenv('DISCORD_MAX_WORDS'), 2000, field_name='DISCORD_MAX_WORDS', minimum=1),
             markdown_to_image_channels=[
                 c.strip().lower()
@@ -2022,6 +2086,17 @@ class Config:
             enable_chip_distribution=os.getenv('ENABLE_CHIP_DISTRIBUTION', 'true').lower() == 'true',
             # 东财接口补丁开关
             enable_eastmoney_patch=os.getenv('ENABLE_EASTMONEY_PATCH', 'false').lower() == 'true',
+            moneyflow_api_enabled=os.getenv('MONEYFLOW_API_ENABLED', 'true').lower() == 'true',
+            moneyflow_api_timeout_seconds=parse_env_float(
+                os.getenv('MONEYFLOW_API_TIMEOUT_SECONDS'),
+                4.0,
+                field_name='MONEYFLOW_API_TIMEOUT_SECONDS',
+                minimum=1.0,
+                maximum=30.0,
+            ),
+            moneyflow_parallel_enabled=os.getenv(
+                'MONEYFLOW_PARALLEL_ENABLED', 'false'
+            ).lower() == 'true',
             # 实时行情数据源优先级：
             # - tencent: 腾讯财经，有量比/换手率/PE/PB等，单股查询稳定（推荐）
             # - akshare_sina: 新浪财经，基本行情稳定，但无量比

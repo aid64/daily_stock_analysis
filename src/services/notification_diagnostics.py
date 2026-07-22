@@ -73,6 +73,7 @@ class NotificationDiagnosticResult:
 
     @property
     def ok(self) -> bool:
+        """诊断是否通过（无 error 级别问题；warning/info 不影响）。"""
         return not self.errors
 
 

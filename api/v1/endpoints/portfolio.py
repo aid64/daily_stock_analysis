@@ -1,5 +1,15 @@
 # -*- coding: utf-8 -*-
-"""Portfolio endpoints (P0 core account + snapshot workflow)."""
+"""
+===================================
+投资组合管理接口
+===================================
+
+职责：
+1. 持仓账户与快照管理
+2. 风险敞口计算（集中度 / 回撤 / 止损）
+3. 多币种汇率更新与降级策略
+4. 组合导入 / 导出
+"""
 
 from __future__ import annotations
 

@@ -22,6 +22,7 @@ try:
 except ModuleNotFoundError:
     sys.modules["litellm"] = MagicMock()
 
+from tests.conftest import safe_cleanup_temp_dir
 import src.auth as auth
 from api.app import create_app
 from src.config import Config
@@ -75,7 +76,7 @@ class AlertApiTestCase(unittest.TestCase):
         Config.reset_instance()
         os.environ.pop("ENV_FILE", None)
         os.environ.pop("DATABASE_PATH", None)
-        self.temp_dir.cleanup()
+        safe_cleanup_temp_dir(self.temp_dir)
         _reset_auth_globals()
 
     def _create_rule(self, payload: dict | None = None) -> dict:

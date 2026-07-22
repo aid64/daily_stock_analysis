@@ -97,7 +97,7 @@ from src.core.trading_calendar import (
     is_market_open,
 )
 from data_provider.us_index_mapping import is_us_stock_code
-from bot.models import BotMessage
+from src.schemas.bot_messages import BotMessage
 
 
 logger = logging.getLogger(__name__)

@@ -14,13 +14,40 @@ import json
 import logging
 import math
 import re
+import sys
 import time
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, List, Tuple, Callable
 
-import litellm
+# L2.3a 续：顶层不 import litellm，改为 PEP 562 module __getattr__ 首次访问时加载。
+# 原因：analyzer.py 是 api.app → api.v1.endpoints → src.services.* 的传递依赖，
+# 顶层 `import litellm` 会让 FastAPI app 创建时同步触发 LiteLLM 远程 model cost map fetch
+# （DNS 失败 10s timeout），抵消 L2.3a 在 llm_adapter.py 的 lazy 改造效果。
+# 文件内 litellm.xxx 通过函数级 `import litellm` 解析（litellm 模块对象共享，patch 生效）。
+# Router(...) 通过模块级 __getattr__ 解析（首次访问触发 import 并缓存到 globals），
+# 这样 @patch("src.analyzer.Router") 才能生效；不要在函数内 `from litellm import Router`，
+# 否则局部 binding 会绕过模块属性，导致测试 patch 失效。
+# 注意：不要在顶层写 `litellm = None` / `Router = None`，否则 globals 命中后不会触发 __getattr__。
+# 关键限制：PEP 562 __getattr__ 只对 *模块属性访问*（如 `src.analyzer.Router`、`from src.analyzer import Router`）
+# 生效，对 *模块内部的裸 name lookup*（如函数体内直接写 `Router(...)`）不生效——后者走 LOAD_GLOBAL，
+# 只查 globals() 和 builtins，查不到就抛 NameError。因此 _init_litellm() 内部必须通过
+# `sys.modules[__name__].Router` 显式做模块属性访问，才能触发 __getattr__ 并尊重 @patch 写入的 __dict__。
+
+
+def __getattr__(name):
+    """PEP 562 lazy loader：首次访问 litellm / Router 时才触发 import。"""
+    if name == "litellm":
+        import litellm as _litellm  # type: ignore[import-not-found]
+        globals()["litellm"] = _litellm  # 缓存到 globals，后续访问不再走 __getattr__
+        return _litellm
+    if name == "Router":
+        from litellm import Router as _Router  # type: ignore[import-not-found]
+        globals()["Router"] = _Router
+        return _Router
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 from json_repair import repair_json
-from litellm import Router
 
 from src.agent.llm_adapter import (
     get_thinking_extra_body,
@@ -296,6 +323,32 @@ class _AllModelsFailedError(Exception):
 from src.utils.data_processing import normalize_report_signal_attribution
 
 
+# ── Shared content integrity helpers ───────────────────────────────────────
+def _is_blank_text(value: Any) -> bool:
+    """Return True if *value* is None, an empty/whitespace string, or otherwise blank."""
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    return True
+
+
+def _is_invalid_risk_alerts(value: Any) -> bool:
+    """Return True if *value* is not a list (invalid risk_alerts)."""
+    return not isinstance(value, list)
+
+
+def _is_invalid_stop_loss(value: Any) -> bool:
+    """Return True if *value* is None, a collection, or an empty string."""
+    if value is None:
+        return True
+    if isinstance(value, (list, tuple, dict)):
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    return False
+
+
 def check_content_integrity(
     result: "AnalysisResult",
     *,
@@ -310,25 +363,6 @@ def check_content_integrity(
     - Optional fields (e.g., signal_attribution): missing → pass=True and are not added to missing_fields
     """
     missing: List[str] = []
-
-    def _is_blank_text(value: Any) -> bool:
-        if value is None:
-            return True
-        if isinstance(value, str):
-            return not value.strip()
-        return True
-
-    def _is_invalid_risk_alerts(value: Any) -> bool:
-        return not isinstance(value, list)
-
-    def _is_invalid_stop_loss(value: Any) -> bool:
-        if value is None:
-            return True
-        if isinstance(value, (list, tuple, dict)):
-            return True
-        if isinstance(value, str):
-            return not value.strip()
-        return False
 
     if result.sentiment_score is None:
         missing.append("sentiment_score")
@@ -377,25 +411,6 @@ def check_content_integrity(
 
 def apply_placeholder_fill(result: "AnalysisResult", missing_fields: List[str]) -> None:
     """Fill missing mandatory fields with placeholders (in-place). Module-level for pipeline."""
-
-    def _is_blank_text(value: Any) -> bool:
-        if value is None:
-            return True
-        if isinstance(value, str):
-            return not value.strip()
-        return True
-
-    def _is_invalid_risk_alerts(value: Any) -> bool:
-        return not isinstance(value, list)
-
-    def _is_invalid_stop_loss(value: Any) -> bool:
-        if value is None:
-            return True
-        if isinstance(value, (list, tuple, dict)):
-            return True
-        if isinstance(value, str):
-            return not value.strip()
-        return False
 
     report_language = normalize_report_language(getattr(result, "report_language", "zh"))
     placeholder = get_placeholder_text(report_language)
@@ -832,13 +847,26 @@ def _sanitize_trend_analysis_for_prompt(
     return trend_dict
 
 
+# ── Chip health thresholds ─────────────────────────────────────────────────
+_CHIP_PROFIT_HIGH = 0.9       # 获利比例 ≥ 90%：获利盘极高，警惕
+_CHIP_CONCENTRATION_LOOSE = 0.25  # 90% 集中度 ≥ 25%：筹码分散，警惕
+_CHIP_CONCENTRATION_TIGHT = 0.15  # 90% 集中度 < 15%：筹码集中
+_CHIP_PROFIT_LOW = 0.3        # 获利比例下限
+
+# ── Price position thresholds (support/resistance factors) ─────────────────
+_BREAK_SUPPORT_FACTOR = 0.985   # 跌破支撑位阈值
+_NEAR_SUPPORT_FACTOR = 1.03     # 接近支撑位上界
+_BREAKOUT_FACTOR = 1.01         # 突破阻力位阈值
+_NEAR_RESISTANCE_FACTOR = 0.97  # 接近阻力位下界
+
+
 def _derive_chip_health(profit_ratio: float, concentration_90: float, language: str = "zh") -> str:
     """Derive chip_health from profit_ratio and concentration_90."""
-    if profit_ratio >= 0.9:
+    if profit_ratio >= _CHIP_PROFIT_HIGH:
         return localize_chip_health("警惕", language)  # 获利盘极高
-    if concentration_90 >= 0.25:
+    if concentration_90 >= _CHIP_CONCENTRATION_LOOSE:
         return localize_chip_health("警惕", language)  # 筹码分散
-    if concentration_90 < 0.15 and 0.3 <= profit_ratio < 0.9:
+    if concentration_90 < _CHIP_CONCENTRATION_TIGHT and _CHIP_PROFIT_LOW <= profit_ratio < _CHIP_PROFIT_HIGH:
         return localize_chip_health("健康", language)  # 集中且获利比例适中
     return localize_chip_health("一般", language)
 
@@ -1068,18 +1096,18 @@ def stabilize_decision_with_structure(
         if current_price is None:
             return
 
-        broke_support = support is not None and current_price < support * 0.985
-        near_support = support is not None and not broke_support and current_price <= support * 1.03
-        breakout = resistance is not None and current_price > resistance * 1.01
+        broke_support = support is not None and current_price < support * _BREAK_SUPPORT_FACTOR
+        near_support = support is not None and not broke_support and current_price <= support * _NEAR_SUPPORT_FACTOR
+        breakout = resistance is not None and current_price > resistance * _BREAKOUT_FACTOR
         near_resistance = (
             resistance is not None
             and not breakout
-            and current_price >= resistance * 0.97
+            and current_price >= resistance * _NEAR_RESISTANCE_FACTOR
         )
         mid_range = (
             support is not None
             and resistance is not None
-            and support * 1.03 < current_price < resistance * 0.97
+            and support * _NEAR_SUPPORT_FACTOR < current_price < resistance * _NEAR_RESISTANCE_FACTOR
         )
 
         has_significant_risk = _has_structural_risk_alert(result)
@@ -2449,6 +2477,14 @@ class GeminiAnalyzer:
 
     def _init_litellm(self) -> None:
         """Initialize litellm Router from channels / YAML / legacy keys."""
+        # Router 通过模块级 PEP 562 __getattr__ 解析（首次访问时 import），
+        # 这样 @patch("src.analyzer.Router") 才能生效；不要在函数内 `from litellm import Router`，
+        # 否则局部 binding 会绕过模块属性，导致测试 patch 失效。
+        # 注意：PEP 562 __getattr__ 只对模块属性访问生效，对函数体内的裸 `Router(...)` name lookup
+        # 不生效（会抛 NameError）。这里通过 sys.modules[__name__].Router 显式做模块属性访问，
+        # 首次调用时触发 __getattr__ import 并缓存到 globals；@patch 应用时直接读取 __dict__ 中的 mock。
+        Router = sys.modules[__name__].Router
+
         config = self._get_runtime_config()
         if self._get_hermes_config_error(config) is not None:
             logger.error("Analyzer LLM: Hermes channel configuration blocks legacy fallback")
@@ -2752,6 +2788,9 @@ class GeminiAnalyzer:
         router_model_names: set[str],
     ) -> Any:
         """Dispatch a LiteLLM completion through router or direct fallback."""
+        # L2.3a 续：函数级 lazy import，避免顶层 import litellm 触发远程 cost map fetch
+        import litellm
+
         origins = route_deployment_origins(config.llm_model_list, model)
         if origins.is_mixed:
             raise RuntimeError("Hermes/non-Hermes mixed generation route is not supported without deployment-level no-proxy client support")
@@ -3864,12 +3903,28 @@ class GeminiAnalyzer:
             if isinstance(capital_flow_data, dict)
             else {}
         )
+        stock_industry = (
+            capital_flow_data.get("stock_industry", {})
+            if isinstance(capital_flow_data, dict)
+            else {}
+        )
+        northbound = (
+            capital_flow_data.get("northbound", {})
+            if isinstance(capital_flow_data, dict)
+            else {}
+        )
         has_capital_flow = (
             isinstance(stock_flow, dict)
             and any(v is not None for v in stock_flow.values())
         ) or (
             isinstance(sector_flow, dict)
             and (sector_flow.get("top") or sector_flow.get("bottom"))
+        ) or (
+            isinstance(northbound, dict)
+            and (
+                (isinstance(northbound.get("total_flow"), dict) and northbound["total_flow"])
+                or (isinstance(northbound.get("stock_holding"), dict) and northbound["stock_holding"])
+            )
         )
         if has_capital_flow:
             top_sectors = sector_flow.get("top", []) if isinstance(sector_flow, dict) else []
@@ -3884,6 +3939,58 @@ class GeminiAnalyzer:
                 for item in bottom_sectors[:3]
                 if isinstance(item, dict) and str(item.get("name", "")).strip()
             ) or "N/A"
+
+            # 资金流明细行（仅在新字段存在时追加，向后兼容旧数据源）
+            flow_rows = []
+            super_large = stock_flow.get("super_large_net_inflow")
+            large = stock_flow.get("large_net_inflow")
+            medium = stock_flow.get("medium_net_inflow")
+            small = stock_flow.get("small_net_inflow")
+            consecutive = stock_flow.get("consecutive_inflow_days")
+            if super_large is not None:
+                flow_rows.append(f"| 超大单净流入 | {super_large} | 机构/大户单笔>100万元，方向性强 |")
+            if large is not None:
+                flow_rows.append(f"| 大单净流入 | {large} | 大户单笔20-100万元，主升浪常伴随持续大单流入 |")
+            if medium is not None:
+                flow_rows.append(f"| 中单净流入 | {medium} | 单笔4-20万元，跟风盘参考 |")
+            if small is not None:
+                flow_rows.append(f"| 小单净流入 | {small} | 单笔<4万元，散户情绪参考（常与大单反向） |")
+            if consecutive is not None:
+                direction_text = "连续净流入" if consecutive > 0 else ("连续净流出" if consecutive < 0 else "无方向")
+                flow_rows.append(f"| 连续净流入天数 | {consecutive} | {direction_text}，>3日视为趋势确认 |")
+            flow_rows_text = "\n".join(flow_rows)
+
+            # 行业排名行（仅当 stock_industry 有数据时追加）
+            industry_rows_text = ""
+            if isinstance(stock_industry, dict) and stock_industry:
+                ind_name = stock_industry.get("name") or "N/A"
+                ind_rank = stock_industry.get("rank_in_flow")
+                ind_total = stock_industry.get("total_industries")
+                ind_flow = stock_industry.get("industry_main_net_inflow")
+                rank_text = f"{ind_rank}/{ind_total}" if ind_rank is not None else "N/A"
+                industry_rows_text = (
+                    f"| 个股所属行业 | {ind_name} | 用于行业资金轮动定位 |\n"
+                    f"| 行业资金流排名 | {rank_text} | 1=资金流入最强，{ind_total}=最弱 |\n"
+                    f"| 行业主力净流入 | {ind_flow} | 该行业整体资金动向 |"
+                )
+
+            # 北向资金行（仅当 northbound 有数据时追加）
+            northbound_rows_text = ""
+            if isinstance(northbound, dict) and northbound:
+                nb_total = northbound.get("total_flow", {}) if isinstance(northbound.get("total_flow"), dict) else {}
+                nb_holding = northbound.get("stock_holding", {}) if isinstance(northbound.get("stock_holding"), dict) else {}
+                nb_rows = []
+                if nb_total:
+                    nb_rows.append(f"| 北向合计净买入 | {nb_total.get('total_net_buy', 'N/A')} | 沪深股通合计，正值=外资净流入 |")
+                    nb_rows.append(f"| 沪股通净买入 | {nb_total.get('sh_connect_net_buy', 'N/A')} | 沪市北向资金 |")
+                    nb_rows.append(f"| 深股通净买入 | {nb_total.get('sz_connect_net_buy', 'N/A')} | 深市北向资金 |")
+                if nb_holding:
+                    nb_rows.append(f"| 北向持股股数 | {nb_holding.get('shares', 'N/A')} | 个股北向持仓量 |")
+                    nb_rows.append(f"| 北向持股市值 | {nb_holding.get('market_value', 'N/A')} | 个股北向持仓金额 |")
+                    nb_rows.append(f"| 北向持股占比 | {nb_holding.get('holding_pct', 'N/A')} | 占流通股比例，>5%为重仓 |")
+                if nb_rows:
+                    northbound_rows_text = "\n".join(nb_rows)
+
             prompt += f"""
 ### 主力资金流向（操作建议过滤器）
 | 指标 | 数值 | 决策含义 |
@@ -3893,8 +4000,14 @@ class GeminiAnalyzer:
 | 10日净流入 | {stock_flow.get('inflow_10d', 'N/A')} | 用于判断资金持续性 |
 | 资金流入靠前板块 | {top_sector_text} | 板块资金共振参考 |
 | 资金流出靠前板块 | {bottom_sector_text} | 板块风险参考 |
+{flow_rows_text}
+{industry_rows_text}
+{northbound_rows_text}
 
 > 资金流向只能作为价格位置的过滤器：接近压力且主力流出时不得追买；接近支撑且未放量跌破时，优先判断为持有观察、震荡或洗盘观察。
+> 超大单+大单持续流入且中单/小单流出=主力吸筹；超大单+大单持续流出且中单/小单流入=主力派发。
+> 北向资金连续净买入且持股占比上升=外资看好；北向净卖出且持股下降=外资撤离信号。
+> 个股所属行业资金流排名靠前（前 20%）=板块共振加分；靠后（后 20%）=板块拖累减分。
 """
 
         # 添加三大法人动向（台股筹码过滤器）— tw-only；仅当 institution 区块 status='ok'

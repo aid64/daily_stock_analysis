@@ -17,6 +17,12 @@ const WINDOW_MAXIMIZE_CHANGED_EVENT = 'window:maximize-changed';
 // 启动进度事件通道（main → renderer，loading.html 消费）
 const STARTUP_PROGRESS_EVENT = 'startup-progress';
 
+// L2.4b：后端 ready/error 事件通道（main → renderer，BackendGate 消费）
+// 配合 main.js L2.4a：loadFile 提前到 waitForHealth 之前，前端先渲染 connecting 状态，
+// 收到 BACKEND_READY_EVENT 后切到 App 内容；收到 BACKEND_ERROR_EVENT 切到错误提示。
+const BACKEND_READY_EVENT = 'dsa:backend-ready';
+const BACKEND_ERROR_EVENT = 'dsa:backend-error';
+
 // PR2 新增：后端 API 基址同步 IPC 通道。
 // 打包模式下前端通过 file:// 加载，必须在模块初始化时同步拿到后端绝对地址；
 // main 进程在端口确定后写入 resolvedBackendUrl，renderer 通过 sendSync 读取。
@@ -116,6 +122,45 @@ function createDesktopBridge({
         renderer.removeListener(STARTUP_PROGRESS_EVENT, handler);
       };
     },
+    // L2.4b：后端就绪/失败事件监听 + 主动 health 轮询兜底
+    // - onBackendReady/onBackendError: 监听 main 进程发出的 IPC 事件，返回 unsubscribe 函数
+    // - pollBackendHealth: 兜底机制，IPC 丢失时前端主动轮询 /api/v1/health
+    onBackendReady(listener) {
+      if (typeof listener !== 'function') {
+        return () => undefined;
+      }
+
+      const handler = (_event, payload) => {
+        listener(payload);
+      };
+      renderer.on(BACKEND_READY_EVENT, handler);
+      return () => {
+        renderer.removeListener(BACKEND_READY_EVENT, handler);
+      };
+    },
+    onBackendError(listener) {
+      if (typeof listener !== 'function') {
+        return () => undefined;
+      }
+
+      const handler = (_event, payload) => {
+        listener(payload);
+      };
+      renderer.on(BACKEND_ERROR_EVENT, handler);
+      return () => {
+        renderer.removeListener(BACKEND_ERROR_EVENT, handler);
+      };
+    },
+    async pollBackendHealth(backendUrl) {
+      try {
+        const response = await fetch(`${backendUrl}/api/v1/health`, {
+          signal: AbortSignal.timeout(2000),
+        });
+        return response.ok;
+      } catch (_error) {
+        return false;
+      }
+    },
   };
 }
 
@@ -135,6 +180,8 @@ module.exports = {
   WINDOW_IS_MAXIMIZED_CHANNEL,
   WINDOW_MAXIMIZE_CHANGED_EVENT,
   STARTUP_PROGRESS_EVENT,
+  BACKEND_READY_EVENT,
+  BACKEND_ERROR_EVENT,
   createDesktopBridge,
   readDesktopVersion,
 };
