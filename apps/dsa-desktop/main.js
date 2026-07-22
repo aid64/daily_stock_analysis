@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, shell, nativeTheme } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell, nativeTheme, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
@@ -17,6 +17,11 @@ let lastPromptedInstallVersion = '';
 let electronAutoUpdater = undefined;
 let electronAutoUpdaterConfigured = false;
 let electronUpdateCheckInFlight = false;
+
+// PR2：后端 API 基址，在端口确定后写入。
+// 打包模式下 renderer 通过 file:// 加载，需通过同步 IPC 读取此值构建绝对请求地址；
+// dev 模式下保持空字符串，renderer 走同源相对路径。
+let resolvedBackendUrl = '';
 
 function resolveWindowBackgroundColor() {
   return nativeTheme.shouldUseDarkColors ? '#08080c' : '#f4f7fb';
@@ -962,7 +967,38 @@ function formatCommand(command, args = []) {
 }
 
 function resolvePythonPath() {
-  return process.env.DSA_PYTHON || 'python';
+  if (process.env.DSA_PYTHON) {
+    return process.env.DSA_PYTHON;
+  }
+
+  // On Windows, `python` on PATH may resolve to the Microsoft Store stub
+  // (exits 9009 without running anything), so the dev-mode backend never
+  // starts. Probe the real per-user Python install under
+  // %LOCALAPPDATA%\Programs\Python and pick the highest version available.
+  if (isWindows) {
+    const localAppData = process.env.LOCALAPPDATA;
+    if (localAppData) {
+      const programsPythonDir = path.join(localAppData, 'Programs', 'Python');
+      if (fs.existsSync(programsPythonDir)) {
+        let candidates = [];
+        try {
+          candidates = fs
+            .readdirSync(programsPythonDir)
+            .filter((name) => /^Python\d+$/.test(name))
+            .map((name) => path.join(programsPythonDir, name, 'python.exe'))
+            .filter((candidate) => fs.existsSync(candidate));
+        } catch (_error) {
+          // ignore unreadable directory and fall through
+        }
+        if (candidates.length > 0) {
+          candidates.sort((a, b) => b.localeCompare(a));
+          return candidates[0];
+        }
+      }
+    }
+  }
+
+  return 'python';
 }
 
 function ensureEnvFile(envPath) {
@@ -1741,6 +1777,58 @@ ipcMain.handle('desktop:open-release-page', async (_event, releaseUrl) => {
   return true;
 });
 
+// PR2：同步返回后端 API 基址。
+// renderer（preload.js）在模块初始化时通过 ipcRenderer.sendSync 调用此通道，
+// 因此必须用 ipcMain.on + event.returnValue 同步返回，不能用 invoke/handle。
+ipcMain.on('desktop:get-backend-url', (event) => {
+  event.returnValue = resolvedBackendUrl;
+});
+
+// 窗口控制 IPC（PR1：自绘标题栏使用，替代原生 titleBarOverlay）
+ipcMain.handle('window:minimize', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.minimize();
+  }
+});
+ipcMain.handle('window:toggle-maximize', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return false;
+  }
+  if (mainWindow.isMaximized()) {
+    mainWindow.unmaximize();
+    return false;
+  }
+  mainWindow.maximize();
+  return true;
+});
+ipcMain.handle('window:close', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.close();
+  }
+});
+ipcMain.handle('window:is-maximized', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return false;
+  }
+  return mainWindow.isMaximized();
+});
+
+// 将窗口最大化/还原状态变化推送到 renderer，供自绘标题栏按钮更新图标
+function emitWindowMaximizeChange() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+  mainWindow.webContents.send('window:maximize-changed', mainWindow.isMaximized());
+}
+
+// 将启动阶段进度推送到 renderer，供 loading.html 显示当前阶段
+function emitStartupProgress(payload) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+  mainWindow.webContents.send('startup-progress', payload);
+}
+
 async function createWindow() {
   const restoreResult = isWindowsNsisInstalledApp() ? restorePackagedRuntimeStateFromBackup() : null;
   const macMigrationResult = migrateMacPackagedRuntimeState();
@@ -1780,6 +1868,9 @@ async function createWindow() {
     minWidth: 960,
     minHeight: 640,
     backgroundColor: resolveWindowBackgroundColor(),
+    // 隐藏白色原生标题栏；Windows 由前端 DesktopTitleBar 自绘窗口控制按钮
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
+    frame: false,  // 移除白色标题栏和菜单栏
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -1789,10 +1880,36 @@ async function createWindow() {
   });
   logStartup('BrowserWindow created');
 
+  // PR1：转发最大化状态变化，供自绘标题栏更新按钮图标
+  mainWindow.on('maximize', emitWindowMaximizeChange);
+  mainWindow.on('unmaximize', emitWindowMaximizeChange);
+
+  // 隐藏默认菜单栏（File/Edit/View 等）
+  Menu.setApplicationMenu(null);
+
   const loadingPath = path.join(__dirname, 'renderer', 'loading.html');
   const loadingPageStartedAt = Date.now();
-  await mainWindow.loadFile(loadingPath);
+
+  // PR1 启动加速：先解析后端 host/port，再与 loading 页渲染并行
+  const appDir = resolveAppDir();
+  const envPath = path.join(appDir, '.env');
+  ensureEnvFile(envPath);
+  logStartup(`Env file ready: ${envPath}`);
+
+  const backendBindHost = resolveBackendBindHost({ envFile: envPath });
+  const backendConnectHost = resolveDesktopConnectHost(backendBindHost);
+  logStartup(`Backend bind host=${backendBindHost}; desktop connect host=${backendConnectHost}`);
+
+  const portFindStartedAt = Date.now();
+  const loadingPagePromise = mainWindow.loadFile(loadingPath);
+  const portPromise = findAvailablePort(8000, 8100, backendBindHost);
+
+  await loadingPagePromise;
   logStartup(`Loading page rendered in ${Date.now() - loadingPageStartedAt}ms`);
+  emitStartupProgress({ stage: 'port', message: '已分配后端端口', elapsedMs: Date.now() - portFindStartedAt });
+  const port = await portPromise;
+  logStartup(`Using port ${port} (selected in ${Date.now() - portFindStartedAt}ms)`);
+  logStartup(`App directory=${appDir}`);
 
   const applyThemeBackground = () => {
     if (!mainWindow || mainWindow.isDestroyed()) {
@@ -1829,20 +1946,6 @@ async function createWindow() {
     return { action: 'deny' };
   });
 
-  const appDir = resolveAppDir();
-  const envPath = path.join(appDir, '.env');
-  ensureEnvFile(envPath);
-  logStartup(`Env file ready: ${envPath}`);
-
-  const backendBindHost = resolveBackendBindHost({ envFile: envPath });
-  const backendConnectHost = resolveDesktopConnectHost(backendBindHost);
-  logStartup(`Backend bind host=${backendBindHost}; desktop connect host=${backendConnectHost}`);
-
-  const portFindStartedAt = Date.now();
-  const port = await findAvailablePort(8000, 8100, backendBindHost);
-  logStartup(`Using port ${port} (selected in ${Date.now() - portFindStartedAt}ms)`);
-  logStartup(`App directory=${appDir}`);
-
   const dbPath = path.join(appDir, 'data', 'stock_analysis.db');
   const logDir = path.join(appDir, 'logs');
 
@@ -1852,8 +1955,10 @@ async function createWindow() {
     logStartup(`Backend launch command=${launchInfo.command}`);
     logStartup(`Backend launch cwd=${launchInfo.cwd}`);
     logStartup('Waiting for backend health check');
+    emitStartupProgress({ stage: 'backend', message: '正在启动后端服务...' });
   } catch (error) {
     logStartup(`Backend launch failed: ${String(error)}`);
+    emitStartupProgress({ stage: 'backend-error', message: '后端启动失败', detail: String(error) });
     const errorUrl = `file://${loadingPath}?error=${encodeURIComponent(String(error))}`;
     await mainWindow.loadURL(errorUrl);
     return;
@@ -1870,14 +1975,35 @@ async function createWindow() {
 
     if (event.type === 'ready') {
       logStartup(`Health ready in ${event.elapsedMs}ms (attempts=${event.attempts})`);
+      emitStartupProgress({
+        stage: 'health-ready',
+        message: '后端已就绪',
+        elapsedMs: event.elapsedMs,
+        attempts: event.attempts,
+      });
       return;
     }
 
     if (event.type === 'aborted' || event.type === 'total_timeout' || event.type === 'final_error') {
       const details = event.reason || event.message || '';
       logStartup(`Health ${event.type} after ${event.elapsedMs}ms (attempts=${event.attempts}) ${details}`.trim());
+      emitStartupProgress({
+        stage: 'health-error',
+        message: '后端连接失败',
+        elapsedMs: event.elapsedMs,
+        attempts: event.attempts,
+        detail: details,
+      });
       return;
     }
+
+    // PR1：向 loading 页推送探针进度，让用户感知"正在重试"
+    emitStartupProgress({
+      stage: 'health',
+      message: '正在连接后端服务...',
+      elapsedMs: event.elapsedMs,
+      attempts: event.attempts,
+    });
 
     const now = Date.now();
     if (now - lastHealthProgressLogAt < healthProgressLogIntervalMs) {
@@ -1900,11 +2026,12 @@ async function createWindow() {
   };
 
   try {
+    // PR1 启动加速：首次探针 100ms、最大间隔 800ms（原 250ms/1500ms），让用户更快感知"在动"
     const healthInfo = await waitForHealth(
       healthUrl,
       60000,
-      250,
-      1500,
+      100,
+      800,
       () => {
         if (backendStartError) {
           return `backend start error: ${backendStartError.message}`;
@@ -1923,10 +2050,22 @@ async function createWindow() {
       onHealthProgress
     );
     logStartup(`Backend ready in ${healthInfo.elapsedMs}ms (${healthInfo.attempts} probes)`);
+    emitStartupProgress({ stage: 'ui', message: '正在加载界面...', elapsedMs: healthInfo.elapsedMs });
     const mainPageStartedAt = Date.now();
-    const mainPageUrl = buildMainPageUrl(port, Date.now(), backendConnectHost);
-    await mainWindow.loadURL(mainPageUrl);
-    logStartup(`Main page loadURL resolved in ${Date.now() - mainPageStartedAt}ms url=${mainPageUrl}`);
+    if (app.isPackaged) {
+      // PR2：打包模式下前端已随 Electron 打包到 renderer/web/，通过 file:// 直接加载，
+      // 不再走后端 HTTP，避免"网页套壳"的启动延迟与端口耦合。
+      // backendUrl 通过 preload 注入 window.dsaDesktop.backendUrl，供前端发起 API 请求。
+      resolvedBackendUrl = `http://${formatUrlHost(backendConnectHost)}:${port}`;
+      const mainPagePath = path.join(__dirname, 'renderer', 'web', 'index.html');
+      await mainWindow.loadFile(mainPagePath);
+      logStartup(`Main page loadFile resolved in ${Date.now() - mainPageStartedAt}ms path=${mainPagePath}`);
+    } else {
+      // dev 模式：前端由后端 FastAPI 同源提供，仍用 loadURL。
+      const mainPageUrl = buildMainPageUrl(port, Date.now(), backendConnectHost);
+      await mainWindow.loadURL(mainPageUrl);
+      logStartup(`Main page loadURL resolved in ${Date.now() - mainPageStartedAt}ms url=${mainPageUrl}`);
+    }
     logStartup(`Main UI loaded in ${Date.now() - startupStartedAt}ms`);
     if (!restoreFailed) {
       void performDesktopUpdateCheck({ notify: true });

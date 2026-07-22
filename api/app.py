@@ -330,19 +330,26 @@ def create_app(static_dir: Optional[Path] = None) -> FastAPI:
     # ============================================================
     # CORS 配置
     # ============================================================
-    
+
     allowed_origins = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ]
-    
+
     # 从环境变量添加额外的允许来源
     extra_origins = os.environ.get("CORS_ORIGINS", "")
     if extra_origins:
         allowed_origins.extend([o.strip() for o in extra_origins.split(",") if o.strip()])
-    
+
+    # 桌面端打包模式：前端由 Electron 通过 file:// 协议加载，Origin 头为 "null"。
+    # 显式将 "null" 加入允许列表，保证 credentialed 请求（管理员 Cookie）可用。
+    # DSA_DESKTOP_MODE 由 main.js buildBackendEnvironment 设置，仅 127.0.0.1 本地监听。
+    if os.environ.get("DSA_DESKTOP_MODE", "").lower() == "true":
+        if "null" not in allowed_origins:
+            allowed_origins.append("null")
+
     # 允许所有来源（开发/演示用）
     allow_all_origins = os.environ.get("CORS_ALLOW_ALL", "").lower() == "true"
     allow_credentials = not allow_all_origins

@@ -1,0 +1,625 @@
+/**
+ * Editorial Finance — DSA 全新设计主题
+ *
+ * 设计方向：财经编辑风格。Financial Times 的权威感 + 现代数据工具的效率感。
+ * 核心特征：衬线标题系统 · 暖色中性调 · 限制色彩渲染 · 编辑性留白
+ *
+ * 使用：在 index.css 中 @import 此文件即可激活新主题。
+ */
+
+/* ── 字体系统 ──────────────────────────────────────────────────────────── */
+/* Newsreader 字体通过 index.html 的 <link> 预加载，避免 CSS @import 顺序问题 */
+
+:root {
+  /* 衬线标题（财经编辑感） */
+  --font-serif: 'Newsreader', 'Georgia', 'Times New Roman', serif;
+  /* 无衬线正文（数据清晰） */
+  --font-sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* 等宽代码/数据 */
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', monospace;
+}
+
+/* ── 暖暖的中性调色板 ──────────────────────────────────────────────────── */
+/* 告别青色+紫色渐变。用暖灰+琥珀金+深蓝绿构建专业信任感。 */
+
+:root {
+  /* 基础 · 暖灰基底 */
+  --ed-bg: 40 10% 98%;           /* 奶油白 */
+  --ed-surface: 40 8% 95%;       /* 暖灰表面 */
+  --ed-elevated: 0 0% 100%;      /* 纯白悬浮层 */
+  --ed-text: 30 8% 12%;          /* 深暖灰文字 */
+  --ed-text-secondary: 30 5% 40%; /* 次级文字 */
+  --ed-text-tertiary: 30 5% 55%;  /* 提示文字 */
+  --ed-border: 30 8% 88%;        /* 边框 */
+  --ed-border-hover: 30 8% 78%;  /* 悬停边框 */
+
+  /* 强调色 · 琥珀金（上涨/买入/积极） */
+  --ed-accent: 36 95% 48%;       /* 暖金色 */
+  --ed-accent-soft: 36 60% 92%;  /* 金色淡底 */
+  --ed-accent-text: 36 80% 30%;  /* 金色深字 */
+
+  /* 警示色 · 砖红（下跌/卖出/风险） */
+  --ed-danger: 8 70% 45%;        /* 砖红 */
+  --ed-danger-soft: 8 60% 93%;   /* 红色淡底 */
+  --ed-danger-text: 8 70% 32%;   /* 红色深字 */
+
+  /* 中性色 · 深蓝绿（持有/观望/信息） */
+  --ed-info: 185 40% 35%;        /* 蓝绿 */
+  --ed-info-soft: 185 40% 92%;   /* 蓝绿淡底 */
+  --ed-info-text: 185 50% 22%;   /* 蓝绿深字 */
+}
+
+/* ── 暗色模式 ──────────────────────────────────────────────────────────── */
+.dark {
+  --ed-bg: 30 8% 6%;              /* 深暖灰底 */
+  --ed-surface: 30 6% 10%;       /* 表面层 */
+  --ed-elevated: 30 6% 13%;      /* 悬浮层 */
+  --ed-text: 40 10% 90%;         /* 浅暖灰文字 */
+  --ed-text-secondary: 40 5% 62%; /* 次级 */
+  --ed-text-tertiary: 40 5% 48%;  /* 提示 */
+  --ed-border: 30 5% 22%;        /* 边框 */
+  --ed-border-hover: 30 5% 32%;  /* 悬停 */
+
+  /* 暗色下强调色降低饱和度，避免眩光 */
+  --ed-accent: 38 85% 55%;
+  --ed-accent-soft: 38 40% 15%;
+  --ed-accent-text: 38 70% 65%;
+  --ed-danger: 6 65% 52%;
+  --ed-danger-soft: 6 40% 15%;
+  --ed-danger-text: 6 55% 65%;
+  --ed-info: 185 35% 50%;
+  --ed-info-soft: 185 30% 14%;
+  --ed-info-text: 185 35% 60%;
+}
+
+/* ── 全局排版覆盖 ──────────────────────────────────────────────────────── */
+/* 修复白边：html/body 归零边距 */
+html, body, #root {
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.6;
+  color: hsl(var(--ed-text));
+  background: hsl(var(--ed-bg));
+}
+
+/* 标题使用衬线 */
+h1, h2, h3, h4, .editorial-heading {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: hsl(var(--ed-text));
+}
+
+h1 { font-size: clamp(1.5rem, 4vw, 2rem); line-height: 1.3; }
+h2 { font-size: clamp(1.2rem, 3vw, 1.5rem); line-height: 1.35; }
+h3 { font-size: 1.1rem; line-height: 1.4; }
+h4 { font-size: 1rem; line-height: 1.4; color: hsl(var(--ed-text-secondary)); }
+
+/* 正文 */
+p, li, td, .editorial-body {
+  font-family: var(--font-sans);
+  font-size: 0.95rem;
+  line-height: 1.7;
+  color: hsl(var(--ed-text));
+}
+
+/* 数据表格使用等宽 */
+.editorial-mono, .editorial-table td, .editorial-table th {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+}
+
+/* ── Shell 布局（全新）─────────────────────────────────────────────────── */
+.editorial-shell {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  min-height: 100vh;
+  background: hsl(var(--ed-bg));
+  color: hsl(var(--ed-text));
+}
+
+.editorial-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  border-right: 1px solid hsl(var(--ed-border) / 0.6);
+  background: hsl(var(--ed-surface));
+  padding: 1.5rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.editorial-main {
+  padding: 2rem 2.5rem;
+  max-width: 900px;
+  width: 100%;
+}
+
+/* ── 侧边栏导航 ────────────────────────────────────────────────────────── */
+.editorial-brand {
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: hsl(var(--ed-text));
+  margin-bottom: 2rem;
+  letter-spacing: 0.02em;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.editorial-brand::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 24px;
+  background: hsl(var(--ed-accent));
+  border-radius: 4px;
+}
+
+.editorial-nav-group {
+  margin-top: 1.5rem;
+}
+
+.editorial-nav-group-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: hsl(var(--ed-text-tertiary));
+  padding: 0 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.editorial-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  color: hsl(var(--ed-text-secondary));
+  text-decoration: none;
+  transition: all 0.15s ease;
+  font-family: var(--font-sans);
+}
+
+.editorial-nav-link:hover {
+  background: hsl(var(--ed-border) / 0.4);
+  color: hsl(var(--ed-text));
+}
+
+.editorial-nav-link.active {
+  background: hsl(var(--ed-accent-soft));
+  color: hsl(var(--ed-accent-text));
+  font-weight: 500;
+}
+
+.editorial-nav-link svg {
+  width: 18px;
+  height: 18px;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.editorial-nav-link.active svg {
+  opacity: 1;
+  color: hsl(var(--ed-accent));
+}
+
+.editorial-nav-spacer {
+  flex: 1;
+}
+
+/* ── 仪表盘内容区 ──────────────────────────────────────────────────────── */
+.editorial-section {
+  margin-bottom: 2.5rem;
+}
+
+.editorial-section-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 2px solid hsl(var(--ed-border));
+}
+
+.editorial-section-number {
+  font-family: var(--font-serif);
+  font-size: 1.5rem;
+  color: hsl(var(--ed-text-tertiary));
+  font-weight: 500;
+}
+
+.editorial-section-title {
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  font-weight: 500;
+  color: hsl(var(--ed-text));
+}
+
+.editorial-section-subtitle {
+  font-size: 0.85rem;
+  color: hsl(var(--ed-text-secondary));
+  margin-left: auto;
+}
+
+/* ── 数据卡片（无玻璃、无发光、0.5px 边框） ────────────────────────────── */
+.editorial-card {
+  background: hsl(var(--ed-elevated));
+  border: 0.5px solid hsl(var(--ed-border));
+  border-radius: 8px;
+  padding: 1.25rem;
+}
+
+.editorial-card:hover {
+  border-color: hsl(var(--ed-border-hover));
+}
+
+.editorial-card-header {
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: hsl(var(--ed-text-tertiary));
+  margin-bottom: 0.5rem;
+}
+
+.editorial-card-value {
+  font-family: var(--font-serif);
+  font-size: 1.5rem;
+  font-weight: 500;
+  color: hsl(var(--ed-text));
+  letter-spacing: -0.02em;
+}
+
+/* ── 响应式 ────────────────────────────────────────────────────────────── */
+@media (max-width: 1024px) {
+  .editorial-shell {
+    grid-template-columns: 1fr;
+  }
+  .editorial-sidebar {
+    display: none;
+  }
+  .editorial-main {
+    padding: 1rem 1.25rem;
+    max-width: 100%;
+  }
+}
+
+/* ── 编辑器过渡动画 ────────────────────────────────────────────────────── */
+@keyframes editorial-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.editorial-fade-in {
+  animation: editorial-fade-in 0.3s ease-out;
+}
+
+/* ── 金融数据强调 ──────────────────────────────────────────────────────── */
+.editorial-up {
+  color: hsl(var(--ed-accent-text));
+  font-weight: 500;
+}
+
+.editorial-down {
+  color: hsl(var(--ed-danger-text));
+  font-weight: 500;
+}
+
+.editorial-score {
+  font-family: var(--font-serif);
+  font-size: 2.25rem;
+  font-weight: 600;
+  line-height: 1;
+  color: hsl(var(--ed-accent-text));
+}
+
+.editorial-score-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: var(--font-sans);
+}
+
+.editorial-score-badge.buy {
+  background: hsl(var(--ed-accent-soft));
+  color: hsl(var(--ed-accent-text));
+}
+
+.editorial-score-badge.sell {
+  background: hsl(var(--ed-danger-soft));
+  color: hsl(var(--ed-danger-text));
+}
+
+.editorial-score-badge.hold {
+  background: hsl(var(--ed-info-soft));
+  color: hsl(var(--ed-info-text));
+}
+
+/* ── 旧令牌 → 新令牌 别名映射（向后兼容 67 个组件）─────────────────────── */
+/* 保留原有 CSS 变量名和 Tailwind 类名，映射到 Editorial Finance 调色板。 */
+/* 无需修改任何组件代码。 */
+:root {
+  /* 原语义色 → 编辑暖灰 */
+  --background: var(--ed-bg);
+  --foreground: var(--ed-text);
+  --card: var(--ed-elevated);
+  --card-foreground: var(--ed-text);
+  --popover: var(--ed-elevated);
+  --popover-foreground: var(--ed-text);
+  --primary: var(--ed-accent);
+  --primary-foreground: 0 0% 100%;
+  --secondary: var(--ed-surface);
+  --secondary-foreground: var(--ed-text);
+  --secondary-text: hsl(var(--ed-text-secondary));
+  --muted: var(--ed-surface);
+  --muted-foreground: var(--ed-text-secondary);
+  --accent: var(--ed-accent);
+  --accent-foreground: var(--ed-accent-text);
+  --destructive: var(--ed-danger);
+  --destructive-foreground: var(--ed-danger-text);
+  --border: var(--ed-border);
+  --input: var(--ed-border);
+  --ring: var(--ed-accent);
+
+  /* 原功能色 → 暖色调 */
+  --success: var(--ed-accent);
+  --warning: 36 80% 48%;
+  --danger: var(--ed-danger);
+  --cyan: var(--ed-accent);
+  --purple: var(--ed-info);
+  --info: var(--ed-info);
+
+  /* 表面层 → 暖灰层级 */
+  --bg-base: var(--ed-bg);
+  --surface-1: 40 8% 95%;
+  --surface-2: 40 8% 92%;
+  --surface-3: 40 6% 88%;
+  --elevated: var(--ed-elevated);
+  --hover: var(--ed-border);
+  --hover-shade: hsl(var(--ed-border) / 0.5);
+
+  /* 无阴影，无发光 */
+  --shadow-soft-card: none;
+  --shadow-soft-card-strong: none;
+
+  /* 导航令牌映射 */
+  --nav-hover-bg: hsl(var(--ed-border) / 0.3);
+  --nav-active-bg: hsl(var(--ed-accent-soft));
+  --nav-active-border: hsl(var(--ed-accent) / 0.3);
+  --shell-sidebar-border: var(--ed-border);
+
+  /* 组件令牌 */
+  --dashboard-card-bg: hsl(var(--ed-elevated));
+  --dashboard-card-border: hsl(var(--ed-border));
+}
+
+.dark {
+  --background: var(--ed-bg);
+  --foreground: var(--ed-text);
+  --card: var(--ed-elevated);
+  --card-foreground: var(--ed-text);
+  --primary: var(--ed-accent);
+  --secondary: var(--ed-surface);
+  --secondary-foreground: var(--ed-text);
+  --muted: var(--ed-surface);
+  --muted-foreground: var(--ed-text-secondary);
+  --accent: var(--ed-accent);
+  --accent-foreground: var(--ed-accent-text);
+  --destructive: var(--ed-danger);
+  --destructive-foreground: var(--ed-danger-text);
+  --border: var(--ed-border);
+  --input: var(--ed-border);
+  --ring: var(--ed-accent);
+  --success: var(--ed-accent);
+  --warning: 36 75% 55%;
+  --danger: var(--ed-danger);
+  --cyan: var(--ed-accent);
+  --purple: var(--ed-info);
+  --info: var(--ed-info);
+  --bg-base: var(--ed-bg);
+  --surface-1: 30 6% 10%;
+  --surface-2: 30 6% 13%;
+  --surface-3: 30 5% 16%;
+  --elevated: var(--ed-elevated);
+  --hover: var(--ed-border);
+  --hover-shade: hsl(var(--ed-border) / 0.4);
+  --shadow-soft-card: none;
+  --shadow-soft-card-strong: none;
+  --nav-hover-bg: hsl(var(--ed-border) / 0.3);
+  --nav-active-bg: hsl(var(--ed-accent-soft));
+  --nav-active-border: hsl(var(--ed-accent) / 0.25);
+  --shell-sidebar-border: var(--ed-border);
+  --dashboard-card-bg: hsl(var(--ed-elevated));
+  --dashboard-card-border: hsl(var(--ed-border));
+}
+
+/* ── 移除旧版发光/毛玻璃/渐变视觉效果 ─────────────────────────────────── */
+.bg-primary-gradient,
+.shadow-glow-cyan,
+.shadow-glow-purple,
+.shadow-glow-success,
+.shadow-glow-danger,
+.gradient-text,
+.bg-gradient-cyan,
+.bg-gradient-purple {
+  /* 降级为干净的单色表现 */
+  background: hsl(var(--ed-accent)) !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  color: hsl(var(--ed-accent-text)) !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+
+.backdrop-blur-sm,
+.backdrop-blur-md,
+.backdrop-blur-xl {
+  backdrop-filter: none !important;
+}
+
+.bg-card\/80,
+.bg-card\/72,
+.bg-card\/85,
+.bg-card\/50 {
+  background: hsl(var(--ed-elevated)) !important;
+}
+
+.shadow-soft-card {
+  box-shadow: 0 1px 2px hsl(var(--ed-border) / 0.3) !important;
+}
+
+/* ── 移动端汉堡菜单 ────────────────────────────────────────────────────── */
+@media (max-width: 1024px) {
+  .editorial-shell {
+    grid-template-columns: 1fr;
+    padding-top: 1rem;
+  }
+
+  .editorial-shell > .editorial-sidebar {
+    display: none;
+  }
+
+  .editorial-mobile-menu-btn {
+    display: inline-flex !important;
+  }
+
+  .editorial-main {
+    padding: 4rem 1rem 2rem !important;
+  }
+}
+
+/* ── Electron 窗口拖拽适配 ──────────────────────────────────────────────── */
+/* 桌面端 frame: false 后，整个窗口默认可拖动。
+   顶部 brand 区域可拖动，按钮/链接需显式 no-drag 才能点击。 */
+.editorial-brand,
+.editorial-nav-spacer {
+  -webkit-app-region: drag;
+}
+
+.editorial-brand a,
+.editorial-brand button,
+.editorial-nav-link,
+.editorial-nav-link button,
+button,
+a,
+input,
+select,
+textarea,
+[role="button"],
+[role="menuitem"] {
+  -webkit-app-region: no-drag;
+}
+
+/* ── 桌面端自绘标题栏（PR1）────────────────────────────────────────────── */
+/* 替代 Windows 原生 titleBarOverlay，与 EditorialShell 主题融合。
+   仅在 .desktop-runtime（App.tsx 检测到桌面端时加到 <html>）下生效。 */
+.desktop-titlebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px 0 8px;
+  background: hsl(var(--ed-surface));
+  border-bottom: 0.5px solid hsl(var(--ed-border) / 0.6);
+  z-index: 1000;
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.desktop-titlebar.is-mac {
+  padding-left: 70px; /* 为 macOS 原生交通灯留位 */
+}
+
+.desktop-titlebar-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.desktop-titlebar-brand {
+  font-family: var(--font-serif);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: hsl(var(--ed-text));
+  white-space: nowrap;
+}
+
+.desktop-titlebar-right {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  -webkit-app-region: no-drag;
+}
+
+.desktop-titlebar-controls {
+  display: flex;
+  align-items: center;
+  margin-left: 4px;
+}
+
+.desktop-titlebar-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  width: 32px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: hsl(var(--ed-text-secondary));
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  -webkit-app-region: no-drag;
+  flex-shrink: 0;
+}
+
+.desktop-titlebar-icon-btn:hover {
+  background: hsl(var(--ed-border) / 0.4);
+  color: hsl(var(--ed-text));
+}
+
+.desktop-titlebar-icon-btn:active {
+  background: hsl(var(--ed-border) / 0.6);
+}
+
+.desktop-titlebar-close:hover {
+  background: hsl(var(--ed-danger));
+  color: hsl(var(--ed-danger-text));
+}
+
+/* 桌面端布局补偿：标题栏占位 32px，shell 内容整体下移 */
+.desktop-runtime .editorial-shell {
+  padding-top: 32px;
+}
+
+.desktop-runtime .editorial-sidebar {
+  top: 32px;
+  height: calc(100vh - 32px);
+}
+
+@media (max-width: 1024px) {
+  .desktop-runtime .editorial-mobile-menu-btn {
+    top: 40px; /* 32px 标题栏 + 8px 间距 */
+  }
+}

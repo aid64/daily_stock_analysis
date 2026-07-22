@@ -32,6 +32,10 @@ function loadMainModule(t, options = {}) {
     handle: (channel, handler) => {
       ipcMainHandlers.set(channel, handler);
     },
+    // PR2：ipcMain.on 用于同步 IPC（sendSync），handler 接收 event 并设置 event.returnValue。
+    on: (channel, handler) => {
+      ipcMainHandlers.set(channel, handler);
+    },
   };
   function defaultBrowserWindow() {
     return {
@@ -65,6 +69,8 @@ function loadMainModule(t, options = {}) {
         ipcMain: fakeIpcMain,
         shell: fakeShell,
         nativeTheme: fakeNativeTheme,
+        // PR1：main.js 调用 Menu.setApplicationMenu(null) 隐藏默认菜单栏
+        Menu: { setApplicationMenu: () => undefined },
       };
     }
     if (request === 'http' && options.http) {
@@ -1200,6 +1206,8 @@ test('createWindow startup path does not throw ReferenceError after restore resu
       isDestroyed: () => false,
       setBackgroundColor: () => undefined,
       once: () => undefined,
+      // PR1：mainWindow.on('maximize'/'unmaximize') 用于推送最大化状态变化
+      on: () => undefined,
       webContents: {
         on: () => undefined,
         setWindowOpenHandler: () => undefined,
@@ -1325,12 +1333,21 @@ test('createWindow startup path does not throw ReferenceError after restore resu
     setTimeout(resolve, 80);
   });
 
-  assert.equal(loadedFiles.length >= 1, true);
-  assert.equal(loadedUrls.length >= 1, true);
+  // PR2：打包模式下主页面通过 loadFile 加载（file://），不再走 loadURL。
+  // loading.html 是首次 loadFile，renderer/web/index.html 是主页面 loadFile。
+  assert.equal(loadedFiles.length >= 2, true);
   assert.match(
-    loadedUrls[0],
-    /^http:\/\/127\.0\.0\.1:\d+\/\?desktop_version=3\.12\.0&cache_bust=\d+$/
+    loadedFiles[loadedFiles.length - 1],
+    /[\\/]renderer[\\/]web[\\/]index\.html$/
   );
+  // 打包模式成功路径下不再调用 loadURL（错误回退路径才用 loadURL）
+  assert.equal(loadedUrls.length, 0);
+  // PR2：resolvedBackendUrl 应在端口确定后写入，供 preload sendSync 读取
+  const backendUrlHandler = mainModule.__getIpcMainHandler('desktop:get-backend-url');
+  assert.equal(typeof backendUrlHandler, 'function');
+  const mockEvent = {};
+  backendUrlHandler(mockEvent);
+  assert.match(mockEvent.returnValue, /^http:\/\/127\.0\.0\.1:\d+$/);
   assert.equal(updateCheckRequested, true);
   assert.equal(startupError, undefined);
   assert.equal(fs.existsSync(backupRoot), false);

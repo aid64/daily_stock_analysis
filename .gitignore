@@ -87,4 +87,6 @@ verify_*.py
 static/
 /apps/dsa-desktop/dist/
 /apps/dsa-desktop/node_modules/
+# PR2：build-backend.ps1 把 static/ 同步到 renderer/web/，供 Electron 打包后 file:// 加载
+apps/dsa-desktop/renderer/web/
 docs/specs/

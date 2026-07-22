@@ -96,6 +96,14 @@ export default defineConfig({
     __APP_PACKAGE_VERSION__: JSON.stringify(packageJson.version ?? '0.0.0'),
     __APP_BUILD_TIME__: JSON.stringify(buildTime),
   },
+  // 打包模式下前端由 Electron 通过 file:// 协议加载，必须使用相对路径
+  // 引用资源（./assets/...）；Web 端同源部署时相对路径同样可用，因此统一开启。
+  base: './',
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
   plugins: [
     tailwindcss(),
     react({
@@ -118,9 +126,19 @@ export default defineConfig({
     // 打包输出到项目根目录的 static 文件夹
     outDir: path.resolve(__dirname, '../../static'),
     emptyOutDir: true,
+    // 构建优化
+    target: 'es2022',
+    cssMinify: 'lightningcss',
+    sourcemap: false,
+    minify: 'esbuild',
+    chunkSizeWarningLimit: 1024,  // KB
     rollupOptions: {
       output: {
         manualChunks: getVendorChunkName,
+        // 优化 chunk 命名
+        chunkFileNames: 'assets/[name]-[hash:8].js',
+        entryFileNames: 'assets/[name]-[hash:8].js',
+        assetFileNames: 'assets/[name]-[hash:8][extname]',
       },
     },
   },

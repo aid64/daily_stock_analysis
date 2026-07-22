@@ -1,3 +1,5 @@
+import { desktopBackendUrl } from './desktop';
+
 const configuredApiBaseUrl = import.meta.env.VITE_API_URL?.trim();
 
 declare const __APP_PACKAGE_VERSION__: string | undefined;
@@ -6,9 +8,13 @@ declare const __APP_BUILD_TIME__: string | undefined;
 const PLACEHOLDER_WEB_VERSION = '0.0.0';
 const UNKNOWN_BUILD_TIME = '未提供';
 
-// 默认保持同源 API，避免生产/静态部署时把请求错误打到用户本机 localhost。
-// 仅在显式提供 VITE_API_URL 时才覆盖默认行为。
-export const API_BASE_URL = configuredApiBaseUrl || '';
+// 桌面端打包模式下，前端通过 file:// 加载，必须使用后端注入的绝对地址；
+// dev 模式下 desktopBackendUrl 为空字符串，回退到同源/显式配置。
+// Web 端 desktopBackendUrl 为 undefined，走原有同源逻辑。
+
+// 优先级：桌面端注入 > VITE_API_URL 显式配置 > 同源（空字符串）。
+// 空字符串表示同源，浏览器会把请求发到当前页面所在的 host。
+export const API_BASE_URL = desktopBackendUrl || configuredApiBaseUrl || '';
 
 export type WebBuildInfo = {
   version: string;

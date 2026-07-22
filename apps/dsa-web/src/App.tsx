@@ -1,16 +1,24 @@
 import type React from 'react';
 import { lazy, useEffect } from 'react';
-import { BrowserRouter as Router, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { ApiErrorAlert, Shell } from './components/common';
+import { BrowserRouter, HashRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { ApiErrorAlert } from './components/common';
 import {
   PageLoadingFallback,
   RouteOutletBoundary,
   StandaloneRouteBoundary,
 } from './components/layout/RouteBoundary';
+import { EditorialShell } from './components/layout/EditorialShell';
+import { DesktopTitleBar } from './components/layout/DesktopTitleBar';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { UiLanguageProvider, useUiLanguage } from './contexts/UiLanguageContext';
 import { useAgentChatStore } from './stores/agentChatStore';
+import { isDesktopRuntime } from './utils/desktop';
 import './App.css';
+
+// 桌面端打包模式下前端通过 file:// 加载，BrowserRouter 的 pushState 会破坏
+// 文件路径；改用 HashRouter（基于 location.hash）保证刷新与路由跳转稳定。
+// Web 端仍用 BrowserRouter，保留干净的 URL 形态。
+const Router = isDesktopRuntime ? HashRouter : BrowserRouter;
 
 const HomePage = lazy(() => import('./pages/HomePage'));
 const BacktestPage = lazy(() => import('./pages/BacktestPage'));
@@ -74,9 +82,9 @@ const AppContent: React.FC = () => {
     <Routes>
       <Route
         element={(
-          <Shell>
+          <EditorialShell>
             <RouteOutletBoundary />
-          </Shell>
+          </EditorialShell>
         )}
       >
         <Route path="/" element={<HomePage />} />
@@ -94,9 +102,23 @@ const AppContent: React.FC = () => {
   );
 };
 
+const DesktopTitleBarShell: React.FC = () => {
+  useEffect(() => {
+    if (!isDesktopRuntime) return;
+    document.documentElement.classList.add('desktop-runtime');
+    return () => {
+      document.documentElement.classList.remove('desktop-runtime');
+    };
+  }, []);
+
+  if (!isDesktopRuntime) return null;
+  return <DesktopTitleBar />;
+};
+
 const App: React.FC = () => {
   return (
     <UiLanguageProvider>
+      <DesktopTitleBarShell />
       <Router>
         <AuthProvider>
           <AppContent />

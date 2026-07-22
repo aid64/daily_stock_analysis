@@ -10,6 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 - [新功能] Multi-Agent 报告按八态用户 action 追踪 Pipeline 最终调整，排除非法 Agent 意见；仅在 canonical action 可唯一解析时生成 explanation 与 DecisionSignal，并以同一个 `final_action` 统一最终动作契约。
 - [新功能] 新增 `--portfolio futu`，只读导入 Futu OpenD 真实账户的沪深 A 股、港股、美股 LONG 正股持仓作为分析列表。
+- [修复] 桌面与 Docker 发布显式安装 `orjson`，桌面 PyInstaller 产物同时冻结并执行运行时导入探针，避免 LiteLLM 调用时报 `No module named 'orjson'`。
+- [改进] 个股报告不再单独展示“题材主线与个股位置”卡片，相关市场结构数据仍保留在分析上下文、模型 Prompt 与决策信号提取链路中。
+- [改进] 通知推送与完整 Markdown/微信报告不再重复附加“AI 决策信号”摘要，DecisionSignal 的存储、告警和 Web AI 建议页保持不变。
+- [改进] TickFlow 新增基于申万一级行业池的行业涨跌排行 fallback，并将基本面/市场结构单能力默认超时由 3 秒调整为 8 秒，降低正常慢响应被提前降级的概率。
+- [文档] 补充 macOS 未签名、未公证 DMG 被 Gatekeeper 拦截时的架构选择、安全排查与官方安装包临时放行步骤。
+- [新功能] 桌面端自绘标题栏，融合窗口控制按钮（最小化/最大化/关闭）、主题与语言切换，替代 Windows 原生 titleBarOverlay。
+- [改进] 桌面端启动进度反馈，loading 页显示当前阶段、已用时间与探针重试计数。
+- [改进] 桌面端启动加速：loading 页渲染与后端端口分配并行；health 探针首次间隔由 250ms 缩短至 100ms、最大间隔由 1500ms 缩短至 800ms。
+- [改进] 桌面端打包模式下前端改为 Electron 本地 file:// 加载（loadFile），不再经后端 HTTP 提供，降低启动延迟并消除端口耦合；dev 模式仍保留同源 loadURL。
+- [改进] 桌面端前端路由在打包模式使用 HashRouter，避免 file:// 协议下 BrowserRouter 的 pushState 破坏文件路径；Web 端保持 BrowserRouter。
+- [改进] 后端 CORS 在 DSA_DESKTOP_MODE 下显式放行 "null" origin，保证 file:// 加载的前端可携带管理员 Cookie 发起 credentialed 请求。
+- [修复] build-backend.ps1 未探测真实 Python 路径导致打包时 PyInstaller 调用 Windows Store python.exe 桩（exit 9009）。
+- [测试] 补齐桌面端 createWindow 启动路径测试：Mock Menu/ipcMain.on/BrowserWindow.on，验证 loadFile 加载 renderer/web/index.html 与 resolvedBackendUrl 注入。
 <!-- 新条目格式：- [类型] 描述（类型取值：新功能/改进/修复/文档/测试/chore）-->
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
 - [修复] #2026 外股代码映射到中文显示名时英文新闻相关性判定漏判：新增同源 STOCK_ENGLISH_NAME_MAP 单一真源、canonicalize_foreign_stock_code 规范化入口与 _foreign_english_query_terms 别名解析，使 AAPL/00700/BABA 等 ticker 即使 stock_name 为中文也能在查询构建、相关性打分与多维度情报路径上复用 canonical 英文名，并补齐 .US/.HK suffix / HK 前缀全形式的归类与回归用例；同时在 _score_news_relevance 对 alias 展开 term 做去重，避免 legal alias 展开短名与显式 short alias 重复计分。

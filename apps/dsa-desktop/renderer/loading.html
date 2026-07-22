@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -77,6 +77,19 @@
         color: var(--muted);
       }
 
+      .progress {
+        margin-top: 10px;
+        font-size: 12px;
+        color: var(--muted);
+        display: flex;
+        gap: 12px;
+        min-height: 16px;
+      }
+
+      .progress span:empty {
+        display: none;
+      }
+
       .error {
         margin-top: 16px;
         padding: 12px 14px;
@@ -119,24 +132,64 @@
   <body>
     <div class="panel">
       <h1 class="title">Daily Stock Analysis</h1>
-      <p class="subtitle">Launching local analysis service</p>
+      <p class="subtitle">正在启动本地分析服务</p>
       <div class="status">
         <span class="dot"></span>
-        <span>Preparing backend and loading UI...</span>
+        <span id="statusText">正在准备后端服务...</span>
       </div>
-      <p class="tips">If this takes long, check your API keys and network connectivity.</p>
+      <div class="progress">
+        <span id="elapsedText">0.0s</span>
+        <span id="attemptsText"></span>
+      </div>
+      <p class="tips">如长时间无响应，请检查 API 密钥配置与网络连接。</p>
       <div class="error" id="errorBox"></div>
     </div>
     <script>
       (function () {
-        const params = new URLSearchParams(window.location.search);
-        const error = params.get('error');
-        if (!error) return;
-        const box = document.getElementById('errorBox');
-        if (!box) return;
-        box.textContent = `Error: ${decodeURIComponent(error)}`;
-        box.style.display = 'block';
+        var params = new URLSearchParams(window.location.search);
+        var error = params.get('error');
+        if (error) {
+          var box = document.getElementById('errorBox');
+          if (box) {
+            box.textContent = 'Error: ' + decodeURIComponent(error);
+            box.style.display = 'block';
+          }
+        }
+
+        var statusText = document.getElementById('statusText');
+        var elapsedText = document.getElementById('elapsedText');
+        var attemptsText = document.getElementById('attemptsText');
+        var startedAt = Date.now();
+
+        function formatElapsed(ms) {
+          var safe = Math.max(0, ms || 0);
+          var seconds = Math.floor(safe / 1000);
+          var tenths = Math.floor((safe % 1000) / 100);
+          return seconds + '.' + tenths + 's';
+        }
+
+        // 本地计时器：持续更新已用时间，让用户在 IPC 事件间隙也能感知"在动"
+        setInterval(function () {
+          if (elapsedText) {
+            elapsedText.textContent = formatElapsed(Date.now() - startedAt);
+          }
+        }, 200);
+
+        // 监听 main 进程推送的启动进度（preload 注入的 onStartupProgress）
+        var desktop = window.dsaDesktop;
+        if (desktop && typeof desktop.onStartupProgress === 'function') {
+          desktop.onStartupProgress(function (payload) {
+            if (!payload) return;
+            if (payload.message && statusText) {
+              statusText.textContent = payload.message;
+            }
+            if (attemptsText) {
+              if (typeof payload.attempts === 'number' && payload.attempts > 0) {
+                attemptsText.textContent = '尝试 ' + payload.attempts + ' 次';
+              } else {
+                attemptsText.textContent = '';
+              }
+            }
+          });
+        }
       })();
-    </script>
-  </body>
-</html>

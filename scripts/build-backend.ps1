@@ -8,10 +8,42 @@ if (!(Test-Path 'node_modules')) {
 npm run build
 Pop-Location
 
-$pythonBin = $env:PYTHON_BIN
-if ([string]::IsNullOrWhiteSpace($pythonBin)) {
-  $pythonBin = 'python'
+# PR2：将前端构建产物同步到桌面端 renderer/web/，供 Electron 打包后通过 file:// 加载。
+# vite outDir 仍为 ../../static（保留 web 模式与 PyInstaller --add-data static;static 行为不变），
+# 此处把 static/ 复制到 apps/dsa-desktop/renderer/web/，electron-builder files glob (renderer/**/*) 会打包进去。
+$rendererWebDir = Join-Path $PSScriptRoot '..\apps\dsa-desktop\renderer\web'
+if (Test-Path $rendererWebDir) {
+  Remove-Item -Recurse -Force $rendererWebDir
 }
+New-Item -ItemType Directory -Force -Path $rendererWebDir | Out-Null
+Copy-Item -Path (Join-Path $PSScriptRoot '..\static\*') -Destination $rendererWebDir -Recurse -Force
+Write-Host "Synced static assets to $($rendererWebDir)"
+
+# Resolve Python executable: honor $env:PYTHON_BIN if set, otherwise probe
+# %LOCALAPPDATA%\Programs\Python\PythonXXX\python.exe to avoid the Windows Store
+# python.exe stub (which exits 9009 without running anything).
+function Resolve-PythonBin {
+  if (-not [string]::IsNullOrWhiteSpace($env:PYTHON_BIN)) {
+    return $env:PYTHON_BIN
+  }
+  $localAppData = $env:LOCALAPPDATA
+  if ($localAppData) {
+    $programsPythonDir = Join-Path $localAppData 'Programs\Python'
+    if (Test-Path $programsPythonDir) {
+      $candidates = @(Get-ChildItem -Path $programsPythonDir -Directory |
+        Where-Object { $_.Name -match '^Python\d+$' } |
+        ForEach-Object { Join-Path $_.FullName 'python.exe' } |
+        Where-Object { Test-Path $_ } |
+        Sort-Object Name -Descending)
+      if ($candidates.Count -gt 0) {
+        return $candidates[0]
+      }
+    }
+  }
+  return 'python'
+}
+
+$pythonBin = Resolve-PythonBin
 
 Write-Host "Using Python: $pythonBin"
 
