@@ -30,7 +30,7 @@ class AppCorsConfigTestCase(unittest.TestCase):
 
     def test_allow_all_warns_when_auth_is_disabled(self):
         with patch.dict(os.environ, {"CORS_ALLOW_ALL": "true"}, clear=False), \
-             patch("api.app.is_auth_enabled", return_value=False), \
+             patch("src.auth.is_auth_enabled", return_value=False), \
              patch("api.app.logger.warning") as warning:
             self._build_app()
 
@@ -40,7 +40,7 @@ class AppCorsConfigTestCase(unittest.TestCase):
 
     def test_allow_all_does_not_warn_when_auth_is_enabled(self):
         with patch.dict(os.environ, {"CORS_ALLOW_ALL": "true"}, clear=False), \
-             patch("api.app.is_auth_enabled", return_value=True), \
+             patch("src.auth.is_auth_enabled", return_value=True), \
              patch("api.app.logger.warning") as warning:
             self._build_app()
 

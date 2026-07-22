@@ -13,6 +13,12 @@ const STOCK_HISTORY_PAGE_SIZE = 20;
 const MARKET_REVIEW_HISTORY_PAGE_SIZE = 10;
 const MARKET_REVIEW_HISTORY_CODE = 'MARKET';
 
+// Skip redundant refetch when the same data was loaded within this window.
+// Avoids hammering /api/v1/history and /api/v1/history/stocks on every route
+// remount / dashboard mount. See desktop-startup-perf L6.4.
+const INITIAL_HISTORY_FRESH_MS = 30_000;
+const STOCK_BAR_FRESH_MS = 30_000;
+
 type SelectionSource = 'manual' | 'autocomplete' | 'import' | 'image';
 
 type FetchHistoryOptions = {
@@ -89,6 +95,8 @@ export interface StockPoolState {
   stockBarItems: StockBarItem[];
   isLoadingStockBar: boolean;
   stockBarRefreshFailed: boolean;
+  initialHistoryFetchedAt: number | null;
+  stockBarFetchedAt: number | null;
   setQuery: (query: string) => void;
   clearError: () => void;
   clearInlineMessages: () => void;
@@ -166,6 +174,8 @@ const initialState = {
   stockBarItems: [] as StockBarItem[],
   isLoadingStockBar: false,
   stockBarRefreshFailed: false,
+  initialHistoryFetchedAt: null,
+  stockBarFetchedAt: null,
 };
 
 function buildHistoryParams(page: number) {
@@ -656,7 +666,14 @@ export const useStockPoolStore = create<StockPoolState>((set, get) => ({
   },
 
   loadInitialHistory: async () => {
+    // Skip refetch if the same data was loaded within the fresh window —
+    // avoids re-hitting /api/v1/history on every dashboard remount.
+    const fetchedAt = get().initialHistoryFetchedAt;
+    if (fetchedAt !== null && Date.now() - fetchedAt < INITIAL_HISTORY_FRESH_MS) {
+      return;
+    }
     await fetchHistory(get, set, { autoSelectFirst: true, reset: true });
+    set({ initialHistoryFetchedAt: Date.now() });
   },
 
   refreshHistory: async (silent = false) => {
@@ -1052,6 +1069,12 @@ export const useStockPoolStore = create<StockPoolState>((set, get) => ({
   loadStockBar: async () => {
     const state = get();
     if (state.isLoadingStockBar) return;
+    // Skip refetch if stock bar was loaded within the fresh window —
+    // avoids re-hitting /api/v1/history/stocks on every dashboard remount.
+    const fetchedAt = state.stockBarFetchedAt;
+    if (fetchedAt !== null && Date.now() - fetchedAt < STOCK_BAR_FRESH_MS) {
+      return;
+    }
     const requestSeq = ++stockBarRequestSeq;
     set({ isLoadingStockBar: true });
     try {
@@ -1062,7 +1085,7 @@ export const useStockPoolStore = create<StockPoolState>((set, get) => ({
       if (requestSeq !== stockBarRequestSeq) {
         return;
       }
-      set({ stockBarItems: response.items, stockBarRefreshFailed: false });
+      set({ stockBarItems: response.items, stockBarRefreshFailed: false, stockBarFetchedAt: Date.now() });
     } catch {
       if (requestSeq !== stockBarRequestSeq) {
         return;

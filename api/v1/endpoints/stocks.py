@@ -28,16 +28,10 @@ from api.v1.schemas.stocks import (
 )
 from api.v1.schemas.history import WatchlistRequest, WatchlistResponse
 from api.v1.schemas.common import ErrorResponse
-from src.services.image_stock_extractor import (
-    ALLOWED_MIME,
-    MAX_SIZE_BYTES,
-    extract_stock_codes_from_image,
-)
-from src.services.import_parser import (
-    MAX_FILE_BYTES,
-    parse_import_from_bytes,
-    parse_import_from_text,
-)
+# 启动加速：重模块改为函数级 lazy import，避免 FastAPI app 创建时触发 pandas / PIL 等链式加载。
+# - image_stock_extractor: 链式触发 src.llm.hermes（潜在重模块）
+# - import_parser: 顶层 `import pandas as pd`，加载耗时 ~0.5-1s
+# - stock_service: 轻量（仅依赖 src.repositories.stock_repo），保留顶层方便类型注解
 from src.services.stock_service import StockService
 from src.services.stock_list_parser import split_stock_list
 from src.services.system_config_service import SystemConfigService
@@ -47,8 +41,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# 须在 /{stock_code} 路由之前定义
-ALLOWED_MIME_STR = ", ".join(ALLOWED_MIME)
+# ALLOWED_MIME / MAX_SIZE_BYTES / MAX_FILE_BYTES 改为运行时从对应 service 模块读取，
+# 避免顶层 import 触发链式加载。详见 _get_image_extractor / _get_import_parser。
 
 
 def _read_watchlist_codes(service: SystemConfigService) -> list:
@@ -138,6 +132,13 @@ def extract_from_image(
 
     表单字段请使用 file 上传图片。优先级：Gemini / Anthropic / OpenAI（首个可用）。
     """
+    # L2.3b：函数级 lazy import，避免 FastAPI app 创建时触发 image_stock_extractor → src.llm.hermes 链式加载
+    from src.services.image_stock_extractor import (
+        ALLOWED_MIME,
+        MAX_SIZE_BYTES,
+        extract_stock_codes_from_image,
+    )
+
     if not file or not file.filename:
         raise HTTPException(
             status_code=400,
@@ -150,7 +151,7 @@ def extract_from_image(
             status_code=400,
             detail={
                 "error": "unsupported_type",
-                "message": f"不支持的类型: {content_type}。允许: {ALLOWED_MIME_STR}",
+                "message": f"不支持的类型: {content_type}。允许: {', '.join(ALLOWED_MIME)}",
             },
         )
 
@@ -214,6 +215,13 @@ async def parse_import(request: Request) -> ExtractFromImageResponse:
     - application/json + {"text": "..."}: 粘贴文本
     - 优先使用 file，若同时提供则忽略 text
     """
+    # L2.3b：函数级 lazy import，避免 FastAPI app 创建时触发 import_parser → pandas 链式加载（~0.5-1s）
+    from src.services.import_parser import (
+        MAX_FILE_BYTES,
+        parse_import_from_bytes,
+        parse_import_from_text,
+    )
+
     content_type = (request.headers.get("content-type") or "").lower()
 
     if "application/json" in content_type:

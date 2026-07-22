@@ -18,6 +18,7 @@ from unittest.mock import Mock, patch
 
 import requests
 
+from tests.conftest import safe_cleanup_temp_dir
 from src.config import Config
 from src.repositories.intelligence_repo import IntelligenceRepository
 from src.services.intelligence_service import IntelligenceService, IntelligenceServiceError
@@ -102,7 +103,7 @@ class IntelligenceServiceTestCase(unittest.TestCase):
             "NEWS_INTEL_AUTO_FETCH_ENABLED",
         ]:
             os.environ.pop(key, None)
-        self._temp_dir.cleanup()
+        safe_cleanup_temp_dir(self._temp_dir)
 
     def _mock_response(self, source_url: str = "https://feeds.example.com/rss.xml"):
         response = Mock()

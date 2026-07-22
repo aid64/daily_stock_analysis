@@ -27,6 +27,7 @@ from src.services.alert_service import AlertService
 from src.services.alert_worker import AlertWorker
 from src.services.decision_signal_service import DecisionSignalService
 from src.storage import DatabaseManager
+from tests.conftest import safe_cleanup_temp_dir
 
 
 class AlertIndicatorHelperTestCase(unittest.TestCase):
@@ -250,7 +251,7 @@ class AlertWorkerTestCase(unittest.TestCase):
         Config.reset_instance()
         os.environ.pop("ENV_FILE", None)
         os.environ.pop("DATABASE_PATH", None)
-        self.temp_dir.cleanup()
+        safe_cleanup_temp_dir(self.temp_dir)
 
     def _config(self, raw_rules: str = "") -> SimpleNamespace:
         return SimpleNamespace(

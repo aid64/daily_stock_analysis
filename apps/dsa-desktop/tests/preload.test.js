@@ -163,3 +163,130 @@ test('createDesktopBridge delegates update actions to ipcRenderer', async (t) =>
   assert.deepEqual(receivedPayloads, [{ status: 'update-available' }]);
   assert.equal(listeners.has(preloadModule.DESKTOP_UPDATE_STATE_EVENT), false);
 });
+
+test('createDesktopBridge delegates backend ready/error events to ipcRenderer', (t) => {
+  const originalLoad = Module._load;
+  const listeners = new Map();
+  const ipcRenderer = {
+    invoke: async () => undefined,
+    on: (channel, listener) => {
+      listeners.set(channel, listener);
+    },
+    removeListener: (channel, listener) => {
+      const current = listeners.get(channel);
+      if (current === listener) {
+        listeners.delete(channel);
+      }
+    },
+  };
+
+  const preloadPath = require.resolve('../preload.js');
+  t.after(() => {
+    Module._load = originalLoad;
+    delete require.cache[preloadPath];
+  });
+
+  Module._load = function patchedLoad(request, parent, isMain) {
+    if (request === 'electron') {
+      return {
+        contextBridge: { exposeInMainWorld: () => undefined },
+        ipcRenderer,
+      };
+    }
+    return originalLoad.call(this, request, parent, isMain);
+  };
+
+  delete require.cache[preloadPath];
+  const preloadModule = require('../preload.js');
+  const desktopBridge = preloadModule.createDesktopBridge({
+    version: '3.12.0',
+    renderer: ipcRenderer,
+  });
+
+  // onBackendReady: 订阅 BACKEND_READY_EVENT,收到事件后 listener 被以 payload 调用
+  const readyPayloads = [];
+  const unsubReady = desktopBridge.onBackendReady((payload) => {
+    readyPayloads.push(payload);
+  });
+  assert.equal(listeners.has(preloadModule.BACKEND_READY_EVENT), true);
+  listeners.get(preloadModule.BACKEND_READY_EVENT)(null, { backendUrl: 'http://127.0.0.1:8765' });
+  assert.deepEqual(readyPayloads, [{ backendUrl: 'http://127.0.0.1:8765' }]);
+  unsubReady();
+  assert.equal(listeners.has(preloadModule.BACKEND_READY_EVENT), false);
+
+  // onBackendError: 订阅 BACKEND_ERROR_EVENT,收到事件后 listener 被以 payload 调用
+  const errorPayloads = [];
+  const unsubError = desktopBridge.onBackendError((payload) => {
+    errorPayloads.push(payload);
+  });
+  assert.equal(listeners.has(preloadModule.BACKEND_ERROR_EVENT), true);
+  listeners.get(preloadModule.BACKEND_ERROR_EVENT)(null, { message: 'timeout' });
+  assert.deepEqual(errorPayloads, [{ message: 'timeout' }]);
+  unsubError();
+  assert.equal(listeners.has(preloadModule.BACKEND_ERROR_EVENT), false);
+
+  // onBackendReady/onBackendError 对非函数 listener 返回 no-op unsubscribe,不抛错
+  const noopReady = desktopBridge.onBackendReady(null);
+  const noopError = desktopBridge.onBackendError(undefined);
+  assert.equal(typeof noopReady, 'function');
+  assert.equal(typeof noopError, 'function');
+  assert.equal(noopReady(), undefined);
+  assert.equal(noopError(), undefined);
+});
+
+test('createDesktopBridge.pollBackendHealth returns response.ok and tolerates fetch errors', async (t) => {
+  const originalLoad = Module._load;
+  const originalFetch = globalThis.fetch;
+  const fetchCalls = [];
+  const ipcRenderer = {
+    invoke: async () => undefined,
+    on: () => undefined,
+    removeListener: () => undefined,
+  };
+
+  const preloadPath = require.resolve('../preload.js');
+  t.after(() => {
+    Module._load = originalLoad;
+    globalThis.fetch = originalFetch;
+    delete require.cache[preloadPath];
+  });
+
+  Module._load = function patchedLoad(request, parent, isMain) {
+    if (request === 'electron') {
+      return {
+        contextBridge: { exposeInMainWorld: () => undefined },
+        ipcRenderer,
+      };
+    }
+    return originalLoad.call(this, request, parent, isMain);
+  };
+
+  delete require.cache[preloadPath];
+  const preloadModule = require('../preload.js');
+  const desktopBridge = preloadModule.createDesktopBridge({
+    version: '3.12.0',
+    renderer: ipcRenderer,
+  });
+
+  // Happy path:response.ok=true → pollBackendHealth 返回 true,URL 拼接正确
+  globalThis.fetch = async (url, options) => {
+    fetchCalls.push({ url, options });
+    return { ok: true };
+  };
+  const ok = await desktopBridge.pollBackendHealth('http://127.0.0.1:8765');
+  assert.equal(ok, true);
+  assert.equal(fetchCalls.length, 1);
+  assert.equal(fetchCalls[0].url, 'http://127.0.0.1:8765/api/v1/health');
+
+  // response.ok=false → 返回 false
+  globalThis.fetch = async () => ({ ok: false });
+  const notOk = await desktopBridge.pollBackendHealth('http://127.0.0.1:8765');
+  assert.equal(notOk, false);
+
+  // fetch 抛错 → 返回 false,不向上抛
+  globalThis.fetch = async () => {
+    throw new Error('network unreachable');
+  };
+  const errored = await desktopBridge.pollBackendHealth('http://127.0.0.1:8765');
+  assert.equal(errored, false);
+});

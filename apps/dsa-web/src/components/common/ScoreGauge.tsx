@@ -1,6 +1,6 @@
 import type React from 'react';
 import { useState, useEffect, useRef } from 'react';
-import { useTheme } from 'next-themes';
+import { useTheme } from '@/stores/themeStore';
 import { getSentimentLabel, type ReportLanguage } from '../../types/analysis';
 import { cn } from '../../utils/cn';
 import { normalizeReportLanguage, getReportText } from '../../utils/reportLanguage';

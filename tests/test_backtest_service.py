@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
+from tests.conftest import safe_cleanup_temp_dir
 from data_provider.base import normalize_stock_code
 from src.config import Config
 from src.core.backtest_engine import OVERALL_SENTINEL_CODE
@@ -168,7 +169,7 @@ class BacktestServiceTestCase(unittest.TestCase):
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
-        self._temp_dir.cleanup()
+        safe_cleanup_temp_dir(self._temp_dir)
 
     def _count_results(self) -> int:
         with self.db.get_session() as session:

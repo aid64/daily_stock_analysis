@@ -18,6 +18,8 @@ from tests.litellm_stub import ensure_litellm_stub
 
 ensure_litellm_stub()
 
+from tests.conftest import safe_cleanup_temp_dir
+
 from src.config import ANSPIRE_LLM_MODEL_DEFAULT, DEFAULT_ALPHASIFT_INSTALL_SPEC, Config
 from src.core.config_manager import ConfigManager
 from src.llm.backend_registry import GENERATION_ONLY_BACKEND_IDS
@@ -40,6 +42,8 @@ class SystemConfigServiceTestCase(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+        # 保存 os.environ 快照，tearDown 中恢复，避免 setup_env(override=True) 污染后续测试。
+        self._saved_environ = dict(os.environ)
         os.environ["ENV_FILE"] = str(self.env_path)
         Config.reset_instance()
 
@@ -48,8 +52,16 @@ class SystemConfigServiceTestCase(unittest.TestCase):
 
     def tearDown(self) -> None:
         Config.reset_instance()
-        os.environ.pop("ENV_FILE", None)
-        self.temp_dir.cleanup()
+        # 重置 _reload_runtime_singletons 触发的全局单例（fetcher_manager / search_service），
+        # 避免上一个测试 update(reload_now=True) 残留的单例污染后续测试。
+        try:
+            SystemConfigService._reload_runtime_singletons()
+        except Exception:
+            pass
+        # 恢复 os.environ，移除 setup_env(override=True) 写入的 .env 变量。
+        os.environ.clear()
+        os.environ.update(self._saved_environ)
+        safe_cleanup_temp_dir(self.temp_dir)
 
     def _rewrite_env(self, *lines: str) -> None:
         self.env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")

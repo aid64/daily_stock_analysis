@@ -79,6 +79,7 @@ class AnalysisContextBuilder:
 
     @staticmethod
     def build(artifacts: PipelineAnalysisArtifacts) -> AnalysisContextPack:
+        """从 pipeline 已抓取的 artifacts 构建 AnalysisContextPack（不重新发起请求）。"""
         metadata = dict(artifacts.metadata or {})
         if artifacts.news_result_count is not None:
             metadata["news_result_count"] = artifacts.news_result_count

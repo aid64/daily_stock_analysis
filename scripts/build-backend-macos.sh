@@ -117,9 +117,24 @@ for module in "${hidden_imports[@]}"; do
 done
 
 pushd "${ROOT_DIR}" >/dev/null
-cmd=("${PYTHON_BIN}" -m PyInstaller --name stock_analysis --onedir --noconfirm --noconsole --add-data "static:static" --add-data "strategies:strategies" --collect-data litellm --collect-data tiktoken --collect-data akshare)
+cmd=("${PYTHON_BIN}" -m PyInstaller --name stock_analysis --onedir --noconfirm --noconsole --add-data "strategies:strategies" --collect-data litellm --collect-data tiktoken --collect-data akshare)
 cmd+=("--collect-all" "alphasift")
 cmd+=("--collect-all" "futu")
+cmd+=("--collect-all" "nacl")
+cmd+=("--optimize" "2")
+cmd+=("--exclude-module" "playwright")
+cmd+=("--exclude-module" "playwright._impl")
+cmd+=("--exclude-module" "hf_xet")
+cmd+=("--exclude-module" "discord")
+cmd+=("--exclude-module" "pytest")
+cmd+=("--exclude-module" "IPython")
+cmd+=("--exclude-module" "jupyter")
+# Web/CLI mode needs static/ for SPA; desktop mode (DSA_DESKTOP_BUILD=true) loads
+# frontend via Electron loadFile on apps/dsa-desktop/renderer/web/, so backend
+# _internal does not need static/ (saves ~5.3MB).
+if [[ "${DSA_DESKTOP_BUILD:-}" != "true" ]]; then
+  cmd+=("--add-data" "static:static")
+fi
 cmd+=("${hidden_import_args[@]}" "main.py")
 
 echo "Running: ${cmd[*]}"
@@ -144,7 +159,7 @@ if ! "${packaged_entry}" --help >/tmp/dsa-packaged-help.log 2>&1; then
   exit 1
 fi
 
-for module in alphasift.dsa_adapter futu orjson; do
+for module in alphasift.dsa_adapter futu orjson litellm nacl.signing; do
   if DSA_PACKAGED_IMPORT_PROBE="${module}" "${packaged_entry}" >/tmp/dsa-packaged-import.log 2>&1; then
     cat /tmp/dsa-packaged-import.log
   else
@@ -171,6 +186,8 @@ if [[ ! -d "${packaged_static}" ]]; then
 fi
 if [[ -d "${packaged_static}" ]]; then
   "${PYTHON_BIN}" "${SCRIPT_DIR}/check_static_assets.py" "${packaged_static}"
+elif [[ "${DSA_DESKTOP_BUILD:-}" == "true" ]]; then
+  log "DSA_DESKTOP_BUILD=true: static/ intentionally omitted from backend _internal; frontend is bundled via apps/dsa-desktop/renderer/web/."
 else
   log "WARNING: could not locate packaged static directory under dist/backend/stock_analysis; skipping post-package check."
 fi

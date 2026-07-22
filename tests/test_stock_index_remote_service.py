@@ -235,3 +235,78 @@ def test_settings_from_config_uses_internal_remote_url_only() -> None:
 def test_validate_stock_index_payload_rejects_bad_payloads(payload: object) -> None:
     with pytest.raises(ValueError):
         service.validate_stock_index_payload(payload)
+
+
+def test_settings_from_config_honors_timeout_env_override(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """STOCK_INDEX_REMOTE_TIMEOUT_SECONDS env 覆盖默认 timeout（弱网调优入口）。"""
+    monkeypatch.setenv("STOCK_INDEX_REMOTE_TIMEOUT_SECONDS", "5")
+    config = SimpleNamespace(stock_index_remote_update_enabled=True)
+
+    settings = service.settings_from_config(config)
+
+    assert settings.timeout_seconds == 5
+
+
+def test_refresh_remote_stock_index_cache_uses_env_timeout_for_requests_get(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """STOCK_INDEX_REMOTE_TIMEOUT_SECONDS=5 时 requests.get 收到 timeout=5。
+
+    env override 通过 settings_from_config 注入到 RemoteStockIndexSettings.timeout_seconds，
+    再由 _download_remote_stock_index 透传给 requests.get。直接构造 RemoteStockIndexSettings
+    不会读 env，这是有意设计：env 是 config 层覆盖，不是全局运行时覆盖。
+    """
+    monkeypatch.setenv("STOCK_INDEX_REMOTE_TIMEOUT_SECONDS", "5")
+    cache_path = tmp_path / "stocks.index.json"
+    config = SimpleNamespace(stock_index_remote_update_enabled=True)
+    # 走 settings_from_config 才会读 env override
+    base_settings = service.settings_from_config(config)
+    settings = service.RemoteStockIndexSettings(
+        enabled=base_settings.enabled,
+        url=base_settings.url,
+        ttl_hours=base_settings.ttl_hours,
+        timeout_seconds=base_settings.timeout_seconds,
+        cache_path=cache_path,
+    )
+
+    with patch.object(service.requests, "get", return_value=_response(_stock_index_payload())) as get:
+        result = service.refresh_remote_stock_index_cache(settings)
+
+    assert result.refreshed is True
+    get.assert_called_once_with(service.DEFAULT_STOCK_INDEX_REMOTE_URL, timeout=5)
+
+
+def test_refresh_remote_stock_index_cache_suppresses_after_env_max_failures(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """STOCK_INDEX_REMOTE_MAX_FAILURES=2 时连续 2 次失败后第 3 次进入 suppressed。"""
+    monkeypatch.setenv("STOCK_INDEX_REMOTE_MAX_FAILURES", "2")
+    cache_path = tmp_path / "stocks.index.json"
+    settings = service.RemoteStockIndexSettings(cache_path=cache_path, ttl_hours=48)
+
+    with patch.object(service.requests, "get", side_effect=TimeoutError("timeout")) as get:
+        results = [service.refresh_remote_stock_index_cache(settings) for _ in range(4)]
+
+    # max_failures=2 → 只会真正发起 2 次远程请求，第 3 次起被 suppressed
+    assert get.call_count == 2
+    assert results[-1].skipped is True
+    assert results[-1].error == "remote update temporarily suppressed after repeated failures"
+
+
+def test_env_int_falls_back_to_default_on_invalid_value(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """非法 env 值（负数 / 非数字）退化为默认值，保持原有契约。"""
+    monkeypatch.setenv("STOCK_INDEX_REMOTE_TIMEOUT_SECONDS", "not-a-number")
+    assert service._resolve_remote_timeout_seconds() == service.DEFAULT_STOCK_INDEX_REMOTE_TIMEOUT_SECONDS
+
+    monkeypatch.setenv("STOCK_INDEX_REMOTE_TIMEOUT_SECONDS", "0")
+    assert service._resolve_remote_timeout_seconds() == service.DEFAULT_STOCK_INDEX_REMOTE_TIMEOUT_SECONDS
+
+    monkeypatch.setenv("STOCK_INDEX_REMOTE_TIMEOUT_SECONDS", "-3")
+    assert service._resolve_remote_timeout_seconds() == service.DEFAULT_STOCK_INDEX_REMOTE_TIMEOUT_SECONDS
+
+    monkeypatch.delenv("STOCK_INDEX_REMOTE_TIMEOUT_SECONDS", raising=False)
+    assert service._resolve_remote_timeout_seconds() == service.DEFAULT_STOCK_INDEX_REMOTE_TIMEOUT_SECONDS

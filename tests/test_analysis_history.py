@@ -37,6 +37,7 @@ except ModuleNotFoundError:
     get_history_list = None
     get_stock_bar = None
 
+from tests.conftest import safe_cleanup_temp_dir
 from src.config import Config
 from src.storage import (
     DatabaseManager,
@@ -155,7 +156,7 @@ class AnalysisHistoryTestCase(unittest.TestCase):
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
-        self._temp_dir.cleanup()
+        safe_cleanup_temp_dir(self._temp_dir)
 
     def test_history_timestamps_include_server_timezone_offset(self) -> None:
         serialized = HistoryService._serialize_created_at(datetime(2026, 7, 11, 0, 30))

@@ -1,18 +1,20 @@
 # -*- coding: utf-8 -*-
 """
 ===================================
-A股自选股智能分析系统 - 存储层
+Daily Stock Analysis — 数据存储层
 ===================================
 
 职责：
-1. 管理 SQLite 数据库连接（单例模式）
-2. 定义 ORM 数据模型
-3. 提供数据存取接口
-4. 实现智能更新逻辑（断点续传）
+1. 管理 SQLite 数据库连接（单例模式，WAL 模式）
+2. 定义 ORM 数据模型（Stocks / News / Intelligence / Reports / Backtests）
+3. 提供数据存取接口与断点续传
+4. Schema 版本管理（增量迁移）
+5. 智能更新策略：检查 → 获取 → 合并
 """
 
 import atexit
 from contextlib import contextmanager
+import gc
 import hashlib
 import json
 import logging
@@ -21,7 +23,6 @@ import time
 from datetime import datetime, date, timedelta, timezone
 from typing import Optional, List, Dict, Any, TYPE_CHECKING, Tuple, Callable, TypeVar, Union
 
-import pandas as pd
 from sqlalchemy import (
     create_engine,
     Column,
@@ -69,6 +70,7 @@ INTELLIGENCE_ITEM_NULL_SCOPE_VALUE = "__dsa_null_scope__"
 Base = declarative_base()
 
 if TYPE_CHECKING:
+    import pandas as pd
     from src.search_service import SearchResponse
 
 
@@ -1222,7 +1224,8 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
 
             # 注册退出钩子，确保程序退出时关闭数据库连接
             atexit.register(DatabaseManager._cleanup_engine, self._engine)
-        except Exception:
+        except Exception as exc:
+            logger.exception("数据库初始化失败: %s", exc)
             self._initialized = False
             try:
                 if created_engine is not None:
@@ -1254,7 +1257,8 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                 existing = verify_session.get(DatabaseSchemaMigration, CURRENT_SCHEMA_VERSION)
             if existing is None:
                 raise
-        except Exception:
+        except Exception as exc:
+            logger.exception("Schema migration record插入失败: %s", exc)
             session.rollback()
             raise
         finally:
@@ -1634,9 +1638,22 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
         with cls._init_lock:
             if cls._instance is not None:
                 if hasattr(cls._instance, '_engine') and cls._instance._engine is not None:
-                    cls._instance._engine.dispose()
+                    try:
+                        cls._instance._engine.dispose()
+                    finally:
+                        # 从 atexit 钩子中移除 _cleanup_engine，避免持有 engine 引用阻止垃圾回收。
+                        # Windows 上 atexit 持有的 engine 引用会让 SQLite 文件句柄延迟释放，
+                        # 导致 TemporaryDirectory.cleanup() 抛 PermissionError [WinError 32]。
+                        # 单例模式下只有一个 engine，unregister 安全。
+                        try:
+                            atexit.unregister(cls._cleanup_engine)
+                        except Exception:
+                            pass
+                        cls._instance._engine = None
                 cls._instance._initialized = False
                 cls._instance = None
+                # 强制垃圾回收，确保 SQLAlchemy 连接和 SQLite 文件句柄被释放。
+                gc.collect()
 
     @classmethod
     def _cleanup_engine(cls, engine) -> None:
@@ -1740,6 +1757,8 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
     def _normalize_daily_date(value: Any) -> Any:
         if isinstance(value, str):
             return datetime.strptime(value, '%Y-%m-%d').date()
+        import pandas as pd
+
         if isinstance(value, pd.Timestamp):
             return value.date()
         if isinstance(value, datetime):
@@ -1748,6 +1767,8 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
 
     @staticmethod
     def _normalize_sql_value(value: Any) -> Any:
+        import pandas as pd
+
         return None if pd.isna(value) else value
     
     def get_session(self) -> Session:
@@ -2445,6 +2466,90 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
             )
             return result.rowcount or 0
 
+    def purge_expired_llm_usage(self, retention_days: int) -> int:
+        """删除超过保留天数的 LLM 调用记录。
+
+        Args:
+            retention_days: 保留天数；<=0 表示不清理，直接返回 0。
+
+        Returns:
+            实际删除的行数。
+        """
+        if int(retention_days) <= 0:
+            return 0
+        cutoff = datetime.now() - timedelta(days=int(retention_days))
+        with self.session_scope() as session:
+            result = session.execute(
+                delete(LLMUsage).where(LLMUsage.called_at < cutoff)
+            )
+            session.commit()
+            return int(result.rowcount or 0)
+
+    def purge_expired_decision_signals(self, retention_days: int) -> int:
+        """删除超过保留天数的决策信号及其子表（outcome / feedback）。
+
+        Args:
+            retention_days: 保留天数；<=0 表示不清理，直接返回 0。
+
+        Returns:
+            实际删除的主表（decision_signals）行数。
+        """
+        if int(retention_days) <= 0:
+            return 0
+        cutoff = datetime.now() - timedelta(days=int(retention_days))
+        with self.session_scope() as session:
+            expired_ids = sorted(
+                session.execute(
+                    select(DecisionSignalRecord.id).where(
+                        DecisionSignalRecord.created_at < cutoff
+                    )
+                ).scalars().all()
+            )
+            if not expired_ids:
+                return 0
+            session.execute(
+                delete(DecisionSignalOutcomeRecord).where(
+                    DecisionSignalOutcomeRecord.signal_id.in_(expired_ids)
+                )
+            )
+            session.execute(
+                delete(DecisionSignalFeedbackRecord).where(
+                    DecisionSignalFeedbackRecord.signal_id.in_(expired_ids)
+                )
+            )
+            result = session.execute(
+                delete(DecisionSignalRecord).where(
+                    DecisionSignalRecord.id.in_(expired_ids)
+                )
+            )
+            session.commit()
+            return int(result.rowcount or 0)
+
+    def purge_expired_analysis_history(self, retention_days: int) -> int:
+        """删除超过保留天数的分析历史记录（含关联决策信号与回测结果）。
+
+        复用 delete_analysis_history_records 的级联清理逻辑，避免依赖历史记录的
+        派生数据（DecisionSignal / BacktestResult）残留。
+
+        Args:
+            retention_days: 保留天数；<=0 表示不清理，直接返回 0。
+
+        Returns:
+            实际删除的历史记录行数。
+        """
+        if int(retention_days) <= 0:
+            return 0
+        cutoff = datetime.now() - timedelta(days=int(retention_days))
+        with self.session_scope() as session:
+            expired_ids = sorted(
+                session.execute(
+                    select(AnalysisHistory.id).where(AnalysisHistory.created_at < cutoff)
+                ).scalars().all()
+            )
+        if not expired_ids:
+            return 0
+        return self.delete_analysis_history_records(expired_ids)
+
     def get_distinct_stocks_from_history(
         self,
         start_date: Optional[date] = None,
@@ -2576,8 +2681,8 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
             return list(results)
     
     def save_daily_data(
-        self, 
-        df: pd.DataFrame, 
+        self,
+        df: "pd.DataFrame",
         code: str,
         data_source: str = "Unknown"
     ) -> int:
@@ -3531,8 +3636,10 @@ def _coerce_llm_usage_non_negative_int(value: Any) -> Optional[int]:
 
 if __name__ == "__main__":
     # 测试代码
+    import pandas as pd
+
     logging.basicConfig(level=logging.DEBUG)
-    
+
     db = get_db()
     
     print("=== 数据库测试 ===")

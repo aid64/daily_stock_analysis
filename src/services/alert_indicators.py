@@ -26,6 +26,7 @@ MAX_REQUESTED_DAYS = 365
 
 @dataclass
 class TechnicalIndicatorAlert:
+    """单只股票的技术指标告警配置（含指标类型、参数与元数据）。"""
     stock_code: str
     alert_type: str
     indicator_params: Dict[str, Any]
@@ -34,6 +35,7 @@ class TechnicalIndicatorAlert:
 
 @dataclass
 class IndicatorEvaluation:
+    """技术指标告警的评估结果（status / 观测值 / 阈值 / 消息）。"""
     status: str
     observed_value: Optional[float]
     threshold: Optional[float]
@@ -42,6 +44,7 @@ class IndicatorEvaluation:
 
 
 def normalize_indicator_parameters(alert_type: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
+    """按 alert_type 规范化用户提交的指标参数（含默认值填充与类型校验）。"""
     if not isinstance(parameters, dict):
         raise ValueError("parameters must be an object")
 

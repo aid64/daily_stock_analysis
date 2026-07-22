@@ -447,7 +447,7 @@ class HistoryService:
         *,
         code: Optional[str] = None,
         report_type: Optional[str] = None,
-    ):
+    ) -> Optional[RunFlowSnapshot]:
         """
         Resolve record_id and return a sanitized run-flow snapshot.
 

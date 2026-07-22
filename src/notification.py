@@ -1,18 +1,24 @@
 # -*- coding: utf-8 -*-
 """
 ===================================
-A股自选股智能分析系统 - 通知层
+Daily Stock Analysis — 通知推送层
 ===================================
 
 职责：
-1. 汇总分析结果生成日报
-2. 支持 Markdown 格式输出
-3. 多渠道推送（自动识别）：
-   - 企业微信 Webhook
-   - 飞书 Webhook
-   - Telegram Bot
-   - 邮件 SMTP
-   - Pushover（手机/桌面推送）
+1. 汇总分析结果生成多格式日报 (Markdown / 图片 / Jinja2 模板)
+2. 支持 14 种通知渠道自动检测与推送：
+   - 企业微信 (Webhook)
+   - 飞书 (Webhook / App Bot / Stream Bot)
+   - 钉钉 (Webhook / Stream Bot)
+   - Telegram (Bot API)
+   - Discord (Webhook / Bot API)
+   - Slack (Webhook / Bot API)
+   - 邮件 (SMTP，支持多分组)
+   - Pushover / ntfy / Gotify / PushPlus / Server酱3
+   - AstrBot / 自定义 Webhook
+3. 通知路由策略、降噪静默时段
+4. 长消息自动分片、Markdown 转图片
+5. 分批推送：汇总 + 逐条个股
 """
 from __future__ import annotations
 
@@ -60,7 +66,7 @@ from src.schemas.decision_action import (
     display_decision_type_for_result,
     display_operation_advice_for_result,
 )
-from bot.models import BotMessage
+from src.schemas.bot_messages import BotMessage
 from src.utils.sanitize import sanitize_diagnostic_text
 from src.utils.data_processing import (
     signal_attribution_has_content,
@@ -230,27 +236,28 @@ class ChannelDetector:
     根据配置直接判断渠道类型（不再需要 URL 解析）
     """
 
+    _CHANNEL_NAME_MAP: Dict[NotificationChannel, str] = {
+        NotificationChannel.WECHAT: "企业微信",
+        NotificationChannel.FEISHU: "飞书",
+        NotificationChannel.DINGTALK: "钉钉",
+        NotificationChannel.TELEGRAM: "Telegram",
+        NotificationChannel.EMAIL: "邮件",
+        NotificationChannel.PUSHOVER: "Pushover",
+        NotificationChannel.NTFY: "ntfy",
+        NotificationChannel.GOTIFY: "Gotify",
+        NotificationChannel.PUSHPLUS: "PushPlus",
+        NotificationChannel.SERVERCHAN3: "Server酱3",
+        NotificationChannel.CUSTOM: "自定义Webhook",
+        NotificationChannel.DISCORD: "Discord机器人",
+        NotificationChannel.SLACK: "Slack",
+        NotificationChannel.ASTRBOT: "ASTRBOT机器人",
+        NotificationChannel.UNKNOWN: "未知渠道",
+    }
+
     @staticmethod
     def get_channel_name(channel: NotificationChannel) -> str:
         """获取渠道中文名称"""
-        names = {
-            NotificationChannel.WECHAT: "企业微信",
-            NotificationChannel.FEISHU: "飞书",
-            NotificationChannel.DINGTALK: "钉钉",
-            NotificationChannel.TELEGRAM: "Telegram",
-            NotificationChannel.EMAIL: "邮件",
-            NotificationChannel.PUSHOVER: "Pushover",
-            NotificationChannel.NTFY: "ntfy",
-            NotificationChannel.GOTIFY: "Gotify",
-            NotificationChannel.PUSHPLUS: "PushPlus",
-            NotificationChannel.SERVERCHAN3: "Server酱3",
-            NotificationChannel.CUSTOM: "自定义Webhook",
-            NotificationChannel.DISCORD: "Discord机器人",
-            NotificationChannel.SLACK: "Slack",
-            NotificationChannel.ASTRBOT: "ASTRBOT机器人",
-            NotificationChannel.UNKNOWN: "未知渠道",
-        }
-        return names.get(channel, "未知渠道")
+        return ChannelDetector._CHANNEL_NAME_MAP.get(channel, "未知渠道")
 
 
 class NotificationService(
@@ -2520,11 +2527,15 @@ class NotificationService(
         email_stock_codes: Optional[List[str]],
         email_send_to_all: bool,
         route_type: Optional[str] = None,
+        results: Optional[List[Any]] = None,
     ) -> bool:
         use_image = self._should_use_image_for_channel(channel, image_bytes)
         if channel == NotificationChannel.WECHAT:
             if use_image:
                 return self._send_wechat_image(image_bytes)
+            # 检查是否启用分批推送模式
+            if getattr(self, '_wechat_batch_mode', False) and results:
+                return self.send_batch_notifications(results, content)
             return self.send_to_wechat(content)
         if channel == NotificationChannel.FEISHU:
             if getattr(self, "_feishu_send_as_file", False) and route_type == "report":
@@ -2583,6 +2594,7 @@ class NotificationService(
         severity: Optional[str] = None,
         dedup_key: Optional[str] = None,
         cooldown_key: Optional[str] = None,
+        results: Optional[List[Any]] = None,
     ) -> NotificationDispatchResult:
         """
         Send a notification and return per-channel diagnostics.
@@ -2736,6 +2748,7 @@ class NotificationService(
                     email_stock_codes=email_stock_codes,
                     email_send_to_all=email_send_to_all,
                     route_type=route_type,
+                    results=results,
                 )
                 latency_ms = int((time.monotonic() - started_at) * 1000)
 
@@ -2797,9 +2810,20 @@ class NotificationService(
         severity: Optional[str] = None,
         dedup_key: Optional[str] = None,
         cooldown_key: Optional[str] = None,
+        results: Optional[List[Any]] = None,
     ) -> bool:
         """
         统一发送接口 - 向所有已配置的渠道发送。
+
+        Args:
+            content: 消息内容
+            email_stock_codes: 股票代码列表
+            email_send_to_all: 邮件是否发往所有配置邮箱
+            route_type: 通知路由类型
+            severity: 通知严重级别
+            dedup_key: 去重 key
+            cooldown_key: 冷却 key
+            results: 分析结果列表（用于微信分批推送）
 
         Returns:
             是否至少有一个渠道发送成功
@@ -2812,6 +2836,7 @@ class NotificationService(
             severity=severity,
             dedup_key=dedup_key,
             cooldown_key=cooldown_key,
+            results=results,
         )
         return bool(result.success)
 
@@ -2969,7 +2994,8 @@ def send_daily_report(results: List[AnalysisResult]) -> bool:
     service.save_report_to_file(report)
 
     # 推送到配置的渠道（自动识别）
-    return service.send(report)
+    # 传递 results 参数以支持微信分批推送
+    return service.send(report, results=results)
 
 
 if __name__ == "__main__":

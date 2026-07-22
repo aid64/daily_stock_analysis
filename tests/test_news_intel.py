@@ -19,6 +19,7 @@ from unittest.mock import patch
 
 from sqlalchemy.exc import OperationalError
 
+from tests.conftest import safe_cleanup_temp_dir
 from src.config import Config
 from src.storage import DatabaseManager, NewsIntel
 from src.search_service import SearchResponse, SearchResult
@@ -41,7 +42,7 @@ class NewsIntelStorageTestCase(unittest.TestCase):
     def tearDown(self) -> None:
         """清理资源"""
         DatabaseManager.reset_instance()
-        self._temp_dir.cleanup()
+        safe_cleanup_temp_dir(self._temp_dir)
 
     def _build_response(self, results) -> SearchResponse:
         """构造 SearchResponse 快捷函数"""

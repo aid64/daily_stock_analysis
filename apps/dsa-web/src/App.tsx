@@ -9,6 +9,7 @@ import {
 } from './components/layout/RouteBoundary';
 import { EditorialShell } from './components/layout/EditorialShell';
 import { DesktopTitleBar } from './components/layout/DesktopTitleBar';
+import { BackendGate } from './components/BackendGate';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { UiLanguageProvider, useUiLanguage } from './contexts/UiLanguageContext';
 import { useAgentChatStore } from './stores/agentChatStore';
@@ -119,11 +120,13 @@ const App: React.FC = () => {
   return (
     <UiLanguageProvider>
       <DesktopTitleBarShell />
-      <Router>
-        <AuthProvider>
-          <AppContent />
-        </AuthProvider>
-      </Router>
+      <BackendGate>
+        <Router>
+          <AuthProvider>
+            <AppContent />
+          </AuthProvider>
+        </Router>
+      </BackendGate>
     </UiLanguageProvider>
   );
 };

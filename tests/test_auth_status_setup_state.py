@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from starlette.requests import Request
 
+from tests.conftest import safe_cleanup_temp_dir
 import src.auth as auth
 from api.v1.endpoints.auth import AuthSettingsRequest, auth_status, auth_update_settings
 
@@ -65,7 +66,7 @@ class AuthStatusSetupStateTestCase(unittest.TestCase):
         self._env_patcher.stop()
         self._data_dir_patcher.stop()
         _reset_auth_globals()
-        self.temp_dir.cleanup()
+        safe_cleanup_temp_dir(self.temp_dir)
 
     def test_status_no_password(self) -> None:
         """Scenario: Auth disabled and no password set."""

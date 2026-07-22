@@ -53,6 +53,7 @@ WRITABLE_TRIGGER_STATUSES = frozenset({"triggered", "skipped", "degraded", "fail
 
 @dataclass
 class RuntimeAlertRule:
+    """运行期展开后的告警规则（含 cooldown 策略与生效目标）。"""
     key: str
     rule: Any
     source: str
@@ -64,6 +65,7 @@ class RuntimeAlertRule:
 
 @dataclass
 class DBCooldownDecision:
+    """DB 冷却判定结果；suppressed=True 表示该次触发被冷却期抑制。"""
     suppressed: bool = False
     fallback_key: Optional[str] = None
     fallback_ttl_seconds: Optional[int] = None
@@ -71,6 +73,7 @@ class DBCooldownDecision:
 
 @dataclass
 class TriggerWriteResult:
+    """触发记录写入结果；created=False 表示复用已有 trigger 行。"""
     trigger_id: Optional[int] = None
     created: bool = False
 

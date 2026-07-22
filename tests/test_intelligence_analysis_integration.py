@@ -10,6 +10,7 @@ import unittest
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
+from tests.conftest import safe_cleanup_temp_dir
 from src.config import Config, get_config
 from src.core.pipeline import StockAnalysisPipeline
 from src.market_analyzer import MarketAnalyzer, MarketIndex, MarketOverview
@@ -59,7 +60,7 @@ class PersistedIntelligenceAnalysisIntegrationTestCase(unittest.TestCase):
         DatabaseManager.reset_instance()
         Config._instance = None
         os.environ.pop("DATABASE_PATH", None)
-        self._temp_dir.cleanup()
+        safe_cleanup_temp_dir(self._temp_dir)
 
     def test_pipeline_loads_persisted_symbol_and_market_intelligence(self) -> None:
         pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)

@@ -13,6 +13,7 @@ from unittest.mock import Mock, patch
 import requests
 from fastapi.testclient import TestClient
 
+from tests.conftest import safe_cleanup_temp_dir
 from api.app import create_app
 from src.config import Config
 from src.storage import DatabaseManager
@@ -38,7 +39,7 @@ class IntelligenceApiTestCase(unittest.TestCase):
         DatabaseManager.reset_instance()
         Config._instance = None
         os.environ.pop("DATABASE_PATH", None)
-        self._temp_dir.cleanup()
+        safe_cleanup_temp_dir(self._temp_dir)
 
     def _mock_response(self):
         response = Mock()

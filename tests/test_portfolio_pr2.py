@@ -28,6 +28,7 @@ from src.services.portfolio_import_service import PortfolioImportService
 from src.services.portfolio_risk_service import PortfolioRiskService
 from src.services.portfolio_service import PortfolioBusyError, PortfolioService
 from src.storage import DatabaseManager
+from tests.conftest import safe_cleanup_temp_dir
 
 
 def _reset_auth_globals() -> None:
@@ -84,7 +85,7 @@ class PortfolioPr2TestCase(unittest.TestCase):
         os.environ.pop("ENV_FILE", None)
         os.environ.pop("DATABASE_PATH", None)
         self._board_fetch_patcher.stop()
-        self.temp_dir.cleanup()
+        safe_cleanup_temp_dir(self.temp_dir)
 
     def _save_close(self, symbol: str, on_date: date, close: float) -> None:
         df = pd.DataFrame(

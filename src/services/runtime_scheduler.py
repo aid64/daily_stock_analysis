@@ -13,6 +13,7 @@ from typing import Any, Callable, Dict, List, Optional, Set
 
 from src.config import Config, get_config
 from src.scheduler import Scheduler, normalize_schedule_times
+from src.services.data_purge import build_data_purge_background_task
 
 logger = logging.getLogger(__name__)
 CLI_SCHEDULER_OWNER_ENV = "DSA_CLI_SCHEDULER_OWNS_SCHEDULE"
@@ -213,7 +214,47 @@ class RuntimeSchedulerService:
     def _current_background_tasks(self, config: Config) -> List[Dict[str, Any]]:
         if self._background_tasks_provider is not None:
             return self._background_tasks_provider(config)
-        return self._current_agent_event_monitor_background_tasks(config)
+        tasks: List[Dict[str, Any]] = []
+        tasks.extend(self._current_agent_event_monitor_background_tasks(config))
+        tasks.extend(self._current_data_purge_background_tasks(config))
+        return tasks
+
+    def _current_data_purge_background_tasks(self, config: Config) -> List[Dict[str, Any]]:
+        """构建数据清理后台任务 entry。
+
+        当所有 retention 配置均为 0 时返回空列表（不注册清理任务）。
+        """
+        name = "data_purge"
+        entry = build_data_purge_background_task(
+            config,
+            config_provider=self._reload_config,
+        )
+        if entry is None:
+            self._background_task_cache.pop(name, None)
+            self._background_task_registered_names.discard(name)
+            return []
+
+        cached = self._background_task_cache.get(name)
+        if cached is None:
+            cached = dict(entry)
+            cached["name"] = name
+            self._background_task_cache[name] = cached
+        else:
+            # 保留缓存的 task 闭包避免每次重建，但刷新 interval
+            cached["interval_seconds"] = int(entry["interval_seconds"])
+        interval_seconds = int(cached["interval_seconds"])
+
+        run_immediately = (
+            bool(cached.get("run_immediately", False))
+            and name not in self._background_task_registered_names
+        )
+        self._background_task_registered_names.add(name)
+        return [{
+            "task": cached["task"],
+            "interval_seconds": interval_seconds,
+            "run_immediately": run_immediately,
+            "name": name,
+        }]
 
     def _current_agent_event_monitor_background_tasks(self, config: Config) -> List[Dict[str, Any]]:
         name = "agent_event_monitor"
@@ -264,6 +305,11 @@ class RuntimeSchedulerService:
             thread.start()
 
     def start(self, *, run_immediately: bool = False) -> None:
+        """启动调度器；读取最新 config 决定是否启用、注册后台任务与每日分析任务。
+
+        Args:
+            run_immediately: 是否在启动后立即触发一次分析（受 run_immediately_in_background 控制）。
+        """
         with self._lock:
             if not self._owns_schedule:
                 self.stop()
@@ -308,6 +354,7 @@ class RuntimeSchedulerService:
             thread.start()
 
     def stop(self) -> None:
+        """停止调度器并清理 scheduler / thread 引用；幂等。"""
         scheduler = self._scheduler
         if scheduler is not None:
             scheduler.stop()
@@ -321,6 +368,12 @@ class RuntimeSchedulerService:
         run_immediately: bool = False,
         clear_enabled_override: bool = False,
     ) -> None:
+        """按当前 config 重新判定启用/停用状态，必要时重启调度器。
+
+        Args:
+            run_immediately: 启用时是否立即触发一次分析。
+            clear_enabled_override: 是否清除 force_enabled 覆盖位，恢复 config 默认。
+        """
         if clear_enabled_override:
             self._force_enabled = False
         if not self._owns_schedule:
@@ -333,6 +386,7 @@ class RuntimeSchedulerService:
             self.stop()
 
     def run_now(self) -> Dict[str, Any]:
+        """立即触发一次分析（非阻塞，后台线程执行）；返回 accepted/running 状态。"""
         if not self._run_lock.acquire(blocking=False):
             self._record_analysis_busy_skip()
             return {
@@ -360,6 +414,7 @@ class RuntimeSchedulerService:
         return {"accepted": True, "running": True}
 
     def status(self) -> Dict[str, Any]:
+        """返回调度器当前状态快照（enabled / running / schedule_times / next_run_at）。"""
         scheduler = self._scheduler
         jobs = scheduler.schedule.get_jobs() if scheduler is not None else []
         next_run = None

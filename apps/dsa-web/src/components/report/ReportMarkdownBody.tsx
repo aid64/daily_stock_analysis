@@ -1,6 +1,5 @@
 import type React from 'react';
-import Markdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { LazyMarkdown } from '../common/LazyMarkdown';
 
 interface ReportMarkdownBodyProps {
   content: string;
@@ -33,8 +32,6 @@ export const ReportMarkdownBody: React.FC<ReportMarkdownBodyProps> = ({
       ${className}
     `}
   >
-    <Markdown remarkPlugins={[remarkGfm]}>
-      {content}
-    </Markdown>
+    <LazyMarkdown content={content} />
   </div>
 );

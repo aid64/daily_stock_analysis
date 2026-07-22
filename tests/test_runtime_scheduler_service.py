@@ -561,8 +561,8 @@ class RuntimeSchedulerServiceTestCase(unittest.TestCase):
         ), patch(
             "src.config.get_config",
             return_value=SimpleNamespace(schedule_run_immediately=True),
-        ), patch("api.app.RuntimeSchedulerService", FakeRuntimeSchedulerService), patch(
-            "api.app.SystemConfigService",
+        ), patch("src.services.runtime_scheduler.RuntimeSchedulerService", FakeRuntimeSchedulerService), patch(
+            "src.services.system_config_service.SystemConfigService",
             FakeSystemConfigService,
         ), patch("api.app._schedule_stock_index_background_refresh"):
             app = create_app(static_dir=Path(temp_dir))
@@ -608,8 +608,8 @@ class RuntimeSchedulerServiceTestCase(unittest.TestCase):
                 RUNTIME_SCHEDULER_RUN_IMMEDIATELY_ENV: "true",
             },
             clear=False,
-        ), patch("api.app.RuntimeSchedulerService", FakeRuntimeSchedulerService), patch(
-            "api.app.SystemConfigService",
+        ), patch("src.services.runtime_scheduler.RuntimeSchedulerService", FakeRuntimeSchedulerService), patch(
+            "src.services.system_config_service.SystemConfigService",
             FakeSystemConfigService,
         ), patch("api.app._schedule_stock_index_background_refresh"):
             app = create_app(static_dir=Path(temp_dir))
@@ -657,8 +657,8 @@ class RuntimeSchedulerServiceTestCase(unittest.TestCase):
         ), patch(
             "src.config.get_config",
             return_value=SimpleNamespace(schedule_run_immediately=True),
-        ), patch("api.app.RuntimeSchedulerService", FakeRuntimeSchedulerService), patch(
-            "api.app.SystemConfigService",
+        ), patch("src.services.runtime_scheduler.RuntimeSchedulerService", FakeRuntimeSchedulerService), patch(
+            "src.services.system_config_service.SystemConfigService",
             FakeSystemConfigService,
         ), patch("api.app._schedule_stock_index_background_refresh"):
             app = create_app(static_dir=Path(temp_dir))
@@ -713,8 +713,8 @@ class RuntimeSchedulerServiceTestCase(unittest.TestCase):
         ), patch(
             "src.config.get_config",
             return_value=SimpleNamespace(schedule_run_immediately=True),
-        ), patch("api.app.RuntimeSchedulerService", FakeRuntimeSchedulerService), patch(
-            "api.app.SystemConfigService",
+        ), patch("src.services.runtime_scheduler.RuntimeSchedulerService", FakeRuntimeSchedulerService), patch(
+            "src.services.system_config_service.SystemConfigService",
             FakeSystemConfigService,
         ), patch("api.app._schedule_stock_index_background_refresh"):
             app = create_app(static_dir=Path(temp_dir))
@@ -753,8 +753,8 @@ class RuntimeSchedulerServiceTestCase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir, patch.dict(os.environ, {}, clear=False), patch(
             "src.config.get_config",
             return_value=SimpleNamespace(schedule_run_immediately=True),
-        ), patch("api.app.RuntimeSchedulerService", FakeRuntimeSchedulerService), patch(
-            "api.app.SystemConfigService",
+        ), patch("src.services.runtime_scheduler.RuntimeSchedulerService", FakeRuntimeSchedulerService), patch(
+            "src.services.system_config_service.SystemConfigService",
             FakeSystemConfigService,
         ), patch("api.app._schedule_stock_index_background_refresh"):
             os.environ.pop(CLI_SCHEDULER_OWNER_ENV, None)

@@ -15,6 +15,7 @@ from sqlalchemy.sql import func
 # Ensure src module can be imported
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+from tests.conftest import safe_cleanup_temp_dir
 from src.config import Config
 from src.storage import Base, CURRENT_SCHEMA_VERSION, DatabaseManager, DatabaseSchemaMigration, StockDaily
 
@@ -148,7 +149,7 @@ class TestStorage(unittest.TestCase):
         finally:
             DatabaseManager.reset_instance()
             Config.reset_instance()
-            temp_dir.cleanup()
+            safe_cleanup_temp_dir(temp_dir)
 
     def test_database_initialization_records_schema_version(self):
         DatabaseManager.reset_instance()
@@ -217,7 +218,7 @@ class TestStorage(unittest.TestCase):
         finally:
             DatabaseManager.reset_instance()
             Config.reset_instance()
-            temp_dir.cleanup()
+            safe_cleanup_temp_dir(temp_dir)
 
     def test_decision_signal_profile_migration_adds_column_indexes_and_closed_stats(self):
         DatabaseManager.reset_instance()
@@ -357,7 +358,7 @@ class TestStorage(unittest.TestCase):
         finally:
             DatabaseManager.reset_instance()
             Config.reset_instance()
-            temp_dir.cleanup()
+            safe_cleanup_temp_dir(temp_dir)
 
     def test_decision_signal_profile_migration_runs_when_column_already_exists(self):
         DatabaseManager.reset_instance()
@@ -412,7 +413,7 @@ class TestStorage(unittest.TestCase):
         finally:
             DatabaseManager.reset_instance()
             Config.reset_instance()
-            temp_dir.cleanup()
+            safe_cleanup_temp_dir(temp_dir)
 
     def test_decision_signal_profile_migration_fails_when_column_inspection_fails(self):
         class BrokenInspector:
@@ -1090,8 +1091,8 @@ class TestStorage(unittest.TestCase):
 
             self.assertEqual(total, 1)
         finally:
-            temp_dir.cleanup()
             DatabaseManager.reset_instance()
+            safe_cleanup_temp_dir(temp_dir)
 
 if __name__ == '__main__':
     unittest.main()

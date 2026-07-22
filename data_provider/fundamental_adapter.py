@@ -414,15 +414,42 @@ class AkshareFundamentalAdapter:
         return result
 
     def get_capital_flow(self, stock_code: str, top_n: int = 5) -> Dict[str, Any]:
+        """Return stock + sector capital flow.
+
+        主路径：MoneyFlowFetcher（直接对接 EastMoney push2 JSON API）— 高效、字段全
+        兜底：AkShare HTML 爬虫接口 — 在 direct API 全部失败时降级使用
+        两条路径的结果 schema 对齐，主路径成功时直接返回，失败时走兜底。
         """
-        Return stock + sector capital flow.
-        """
+        # ---- 主路径：MoneyFlowFetcher 直接 API ----
+        try:
+            from src.config import get_config
+            cfg = get_config()
+            mf_enabled = bool(getattr(cfg, "moneyflow_api_enabled", True))
+        except Exception:
+            mf_enabled = True
+
+        if mf_enabled:
+            try:
+                from data_provider.moneyflow_fetcher import MoneyFlowFetcher
+                timeout = float(getattr(cfg, "moneyflow_api_timeout_seconds", 4.0))
+                fetcher = MoneyFlowFetcher(timeout_seconds=timeout)
+                mf_result = fetcher.get_capital_flow(stock_code, top_n=top_n)
+                if mf_result.get("status") in ("ok", "partial"):
+                    return mf_result
+                # status=not_supported 时记入 errors 并继续走 akshare 兜底
+                mf_errors = mf_result.get("errors", [])
+            except Exception as exc:  # noqa: BLE001 - fail-open to akshare fallback
+                mf_errors = [f"moneyflow_fetcher:{type(exc).__name__}"]
+        else:
+            mf_errors = ["moneyflow_api_disabled"]
+
+        # ---- 兜底：AkShare HTML 爬虫接口 ----
         result: Dict[str, Any] = {
             "status": "not_supported",
             "stock_flow": {},
             "sector_rankings": {"top": [], "bottom": []},
             "source_chain": [],
-            "errors": [],
+            "errors": list(mf_errors),
         }
 
         stock_df, stock_source, stock_errors = self._call_df_candidates([

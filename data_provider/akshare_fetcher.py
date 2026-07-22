@@ -1,26 +1,28 @@
 # -*- coding: utf-8 -*-
 """
 ===================================
-AkshareFetcher - 主数据源 (Priority 1)
+Daily Stock Analysis — AkShare 数据源 (优先级 1)
 ===================================
 
 数据来源：
-1. 东方财富爬虫（通过 akshare 库） - 默认数据源
-2. 新浪财经接口 - 备选数据源
-3. 腾讯财经接口 - 备选数据源
+1. 东方财富爬虫（通过 akshare 库）— 主数据源
+2. 新浪财经接口 — 备选
+3. 腾讯财经接口 — 备选
 
-特点：免费、无需 Token、数据全面
-风险：爬虫机制易被反爬封禁
+特性：免费、无需 Token、数据覆盖全面
+风险：爬虫机制可能被上游反爬封禁
 
 防封禁策略：
-1. 每次请求前随机休眠 2-5 秒
+1. 每次请求前随机休眠
 2. 随机轮换 User-Agent
-3. 使用 tenacity 实现指数退避重试
+3. 使用 tenacity 指数退避重试
 4. 熔断器机制：连续失败后自动冷却
+5. 多进程超时保护 (spawn 模式)
 
 增强数据：
 - 实时行情：量比、换手率、市盈率、市净率、总市值、流通市值
 - 筹码分布：获利比例、平均成本、筹码集中度
+- ETF / 港股 / 美股代码识别与路由
 """
 
 import logging
@@ -30,7 +32,7 @@ import random
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List, Tuple, Callable
 
 import pandas as pd
 import requests
@@ -76,6 +78,14 @@ USER_AGENTS = [
 ]
 
 
+# ── Constants ──────────────────────────────────────────────────────────────
+_REALTIME_CACHE_TTL = 1200  # 20 minutes
+_ETF_CODE_PREFIXES = ('51', '52', '56', '58', '15', '16', '18')
+_YI = 100_000_000           # 亿
+_SHARES_PER_LOT = 100        # 每手股数
+_WAN = 10_000                # 万
+
+
 # 缓存实时行情数据（避免重复请求）
 # TTL 设为 20 分钟 (1200秒)：
 # - 批量分析场景：通常 30 只股票在 5 分钟内分析完，20 分钟足够覆盖
@@ -84,14 +94,14 @@ USER_AGENTS = [
 _realtime_cache: Dict[str, Any] = {
     'data': None,
     'timestamp': 0,
-    'ttl': 1200  # 20分钟缓存有效期
+    'ttl': _REALTIME_CACHE_TTL
 }
 
 # ETF 实时行情缓存
 _etf_realtime_cache: Dict[str, Any] = {
     'data': None,
     'timestamp': 0,
-    'ttl': 1200  # 20分钟缓存有效期
+    'ttl': _REALTIME_CACHE_TTL
 }
 
 
@@ -109,9 +119,8 @@ def _is_etf_code(stock_code: str) -> bool:
     Returns:
         True 表示是 ETF 代码，False 表示是普通股票代码
     """
-    etf_prefixes = ('51', '52', '56', '58', '15', '16', '18')
     code = stock_code.strip().split('.')[0]
-    return code.startswith(etf_prefixes) and len(code) == 6
+    return code.startswith(_ETF_CODE_PREFIXES) and len(code) == 6
 
 
 def _is_hk_code(stock_code: str) -> bool:
@@ -306,12 +315,12 @@ def _build_realtime_failure_message(
 
 
 def _akshare_call_with_timeout(
-    func,
-    *args,
+    func: Callable,
+    *args: Any,
     timeout: Optional[float] = None,
     call_name: str = "akshare",
-    **kwargs,
-):
+    **kwargs: Any,
+) -> Any:
     """Run an akshare call with a bounded wait time."""
     wait_seconds = _AKSHARE_HISTORY_CALL_TIMEOUT if timeout is None else float(timeout)
 
@@ -347,16 +356,18 @@ def _akshare_call_with_timeout(
     raise value
 
 
-def _akshare_timeout_worker(conn, func, args, kwargs) -> None:
+def _akshare_timeout_worker(conn, func: Callable, args: tuple, kwargs: dict) -> None:
     try:
         conn.send((True, func(*args, **kwargs)))
-    except BaseException as exc:
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except Exception as exc:
         try:
             conn.send((False, exc))
-        except BaseException:
+        except Exception:
             try:
                 conn.send((False, RuntimeError(f"{type(exc).__name__}: {exc}")))
-            except BaseException:
+            except Exception:
                 pass
     finally:
         conn.close()

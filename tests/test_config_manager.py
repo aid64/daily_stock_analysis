@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from tests.conftest import safe_cleanup_temp_dir
 from src.core.config_manager import ConfigManager
 
 
@@ -20,7 +21,7 @@ class ConfigManagerTestCase(unittest.TestCase):
 
     def tearDown(self) -> None:
         os.environ.pop("ENV_FILE", None)
-        self.temp_dir.cleanup()
+        safe_cleanup_temp_dir(self.temp_dir)
 
     def test_apply_updates_preserves_comments_blank_lines_and_raw_lines(self) -> None:
         self.env_path.write_text(

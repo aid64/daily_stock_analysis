@@ -1,5 +1,14 @@
 # -*- coding: utf-8 -*-
-"""Intelligence source API endpoints."""
+"""
+===================================
+情报源管理接口
+===================================
+
+职责：
+1. 情报源 CRUD 与状态管理
+2. RSS / NewsNow / Web Search 源配置
+3. 情报缓存与清理策略
+"""
 
 from __future__ import annotations
 

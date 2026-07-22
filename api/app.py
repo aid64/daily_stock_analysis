@@ -23,6 +23,7 @@ import os
 import re
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime
+from email.utils import formatdate
 from pathlib import Path
 from urllib.parse import unquote
 from typing import List, Optional
@@ -144,6 +145,8 @@ def _missing_asset_media_type(asset_path: str) -> str:
 
 
 def _warn_if_open_cors_without_auth() -> None:
+    from src.auth import is_auth_enabled
+
     if is_auth_enabled():
         return
     logger.warning(
@@ -156,27 +159,26 @@ from api.v1 import api_v1_router
 from api.middlewares.auth import add_auth_middleware
 from api.middlewares.error_handler import add_error_handlers
 from api.v1.schemas.common import HealthResponse
-from src.auth import is_auth_enabled
-from src.data.stock_index_loader import find_existing_stock_index_path
-from src.services.system_config_service import SystemConfigService
-from src.services.runtime_scheduler import (
-    CLI_SCHEDULER_OWNER_ENV,
-    RUNTIME_SCHEDULER_ARGS_ENV,
-    RUNTIME_SCHEDULER_FORCE_ENABLED_ENV,
-    RUNTIME_SCHEDULER_RUN_IMMEDIATELY_ENV,
-    RUNTIME_SCHEDULER_SUPPRESS_START_ENV,
-    RuntimeSchedulerService,
-)
-from src.services.stock_index_remote_service import (
-    get_remote_stock_index_cache_path,
-    refresh_remote_stock_index_cache,
-    settings_from_config,
-)
+
+# Heavy service imports (src.auth, src.data.stock_index_loader, src.services.*)
+# are deferred to first use to keep `uvicorn api.app:app` cold start fast.
+# `api.v1` / `api.middlewares.*` / `HealthResponse` stay top-level because
+# `create_app()` (called at module load via `app = create_app()`) needs them
+# synchronously. See desktop-startup-perf L4.1.
 
 
 _STOCK_INDEX_FILENAME = "stocks.index.json"
 _STOCK_INDEX_HEADERS = {
     "Cache-Control": "no-cache",
+}
+
+# Vite content-hashes every asset filename (`[hash:8]`), so the same URL is
+# byte-identical across rebuilds until the file content actually changes.
+# `immutable` lets the browser skip the conditional GET entirely on repeat
+# loads, which removes a round-trip per asset on desktop cold start.
+# See desktop-startup-perf L6.1.
+_ASSET_CACHE_HEADERS = {
+    "Cache-Control": "public, max-age=31536000, immutable",
 }
 
 
@@ -187,6 +189,10 @@ def _bundled_stock_index_path() -> Path:
 async def _refresh_stock_index_cache_in_background(reason: str) -> None:
     try:
         from src.config import get_config
+        from src.services.stock_index_remote_service import (
+            refresh_remote_stock_index_cache,
+            settings_from_config,
+        )
 
         settings = settings_from_config(get_config())
         result = await run_in_threadpool(refresh_remote_stock_index_cache, settings)
@@ -209,6 +215,8 @@ def _schedule_stock_index_background_refresh(app: FastAPI, reason: str) -> None:
 
 
 def _load_runtime_scheduler_args() -> dict:
+    from src.services.runtime_scheduler import RUNTIME_SCHEDULER_ARGS_ENV
+
     raw_value = os.getenv(RUNTIME_SCHEDULER_ARGS_ENV)
     if not raw_value:
         return {}
@@ -226,6 +234,16 @@ def _load_runtime_scheduler_args() -> dict:
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
     """Initialize and release shared services for the app lifecycle."""
+    from src.services.runtime_scheduler import (
+        CLI_SCHEDULER_OWNER_ENV,
+        RUNTIME_SCHEDULER_ARGS_ENV,
+        RUNTIME_SCHEDULER_FORCE_ENABLED_ENV,
+        RUNTIME_SCHEDULER_RUN_IMMEDIATELY_ENV,
+        RUNTIME_SCHEDULER_SUPPRESS_START_ENV,
+        RuntimeSchedulerService,
+    )
+    from src.services.system_config_service import SystemConfigService
+
     runtime_owns_schedule = os.getenv(CLI_SCHEDULER_OWNER_ENV, "").strip().lower() not in {
         "1",
         "true",
@@ -445,6 +463,8 @@ def create_app(static_dir: Optional[Path] = None) -> FastAPI:
         )
 
     def _stock_index_candidate_paths() -> tuple[Path, ...]:
+        from src.services.stock_index_remote_service import get_remote_stock_index_cache_path
+
         local_candidates = (
             static_dir / _STOCK_INDEX_FILENAME,
             _bundled_stock_index_path(),
@@ -458,6 +478,9 @@ def create_app(static_dir: Optional[Path] = None) -> FastAPI:
         )
 
     def _find_existing_stock_index_path() -> Optional[Path]:
+        from src.data.stock_index_loader import find_existing_stock_index_path
+        from src.services.stock_index_remote_service import get_remote_stock_index_cache_path
+
         remote_cache_path = get_remote_stock_index_cache_path()
         return find_existing_stock_index_path(
             _stock_index_candidate_paths(),
@@ -469,7 +492,7 @@ def create_app(static_dir: Optional[Path] = None) -> FastAPI:
         methods=["GET", "HEAD"],
         include_in_schema=False,
     )
-    async def serve_stock_index():
+    async def serve_stock_index(request: Request):
         """Serve the freshest available stock autocomplete index."""
         _schedule_stock_index_background_refresh(app, "serve-stock-index")
 
@@ -480,10 +503,28 @@ def create_app(static_dir: Optional[Path] = None) -> FastAPI:
                 status_code=404,
                 media_type="text/plain",
             )
+        # ETag from mtime+size lets the browser validate the cache via a
+        # conditional GET. A matching If-None-Match short-circuits to 304
+        # with an empty body, saving the ~1MB JSON transfer on desktop cold
+        # start. See desktop-startup-perf L6.2.
+        stat = index_path.stat()
+        etag = f'"{int(stat.st_mtime)}-{stat.st_size}"'
+        if request.headers.get("if-none-match") == etag:
+            return Response(
+                status_code=304,
+                headers={
+                    "ETag": etag,
+                    "Cache-Control": _STOCK_INDEX_HEADERS["Cache-Control"],
+                },
+            )
         return FileResponse(
             index_path,
             media_type="application/json",
-            headers=_STOCK_INDEX_HEADERS,
+            headers={
+                **_STOCK_INDEX_HEADERS,
+                "ETag": etag,
+                "Last-Modified": formatdate(stat.st_mtime, usegmt=True),
+            },
         )
     
     # ============================================================
@@ -516,7 +557,12 @@ def create_app(static_dir: Optional[Path] = None) -> FastAPI:
                 )
             if file_path.is_file():
                 relative_path = file_path.relative_to(assets_root).as_posix()
-                return await assets_static_files.get_response(relative_path, request.scope)
+                response = await assets_static_files.get_response(relative_path, request.scope)
+                # Vite hashes filenames, so the same URL stays byte-identical
+                # until content changes; `immutable` lets the browser skip the
+                # conditional GET on repeat loads. See desktop-startup-perf L6.1.
+                response.headers["Cache-Control"] = _ASSET_CACHE_HEADERS["Cache-Control"]
+                return response
             return Response(
                 content="asset not found",
                 status_code=404,

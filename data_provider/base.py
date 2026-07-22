@@ -20,7 +20,7 @@ import time
 from threading import BoundedSemaphore, RLock, Thread
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
-from typing import Callable, Optional, List, Tuple, Dict, Any
+from typing import Callable, Optional, List, Tuple, Dict, Any, TYPE_CHECKING
 
 import pandas as pd
 import numpy as np
@@ -31,6 +31,11 @@ from src.services.run_diagnostics import record_provider_run, record_provider_ru
 from .fundamental_adapter import AkshareFundamentalAdapter
 from .yfinance_fundamental_adapter import YfinanceFundamentalAdapter
 from .realtime_types import CircuitBreaker
+
+if TYPE_CHECKING:
+    # Avoid circular import at runtime: data_provider/__init__.py imports base.py
+    # before realtime_types.py is fully loaded.
+    from .realtime_types import ChipDistribution, UnifiedRealtimeQuote
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -1718,7 +1723,7 @@ class DataFetcherManager:
         setattr(quote, "is_stale", stale_seconds > int(ttl))
         return quote
     
-    def get_realtime_quote(self, stock_code: str, *, log_final_failure: bool = True):
+    def get_realtime_quote(self, stock_code: str, *, log_final_failure: bool = True) -> "Optional[UnifiedRealtimeQuote]":
         """
         获取实时行情数据（自动故障切换）
         
@@ -2114,7 +2119,7 @@ class DataFetcherManager:
         """Shortcut kept for backward-compat with A-share general loop."""
         return self._supplement_quote(stock_code, primary_quote, "LongbridgeFetcher")
 
-    def get_chip_distribution(self, stock_code: str):
+    def get_chip_distribution(self, stock_code: str) -> "Optional[ChipDistribution]":
         """
         获取筹码分布数据（带熔断和多数据源降级）
 

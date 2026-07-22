@@ -81,6 +81,7 @@ class _TushareHttpClient:
         self._api_url = api_url
 
     def query(self, api_name: str, fields: str = "", **kwargs) -> pd.DataFrame:
+        """调用 Tushare HTTP API 并返回 DataFrame；非 200 或 code!=0 抛 Exception。"""
         req_params = {
             "api_name": api_name,
             "token": self._token,

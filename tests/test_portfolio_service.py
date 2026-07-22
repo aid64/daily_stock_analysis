@@ -18,6 +18,7 @@ import pandas as pd
 from sqlalchemy.exc import OperationalError
 from sqlalchemy import select
 
+from tests.conftest import safe_cleanup_temp_dir
 from src.config import Config
 from src.repositories.portfolio_repo import PortfolioBusyError, PortfolioRepository
 from src.services.portfolio_service import _AvgState, PortfolioConflictError, PortfolioOversellError, PortfolioService
@@ -57,7 +58,7 @@ class PortfolioServiceTestCase(unittest.TestCase):
         Config.reset_instance()
         os.environ.pop("ENV_FILE", None)
         os.environ.pop("DATABASE_PATH", None)
-        self.temp_dir.cleanup()
+        safe_cleanup_temp_dir(self.temp_dir)
 
     def _save_close(self, symbol: str, on_date: date, close: float) -> None:
         df = pd.DataFrame(

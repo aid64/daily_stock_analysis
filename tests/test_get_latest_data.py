@@ -17,6 +17,7 @@ from datetime import date, timedelta
 
 import pandas as pd
 
+from tests.conftest import safe_cleanup_temp_dir
 from src.config import Config
 from src.storage import DatabaseManager, StockDaily
 
@@ -37,7 +38,7 @@ class GetLatestDataTestCase(unittest.TestCase):
     def tearDown(self) -> None:
         """Clean up resources."""
         DatabaseManager.reset_instance()
-        self._temp_dir.cleanup()
+        safe_cleanup_temp_dir(self._temp_dir)
 
     def _insert_stock_data(self, code: str, days_ago: int, close: float) -> None:
         """插入测试用股票数据"""

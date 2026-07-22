@@ -65,6 +65,7 @@
 | --- | --- |
 | [API 规格](architecture/api_spec.json) | FastAPI OpenAPI 规格产物 |
 | [贡献指南](CONTRIBUTING.md) | Issue、PR、测试、文档同步和协作要求 |
+| [代码规范](coding-standards.md) | 工具链、目录结构、Python 代码规范、配置项流程、测试与文档规范、AI 协作资产与验证矩阵 |
 
 ## 多语言
 

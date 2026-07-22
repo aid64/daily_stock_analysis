@@ -26,6 +26,7 @@ PRICE_RELATIONSHIP_VIOLATION_CODES = frozenset(
 
 @dataclass(frozen=True)
 class DecisionSignalCandidate:
+    """LLM 提取的原始决策信号候选（含 action / 评分 / 入场/止损/目标价 / 风险摘要等）。"""
     action: DecisionAction
     score: Optional[int] = None
     confidence: Optional[float] = None
@@ -43,6 +44,7 @@ class DecisionSignalCandidate:
 
 @dataclass(frozen=True)
 class GuardrailResult:
+    """决策护栏评估结果；passed=False 表示存在违规，adjusted=True 表示动作被强制降级。"""
     raw_action: DecisionAction
     final_action: DecisionAction
     passed: bool
@@ -63,6 +65,7 @@ class GuardrailResult:
 
 @dataclass(frozen=True)
 class PolicyResult:
+    """策略评估最终结果（候选 + 护栏评估 + 警告 / 阻断原因 / 评分细分）。"""
     candidate: DecisionSignalCandidate
     guardrail_result: GuardrailResult
     warnings: list[dict[str, object]]

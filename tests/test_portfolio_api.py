@@ -26,6 +26,7 @@ from api.app import create_app
 from src.config import Config
 from src.services.portfolio_service import PortfolioBusyError
 from src.storage import DatabaseManager
+from tests.conftest import safe_cleanup_temp_dir
 
 
 def _reset_auth_globals() -> None:
@@ -71,7 +72,7 @@ class PortfolioApiTestCase(unittest.TestCase):
         Config.reset_instance()
         os.environ.pop("ENV_FILE", None)
         os.environ.pop("DATABASE_PATH", None)
-        self.temp_dir.cleanup()
+        safe_cleanup_temp_dir(self.temp_dir)
 
     def _save_close(self, symbol: str, on_date: date, close: float) -> None:
         df = pd.DataFrame(

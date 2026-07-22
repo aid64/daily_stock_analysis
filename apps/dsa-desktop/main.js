@@ -39,6 +39,11 @@ const DESKTOP_UPDATE_BACKUP_DIR = '.dsa-desktop-update-backup';
 const DESKTOP_UPDATE_BACKUP_MANIFEST_FILE = 'runtime-state.json';
 const DESKTOP_BACKEND_DEFAULT_HOST = '127.0.0.1';
 const PUBLIC_BIND_HOSTS = Object.freeze(new Set(['0.0.0.0', '::', '[::]', '*']));
+// L2.4a：后端 ready/error 通知通道（main → renderer，BackendGate 消费）
+// loadFile 提前到 waitForHealth 之前，UI 在 backend ready 前已渲染；
+// 这两个通道让前端 BackendGate 在 ready 时切到 App 内容，error 时显示错误而非卡白屏
+const BACKEND_READY_EVENT = 'dsa:backend-ready';
+const BACKEND_ERROR_EVENT = 'dsa:backend-error';
 const MAC_DESKTOP_CLI_PATH_ENTRIES = Object.freeze([
   '/opt/homebrew/bin',
   '/usr/local/bin',
@@ -882,6 +887,13 @@ function buildBackendEnvironment({
     LOG_DIR: logDir,
     PYTHONUTF8: '1',
     PYTHONIOENCODING: 'utf-8',
+    // 启动加速：禁用 LiteLLM 远程 model cost map fetch（默认同步拉 GitHub 10s timeout）
+    LITELLM_LOCAL_MODEL_COST_MAP: 'True',
+    // 启动加速：跳过 .pyc 写入与 user site-packages 扫描，减少首次 import 副作用
+    PYTHONDONTWRITEBYTECODE: '1',
+    PYTHONNOUSERSITE: '1',
+    // 启动确定性：桌面端前端已随 PyInstaller 打包到 static/，跳过运行时 npm build 探测
+    WEBUI_AUTO_BUILD: 'false',
     WEBUI_HOST: selectedHost,
     WEBUI_ENABLED: 'false',
     BOT_ENABLED: 'false',
@@ -2025,6 +2037,24 @@ async function createWindow() {
     );
   };
 
+  // L2.4a：loadFile 提前到 waitForHealth 之前，让 UI 先渲染（BackendGate 显示 connecting 状态）。
+  // waitForHealth 完成后通过 IPC 通知前端切到 ready 状态；失败发 backend-error 让前端显示错误而非卡白屏。
+  resolvedBackendUrl = `http://${formatUrlHost(backendConnectHost)}:${port}`;
+  emitStartupProgress({ stage: 'ui', message: '正在加载界面...', elapsedMs: 0 });
+  const mainPageStartedAt = Date.now();
+  if (app.isPackaged) {
+    // PR2：打包模式下前端已随 Electron 打包到 renderer/web/，通过 file:// 直接加载，
+    // 不再走后端 HTTP，避免"网页套壳"的启动延迟与端口耦合。
+    // backendUrl 通过 preload 注入 window.dsaDesktop.backendUrl，供前端发起 API 请求。
+    const mainPagePath = path.join(__dirname, 'renderer', 'web', 'index.html');
+    mainWindow.loadFile(mainPagePath).catch((err) => {
+      logStartup(`Main page loadFile failed: ${String(err)}`);
+    });
+    logStartup(`Main page loadFile initiated path=${mainPagePath} at=${mainPageStartedAt - startupStartedAt}ms after spawn`);
+  }
+  // dev 模式：不在 health check 前调用 loadURL，因为后端尚未就绪会导致 ERR_CONNECTION_REFUSED。
+  // loading 页已通过上方 loadFile 加载，health check 通过后再 loadURL 加载主页面。
+
   try {
     // PR1 启动加速：首次探针 100ms、最大间隔 800ms（原 250ms/1500ms），让用户更快感知"在动"
     const healthInfo = await waitForHealth(
@@ -2050,30 +2080,47 @@ async function createWindow() {
       onHealthProgress
     );
     logStartup(`Backend ready in ${healthInfo.elapsedMs}ms (${healthInfo.attempts} probes)`);
-    emitStartupProgress({ stage: 'ui', message: '正在加载界面...', elapsedMs: healthInfo.elapsedMs });
-    const mainPageStartedAt = Date.now();
-    if (app.isPackaged) {
-      // PR2：打包模式下前端已随 Electron 打包到 renderer/web/，通过 file:// 直接加载，
-      // 不再走后端 HTTP，避免"网页套壳"的启动延迟与端口耦合。
-      // backendUrl 通过 preload 注入 window.dsaDesktop.backendUrl，供前端发起 API 请求。
-      resolvedBackendUrl = `http://${formatUrlHost(backendConnectHost)}:${port}`;
-      const mainPagePath = path.join(__dirname, 'renderer', 'web', 'index.html');
-      await mainWindow.loadFile(mainPagePath);
-      logStartup(`Main page loadFile resolved in ${Date.now() - mainPageStartedAt}ms path=${mainPagePath}`);
-    } else {
-      // dev 模式：前端由后端 FastAPI 同源提供，仍用 loadURL。
+    if (!app.isPackaged && !mainWindow.isDestroyed()) {
+      // dev 模式：后端 ready 后通过 loadURL 加载主页面（之前未加载，loading 页仍在显示）
       const mainPageUrl = buildMainPageUrl(port, Date.now(), backendConnectHost);
       await mainWindow.loadURL(mainPageUrl);
-      logStartup(`Main page loadURL resolved in ${Date.now() - mainPageStartedAt}ms url=${mainPageUrl}`);
+      logStartup(`Main page loadURL initiated url=${mainPageUrl} at=${Date.now() - startupStartedAt}ms after spawn`);
     }
     logStartup(`Main UI loaded in ${Date.now() - startupStartedAt}ms`);
+    // L2.4a：打包模式下后端 ready 后通过 IPC 通知前端 BackendGate 切到 ready 状态
+    if (app.isPackaged && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(BACKEND_READY_EVENT, {
+        elapsedMs: healthInfo.elapsedMs,
+        attempts: healthInfo.attempts,
+      });
+    }
     if (!restoreFailed) {
       void performDesktopUpdateCheck({ notify: true });
     }
   } catch (error) {
     logStartup(`Startup failed while waiting for health: ${String(error)}`);
-    const errorUrl = `file://${loadingPath}?error=${encodeURIComponent(String(error))}`;
-    await mainWindow.loadURL(errorUrl);
+    if (app.isPackaged && !mainWindow.isDestroyed()) {
+      // L2.4a：打包模式下后端失败通过 IPC 通知前端 BackendGate 切到 error 状态
+      mainWindow.webContents.send(BACKEND_ERROR_EVENT, { error: String(error) });
+      // 兜底：若 loadFile 也没成功（极少数情况，webContents URL 仍为空），加载错误页
+      try {
+        const currentUrl = mainWindow.webContents.getURL();
+        if (!currentUrl) {
+          const errorUrl = `file://${loadingPath}?error=${encodeURIComponent(String(error))}`;
+          await mainWindow.loadURL(errorUrl);
+        }
+      } catch (loadErr) {
+        logStartup(`Fallback error page load failed: ${String(loadErr)}`);
+      }
+    } else if (!mainWindow.isDestroyed()) {
+      // dev 模式：loading 页仍在显示，加载错误页让用户看到失败原因
+      try {
+        const errorUrl = `file://${loadingPath}?error=${encodeURIComponent(String(error))}`;
+        await mainWindow.loadURL(errorUrl);
+      } catch (loadErr) {
+        logStartup(`Fallback error page load failed: ${String(loadErr)}`);
+      }
+    }
   }
 }
 
@@ -2105,6 +2152,9 @@ module.exports = {
   DESKTOP_UPDATE_RUNTIME_RELATIVE_FILES,
   UPDATE_MODE,
   UPDATE_STATUS,
+  // L2.4a：暴露给 preload.js / 测试用的 IPC 通道常量
+  BACKEND_READY_EVENT,
+  BACKEND_ERROR_EVENT,
   buildUpdateState,
   backupPackagedRuntimeState,
   buildBackendArgs,

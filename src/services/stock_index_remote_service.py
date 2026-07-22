@@ -34,6 +34,36 @@ _REMOTE_CONSECUTIVE_FAILURES = 0
 _REMOTE_SUPPRESS_UNTIL = 0.0
 
 
+def _env_int(name: str, default: int) -> int:
+    """Read a positive int from env, falling back to default on missing/invalid.
+
+    用于把 timeout / max_failures 等弱网调优常量暴露为环境变量覆盖；
+    不传或传非法值时退化为代码默认值，保持原有契约不变。
+    """
+    raw = os.getenv(name)
+    if not raw:
+        return default
+    try:
+        value = int(raw.strip())
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
+def _resolve_remote_timeout_seconds() -> int:
+    return _env_int(
+        "STOCK_INDEX_REMOTE_TIMEOUT_SECONDS",
+        DEFAULT_STOCK_INDEX_REMOTE_TIMEOUT_SECONDS,
+    )
+
+
+def _resolve_remote_max_failures() -> int:
+    return _env_int(
+        "STOCK_INDEX_REMOTE_MAX_FAILURES",
+        DEFAULT_STOCK_INDEX_REMOTE_MAX_FAILURES,
+    )
+
+
 @dataclass(frozen=True)
 class RemoteStockIndexSettings:
     """Runtime settings for remote stock-index refresh."""
@@ -61,7 +91,7 @@ def settings_from_config(config: Any) -> RemoteStockIndexSettings:
         enabled=bool(getattr(config, "stock_index_remote_update_enabled", True)),
         url=DEFAULT_STOCK_INDEX_REMOTE_URL,
         ttl_hours=DEFAULT_STOCK_INDEX_REMOTE_TTL_HOURS,
-        timeout_seconds=DEFAULT_STOCK_INDEX_REMOTE_TIMEOUT_SECONDS,
+        timeout_seconds=_resolve_remote_timeout_seconds(),
     )
 
 
@@ -189,8 +219,9 @@ def _reset_remote_failure_state() -> None:
 
 def _remote_refresh_suppressed(now: float) -> bool:
     global _REMOTE_CONSECUTIVE_FAILURES, _REMOTE_SUPPRESS_UNTIL
+    max_failures = _resolve_remote_max_failures()
     with _REMOTE_FAILURE_LOCK:
-        if _REMOTE_CONSECUTIVE_FAILURES < DEFAULT_STOCK_INDEX_REMOTE_MAX_FAILURES:
+        if _REMOTE_CONSECUTIVE_FAILURES < max_failures:
             return False
         if now < _REMOTE_SUPPRESS_UNTIL:
             return True
@@ -201,9 +232,10 @@ def _remote_refresh_suppressed(now: float) -> bool:
 
 def _record_remote_failure(now: float, ttl_hours: int) -> int:
     global _REMOTE_CONSECUTIVE_FAILURES, _REMOTE_SUPPRESS_UNTIL
+    max_failures = _resolve_remote_max_failures()
     with _REMOTE_FAILURE_LOCK:
         _REMOTE_CONSECUTIVE_FAILURES += 1
-        if _REMOTE_CONSECUTIVE_FAILURES >= DEFAULT_STOCK_INDEX_REMOTE_MAX_FAILURES:
+        if _REMOTE_CONSECUTIVE_FAILURES >= max_failures:
             _REMOTE_SUPPRESS_UNTIL = now + max(ttl_hours, 1) * 3600
         return _REMOTE_CONSECUTIVE_FAILURES
 
@@ -251,7 +283,7 @@ def refresh_remote_stock_index_cache(settings: RemoteStockIndexSettings) -> Remo
         logger.warning(
             "[stock-index] remote update failed (%d/%d), using local fallback: %s",
             failures,
-            DEFAULT_STOCK_INDEX_REMOTE_MAX_FAILURES,
+            _resolve_remote_max_failures(),
             message,
         )
         if is_valid_remote_stock_index_file(cache_path):
