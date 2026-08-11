@@ -2125,6 +2125,7 @@ async function createWindow() {
   emitStartupProgress({ stage: 'port', message: '已分配后端端口', elapsedMs: Date.now() - portFindStartedAt });
   const port = await portPromise;
   logStartup(`Using port ${port} (selected in ${Date.now() - portFindStartedAt}ms)`);
+  desktopBackendOrigin = new URL(buildBackendUrl(backendConnectHost, port)).origin;
   logStartup(`App directory=${appDir}`);
 
   const applyThemeBackground = () => {
@@ -2161,21 +2162,6 @@ async function createWindow() {
     shell.openExternal(url);
     return { action: 'deny' };
   });
-
-  const appDir = resolveAppDir();
-  const envPath = path.join(appDir, '.env');
-  ensureEnvFile(envPath);
-  logStartup(`Env file ready: ${envPath}`);
-
-  const backendBindHost = resolveBackendBindHost({ envFile: envPath });
-  const backendConnectHost = resolveDesktopConnectHost(backendBindHost);
-  logStartup(`Backend bind host=${backendBindHost}; desktop connect host=${backendConnectHost}`);
-
-  const portFindStartedAt = Date.now();
-  const port = await findAvailablePort(8000, 8100, backendBindHost);
-  logStartup(`Using port ${port} (selected in ${Date.now() - portFindStartedAt}ms)`);
-  desktopBackendOrigin = new URL(buildBackendUrl(backendConnectHost, port)).origin;
-  logStartup(`App directory=${appDir}`);
 
   const dbPath = path.join(appDir, 'data', 'stock_analysis.db');
   const logDir = resolveLogDir({ envFile: envPath });
