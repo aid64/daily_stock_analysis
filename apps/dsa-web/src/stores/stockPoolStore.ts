@@ -1100,6 +1100,7 @@ export const useStockPoolStore = create<StockPoolState>((set, get) => ({
 
   refreshStockBar: async () => {
     const requestSeq = ++stockBarRequestSeq;
+    set({ isLoadingStockBar: true });
     try {
       const response = await historyApi.getStockBarList({
         startDate: getRecentStartDate(90),
