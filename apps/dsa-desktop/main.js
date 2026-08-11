@@ -17,6 +17,7 @@ let lastPromptedInstallVersion = '';
 let electronAutoUpdater = undefined;
 let electronAutoUpdaterConfigured = false;
 let electronUpdateCheckInFlight = false;
+let desktopBackendOrigin = '';
 
 // PR2：后端 API 基址，在端口确定后写入。
 // 打包模式下 renderer 通过 file:// 加载，需通过同步 IPC 读取此值构建绝对请求地址；
@@ -38,6 +39,9 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 5000;
 const DESKTOP_UPDATE_BACKUP_DIR = '.dsa-desktop-update-backup';
 const DESKTOP_UPDATE_BACKUP_MANIFEST_FILE = 'runtime-state.json';
 const DESKTOP_BACKEND_DEFAULT_HOST = '127.0.0.1';
+const DESKTOP_SHARE_IMAGE_WIDTH = 1080;
+const DESKTOP_SHARE_IMAGE_INITIAL_HEIGHT = 720;
+const DESKTOP_SHARE_IMAGE_MAX_HEIGHT = 20000;
 const PUBLIC_BIND_HOSTS = Object.freeze(new Set(['0.0.0.0', '::', '[::]', '*']));
 // L2.4a：后端 ready/error 通知通道（main → renderer，BackendGate 消费）
 // loadFile 提前到 waitForHealth 之前，UI 在 backend ready 前已渲染；
@@ -62,10 +66,12 @@ const DESKTOP_UPDATE_RUNTIME_RELATIVE_FILES = Object.freeze([
   path.join('data', 'stock_analysis.db'),
   path.join('data', 'stock_analysis.db-wal'),
   path.join('data', 'stock_analysis.db-shm'),
-  path.join('data', 'alphasift', 'hotspots.json'),
-  path.join('data', 'alphasift', 'hotspot.history.jsonl'),
-  path.join('data', 'alphasift', 'hotspot_details'),
-  path.join('data', 'alphasift', 'snapshot.last_good.json'),
+  path.join('data', 'screening', 'hotspots.json'),
+  path.join('data', 'screening', 'hotspot.history.jsonl'),
+  path.join('data', 'screening', 'hotspot_details'),
+  path.join('data', 'screening', 'snapshot.last_good.json'),
+  path.join('data', 'screening', 'daily_history'),
+  path.join('data', 'screening', 'industry_provider_cache'),
   path.join('logs', 'desktop.log'),
 ]);
 
@@ -866,6 +872,23 @@ function buildBackendArgs({ host, port }) {
   ];
 }
 
+function resolvePathAgainstBase(rawPath, baseDir) {
+  if (!rawPath || typeof rawPath !== 'string') {
+    return null;
+  }
+  const trimmed = rawPath.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (path.isAbsolute(trimmed)) {
+    return trimmed;
+  }
+  if (!baseDir) {
+    return trimmed;
+  }
+  return path.resolve(baseDir, trimmed);
+}
+
 function buildBackendEnvironment({
   envFile,
   dbPath,
@@ -879,12 +902,49 @@ function buildBackendEnvironment({
     normalizeBackendHost(host) || resolveBackendBindHost({ envFile, sourceEnv }),
     DESKTOP_BACKEND_DEFAULT_HOST
   );
+  // 多端合一：优先从 .env 读取 DATABASE_PATH 和 LOG_DIR，
+  // 让桌面端可与 Web/CLI 共享同一份数据，而不是各自使用独立的空数据库。
+  // 相对路径以 .env 所在目录为基准解析为绝对路径，避免不同模式 CWD 差异导致
+  // 桌面端与 Web/CLI 写入不同数据库。
+  //
+  // DSA_DATA_DIR：可选的统一数据目录。设置后，DATABASE_PATH 默认为
+  // $DSA_DATA_DIR/stock_analysis.db，LOG_DIR 默认为 $DSA_DATA_DIR/logs。
+  // 显式的 DATABASE_PATH / LOG_DIR 仍然优先于 DSA_DATA_DIR 默认值。
+  const envFileDir = envFile ? path.dirname(envFile) : process.cwd();
+  const dsaDataDir = resolvePathAgainstBase(readEnvFileValue(envFile, 'DSA_DATA_DIR', sourceEnv), envFileDir);
+  const envDbPath = resolvePathAgainstBase(readEnvFileValue(envFile, 'DATABASE_PATH', sourceEnv), envFileDir);
+  const envLogDir = resolvePathAgainstBase(readEnvFileValue(envFile, 'LOG_DIR', sourceEnv), envFileDir);
+  // 打包模式下，exe 目录（如 C:\Program Files\DSA\）非管理员运行时不可写。
+  // 若 .env 相对路径解析到 exe 目录，fallback 到 userData 下的可写子目录，
+  // 避免 DATABASE_PATH / LOG_DIR 指向不可写位置导致后端日志降级或数据库写入失败。
+  const userDataDir = app.getPath('userData');
+  const packagedExeDir = (app.isPackaged && !isMac) ? resolvePackagedExeDir() : null;
+  const isUnderPackagedExeDir = (resolvedPath) => {
+    if (!packagedExeDir || !resolvedPath) {
+      return false;
+    }
+    return path.resolve(resolvedPath).toLowerCase().startsWith(path.resolve(packagedExeDir).toLowerCase());
+  };
+  const fallbackToUserData = (resolvedPath, subDir) => {
+    if (!isUnderPackagedExeDir(resolvedPath)) {
+      return resolvedPath;
+    }
+    return path.join(userDataDir, subDir);
+  };
+  const effectiveDbPath = fallbackToUserData(
+    envDbPath || (dsaDataDir ? path.join(dsaDataDir, 'stock_analysis.db') : dbPath),
+    'data',
+  ) || path.join(userDataDir, 'data', 'stock_analysis.db');
+  const effectiveLogDir = fallbackToUserData(
+    envLogDir || (dsaDataDir ? path.join(dsaDataDir, 'logs') : logDir),
+    'logs',
+  ) || path.join(userDataDir, 'logs');
   const env = {
     ...sourceEnv,
     DSA_DESKTOP_MODE: 'true',
     ENV_FILE: envFile,
-    DATABASE_PATH: dbPath,
-    LOG_DIR: logDir,
+    DATABASE_PATH: effectiveDbPath,
+    LOG_DIR: effectiveLogDir,
     PYTHONUTF8: '1',
     PYTHONIOENCODING: 'utf-8',
     // 启动加速：禁用 LiteLLM 远程 model cost map fetch（默认同步拉 GitHub 10s timeout）
@@ -924,14 +984,33 @@ function ensureDirectory(dirPath) {
   }
 }
 
+function resolveLogDir({ envFile, sourceEnv = process.env } = {}) {
+  // 优先复用 .env 的 LOG_DIR（与后端同目录，多端合一）。
+  // .env 尚未 ensureEnvFile 时，尝试读取已存在的 .env；不存在则跳过。
+  if (envFile && fs.existsSync(envFile)) {
+    const envFileDir = path.dirname(envFile);
+    const envLogDir = resolvePathAgainstBase(readEnvFileValue(envFile, 'LOG_DIR', sourceEnv), envFileDir);
+    if (envLogDir) {
+      return envLogDir;
+    }
+    const dsaDataDir = resolvePathAgainstBase(readEnvFileValue(envFile, 'DSA_DATA_DIR', sourceEnv), envFileDir);
+    if (dsaDataDir) {
+      return path.join(dsaDataDir, 'logs');
+    }
+  }
+  // fallback 到 userData/logs（始终可写，避免打包模式 exe 目录权限问题）。
+  return path.join(app.getPath('userData'), 'logs');
+}
+
 function initLogging() {
   const appDir = resolveAppDir();
-  logFilePath = path.join(appDir, 'logs', 'desktop.log');
-  
+  const envFile = path.join(appDir, '.env');
+  const logDir = resolveLogDir({ envFile });
+  logFilePath = path.join(logDir, 'desktop.log');
+
   // 确保日志目录存在
-  const logDir = path.dirname(logFilePath);
   ensureDirectory(logDir);
-  
+
   logLine('Desktop app starting');
 }
 
@@ -1384,6 +1463,118 @@ function buildMainPageUrl(port, timestamp = Date.now(), host = DESKTOP_BACKEND_D
   return url.toString();
 }
 
+function buildDesktopShareImageUrl(pageUrl, recordId, expectedBackendOrigin = '') {
+  if (!Number.isSafeInteger(recordId) || recordId <= 0) {
+    throw new Error('Invalid share image record ID');
+  }
+
+  let page;
+  try {
+    page = new URL(pageUrl);
+  } catch (_error) {
+    throw new Error('Desktop backend URL is unavailable');
+  }
+
+  let expectedOrigin = page.origin;
+  if (expectedBackendOrigin) {
+    try {
+      expectedOrigin = new URL(expectedBackendOrigin).origin;
+    } catch (_error) {
+      throw new Error('Desktop backend origin is invalid');
+    }
+  }
+  if (page.protocol !== 'http:' || !page.port || page.origin !== expectedOrigin) {
+    throw new Error('Desktop share images require the configured backend origin');
+  }
+
+  return new URL(
+    `/api/v1/history/${recordId}/share-image-html`,
+    page.origin
+  ).toString();
+}
+
+async function renderDesktopShareImage(
+  recordId,
+  {
+    sourceWindow = mainWindow,
+    BrowserWindowClass = BrowserWindow,
+    backendOrigin = '',
+  } = {}
+) {
+  if (!sourceWindow || sourceWindow.isDestroyed() || !sourceWindow.webContents) {
+    throw new Error('Desktop window is unavailable');
+  }
+
+  const targetUrl = buildDesktopShareImageUrl(
+    sourceWindow.webContents.getURL(),
+    recordId,
+    backendOrigin
+  );
+  let renderWindow = null;
+  try {
+    renderWindow = new BrowserWindowClass({
+      show: false,
+      width: DESKTOP_SHARE_IMAGE_WIDTH,
+      height: DESKTOP_SHARE_IMAGE_INITIAL_HEIGHT,
+      ...(isMac ? { enableLargerThanScreen: true } : {}),
+      useContentSize: true,
+      backgroundColor: '#eef4fd',
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+        backgroundThrottling: false,
+      },
+    });
+    renderWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    renderWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+      if (navigationUrl !== targetUrl) {
+        event.preventDefault();
+      }
+    });
+
+    await renderWindow.loadURL(targetUrl);
+    const pageMetrics = await renderWindow.webContents.executeJavaScript(`({
+      contentType: document.contentType,
+      width: Math.ceil(Math.max(document.documentElement.scrollWidth, document.body.scrollWidth)),
+      height: Math.ceil(Math.max(document.documentElement.scrollHeight, document.body.scrollHeight))
+    })`);
+    if (!pageMetrics || pageMetrics.contentType !== 'text/html') {
+      throw new Error('Desktop share image source did not return HTML');
+    }
+    if (
+      !Number.isFinite(pageMetrics.width)
+      || pageMetrics.width !== DESKTOP_SHARE_IMAGE_WIDTH
+      || !Number.isFinite(pageMetrics.height)
+      || pageMetrics.height < 1
+      || pageMetrics.height > DESKTOP_SHARE_IMAGE_MAX_HEIGHT
+    ) {
+      throw new Error(`Desktop share image has invalid dimensions: ${pageMetrics.width}x${pageMetrics.height}`);
+    }
+
+    renderWindow.setContentSize(DESKTOP_SHARE_IMAGE_WIDTH, pageMetrics.height);
+    await renderWindow.webContents.executeJavaScript(
+      'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))'
+    );
+    const image = await renderWindow.webContents.capturePage({
+      x: 0,
+      y: 0,
+      width: DESKTOP_SHARE_IMAGE_WIDTH,
+      height: pageMetrics.height,
+    });
+    if (!image || image.isEmpty()) {
+      throw new Error('Desktop share image capture returned an empty image');
+    }
+
+    const png = image.toPNG();
+    return png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength);
+  } finally {
+    if (renderWindow && !renderWindow.isDestroyed()) {
+      renderWindow.destroy();
+    }
+  }
+}
+
 function isWindowsNsisInstalledApp() {
   if (!isWindows || !app.isPackaged) {
     return false;
@@ -1788,6 +1979,18 @@ ipcMain.handle('desktop:open-release-page', async (_event, releaseUrl) => {
   await shell.openExternal(sanitizeReleaseUrl(releaseUrl));
   return true;
 });
+ipcMain.handle('desktop:render-share-image', async (event, recordId) => {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+    throw new Error('Share image request did not originate from the desktop window');
+  }
+  try {
+    return await renderDesktopShareImage(recordId, { backendOrigin: desktopBackendOrigin });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logLine(`[share-image] desktop render failed for record=${recordId}: ${message}`);
+    throw error;
+  }
+});
 
 // PR2：同步返回后端 API 基址。
 // renderer（preload.js）在模块初始化时通过 ipcRenderer.sendSync 调用此通道，
@@ -1842,6 +2045,7 @@ function emitStartupProgress(payload) {
 }
 
 async function createWindow() {
+  desktopBackendOrigin = '';
   const restoreResult = isWindowsNsisInstalledApp() ? restorePackagedRuntimeStateFromBackup() : null;
   const macMigrationResult = migrateMacPackagedRuntimeState();
   initLogging();
@@ -1958,8 +2162,23 @@ async function createWindow() {
     return { action: 'deny' };
   });
 
+  const appDir = resolveAppDir();
+  const envPath = path.join(appDir, '.env');
+  ensureEnvFile(envPath);
+  logStartup(`Env file ready: ${envPath}`);
+
+  const backendBindHost = resolveBackendBindHost({ envFile: envPath });
+  const backendConnectHost = resolveDesktopConnectHost(backendBindHost);
+  logStartup(`Backend bind host=${backendBindHost}; desktop connect host=${backendConnectHost}`);
+
+  const portFindStartedAt = Date.now();
+  const port = await findAvailablePort(8000, 8100, backendBindHost);
+  logStartup(`Using port ${port} (selected in ${Date.now() - portFindStartedAt}ms)`);
+  desktopBackendOrigin = new URL(buildBackendUrl(backendConnectHost, port)).origin;
+  logStartup(`App directory=${appDir}`);
+
   const dbPath = path.join(appDir, 'data', 'stock_analysis.db');
-  const logDir = path.join(appDir, 'logs');
+  const logDir = resolveLogDir({ envFile: envPath });
 
   try {
     const launchInfo = startBackend({ port, envFile: envPath, dbPath, logDir, host: backendBindHost });
@@ -2168,6 +2387,7 @@ module.exports = {
   fetchLatestReleaseJson,
   findAvailablePort,
   buildMainPageUrl,
+  buildDesktopShareImageUrl,
   migrateMacPackagedRuntimeState,
   normalizeVersionString,
   parseSemver,
@@ -2175,6 +2395,9 @@ module.exports = {
   resolveAppDir,
   resolveBackendBindHost,
   resolveDesktopConnectHost,
+  resolveLogDir,
+  resolvePathAgainstBase,
+  renderDesktopShareImage,
   restorePackagedRuntimeStateFromBackup,
   sanitizeReleaseUrl,
   startBackend,

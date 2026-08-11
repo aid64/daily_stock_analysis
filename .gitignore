@@ -98,8 +98,9 @@ test.sh
 
 # ── 前端构建产物 ─────────────────────────────
 static/
-apps/dsa-desktop/dist/
-apps/dsa-desktop/node_modules/
+/apps/dsa-desktop/dist/
+/apps/dsa-desktop/node_modules/
+/node_modules/
 # PR2：build-backend.ps1 把 static/ 同步到 renderer/web/，供 Electron 打包后 file:// 加载
 apps/dsa-desktop/renderer/web/
 

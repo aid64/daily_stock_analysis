@@ -5,6 +5,7 @@ const DESKTOP_GET_UPDATE_STATE_CHANNEL = 'desktop:get-update-state';
 const DESKTOP_CHECK_FOR_UPDATES_CHANNEL = 'desktop:check-for-updates';
 const DESKTOP_INSTALL_DOWNLOADED_UPDATE_CHANNEL = 'desktop:install-downloaded-update';
 const DESKTOP_OPEN_RELEASE_PAGE_CHANNEL = 'desktop:open-release-page';
+const DESKTOP_RENDER_SHARE_IMAGE_CHANNEL = 'desktop:render-share-image';
 const DESKTOP_UPDATE_STATE_EVENT = 'desktop:update-state';
 
 // 窗口控制 IPC 通道（PR1 新增：自绘标题栏使用）
@@ -66,6 +67,9 @@ function createDesktopBridge({
     },
     openReleasePage(releaseUrl) {
       return renderer.invoke(DESKTOP_OPEN_RELEASE_PAGE_CHANNEL, releaseUrl);
+    },
+    renderShareImage(recordId) {
+      return renderer.invoke(DESKTOP_RENDER_SHARE_IMAGE_CHANNEL, recordId);
     },
     onUpdateStateChange(listener) {
       if (typeof listener !== 'function') {
@@ -171,6 +175,7 @@ module.exports = {
   DESKTOP_GET_UPDATE_STATE_CHANNEL,
   DESKTOP_INSTALL_DOWNLOADED_UPDATE_CHANNEL,
   DESKTOP_OPEN_RELEASE_PAGE_CHANNEL,
+  DESKTOP_RENDER_SHARE_IMAGE_CHANNEL,
   DESKTOP_UPDATE_STATE_EVENT,
   DESKTOP_VERSION_ARG_PREFIX,
   DESKTOP_GET_BACKEND_URL_CHANNEL,

@@ -1,53 +1,21 @@
-# 📈 daily_stock_analysis
+<div align="center">
 
-> 基于 AI 大模型的多市场自选股智能分析系统
->
-> Forked from [ZhuLinsen/daily_stock_analysis](https://github.com/ZhuLinsen/daily_stock_analysis) (v3.26.0)
+# 📈 股票智能分析系统
 
-## 项目概述
+[![GitHub stars](https://img.shields.io/github/stars/ZhuLinsen/daily_stock_analysis?style=social)](https://github.com/ZhuLinsen/daily_stock_analysis/stargazers)
+[![CI](https://github.com/ZhuLinsen/daily_stock_analysis/actions/workflows/ci.yml/badge.svg)](https://github.com/ZhuLinsen/daily_stock_analysis/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-Ready-2088FF?logo=github-actions&logoColor=white)](https://github.com/features/actions)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/zhulinsen/daily_stock_analysis)
 
-每日自动分析自选股（A 股/港股/美股/日股/韩股/台股），基于 AI 大模型生成决策仪表盘，支持 14 种通知渠道推送分析报告。
+<p align="center">
+  <img src="https://trendshift.io/api/badge/trendshift/repositories/18527/daily?language=Python" alt="#1 Python Repository Of The Day | Trendshift" width="250" height="55"/>&nbsp;<a href="https://hellogithub.com/repository/ZhuLinsen/daily_stock_analysis" target="_blank"><img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=6daa16e405ce46ed97b4a57706aeb29f&claim_uid=pfiJMqhR9uvDGlT&theme=neutral" alt="Featured｜HelloGitHub" width="230" /></a>
+</p>
 
-## 目录结构
+> 🤖 基于 AI 大模型的 A股/港股/美股/日股/韩股/台股自选股智能分析系统，每日自动分析并推送「决策仪表盘」到企业微信/飞书/Telegram/Discord/Slack/邮箱
 
-```
-daily_stock_analysis/          ← Git 仓库根目录
-├── README.md                  ← 本文件
-├── CHANGELOG.md               ← 项目开发日志
-├── .gitignore                 ← Git 忽略规则
-├── .gitattributes             ← Git 换行符规则
-├── .env                       ← 环境配置 (已 gitignore)
-├── .env.example               ← 环境配置模板
-│
-├── main.py                    ← CLI 入口
-├── server.py                  ← FastAPI 服务
-├── webui.py                   ← WebUI 启动
-├── requirements.txt           ← Python 依赖
-├── pyproject.toml             ← Python 项目配置
-│
-├── src/                       ← Python 核心源码
-├── api/                       ← FastAPI REST API
-├── apps/                      ← 前端应用 (React + Electron)
-├── data_provider/             ← 数据源层 (10+ fetcher)
-├── strategies/                ← 15 种量化策略 YAML
-├── bot/                       ← 聊天机器人框架
-├── tests/                     ← 测试套件 (150+ 文件)
-├── templates/                 ← Jinja2 报告模板
-├── scripts/                   ← 构建/工具脚本
-├── docker/                    ← Docker 配置
-├── .github/                   ← GitHub CI/CD
-│
-├── docs/                      ← 项目文档 (本地 + 上游)
-│   ├── INDEX.md               ← 文档索引
-│   ├── project-analysis.md    ← 项目深度分析报告
-│   ├── upstream-README.md     ← 上游官方 README
-│   └── ...                    ← 上游官方文档
-│
-├── archive/                   ← 历史参考
-│   └── DEPRECATED.md          ← 废弃 Fork 说明
-│
-└── Daily Stock Analysis/      ← 打包后的 Electron 桌面应用 (gitignored)
-```
+[**产品预览**](#-产品预览) · [**功能特性**](#-功能特性) · [**快速开始**](#-快速开始) · [**推送效果**](#-推送效果) · [**文档中心**](docs/INDEX.md) · [**完整指南**](docs/full-guide.md)
 
 简体中文 | [English](docs/README_EN.md) | [繁體中文](docs/README_CHT.md)
 
@@ -85,7 +53,7 @@ daily_stock_analysis/          ← Git 仓库根目录
 
 | 类型 | 支持 |
 |------|------|
-| AI 模型 | [Anspire](https://open.anspire.cn/dsa?share_code=QFBC0FYC)、[AIHubMix](https://aihubmix.com/?aff=CfMq)、Gemini、OpenAI 兼容、DeepSeek、通义千问、Claude、Ollama 本地模型等 |
+| AI 模型 | [Anspire](https://open.anspire.cn/dsa?share_code=QFBC0FYC)、[AIHubMix](https://inferera.com/?aff=CfMq)、Gemini、OpenAI 兼容、DeepSeek、通义千问、Claude、Ollama 本地模型等 |
 | 行情数据 | [TickFlow](https://tickflow.org/auth/register?ref=WDSGSPS5XC)、AkShare、Tushare、Pytdx、Baostock、YFinance、Longbridge |
 | 新闻搜索 | [Anspire](https://open.anspire.cn/dsa/?share_code=QFBC0FYC)、[SerpAPI](https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis)、[Tavily](https://tavily.com/)、[Bocha](https://open.bocha.cn/)、[Brave](https://brave.com/search/api/)、[MiniMax](https://platform.minimaxi.com/)、SearXNG |
 | 社交舆情 | [Stock Sentiment API](https://api.adanos.org/docs)（Reddit / X / Polymarket，仅美股，可选） |
@@ -114,7 +82,7 @@ daily_stock_analysis/          ← Git 仓库根目录
 | Secret 名称 | 说明 | 必填 |
 |------------|------|:----:|
 | `ANSPIRE_API_KEYS` | [Anspire](https://open.anspire.cn/dsa?share_code=QFBC0FYC) API Key，一Key同时启用全球热门大模型和联网搜索，本项目新用户提供30元等额的免费额度（GLM5.2、GPT等模型特惠中） | **推荐** |
-| `AIHUBMIX_KEY` | [AIHubMix](https://aihubmix.com/?aff=CfMq) API Key，一Key切换使用全系模型，无需科学上网，本项目可享 10% 优惠 | **推荐** |
+| `AIHUBMIX_KEY` | [AIHubMix](https://inferera.com/?aff=CfMq) API Key，一Key切换使用全系模型，无需科学上网，本项目可享 10% 优惠 | **推荐** |
 | `GEMINI_API_KEY` | Google Gemini API Key | 可选 |
 | `ANTHROPIC_API_KEY` | Anthropic Claude API Key | 可选 |
 | `OPENAI_API_KEY` | OpenAI 兼容 API Key（支持 DeepSeek、通义千问等） | 可选 |
@@ -183,43 +151,149 @@ daily_stock_analysis/          ← Git 仓库根目录
 
 ### 方式二：[客户端配置教程](https://www.bilibili.com/video/BV11FEb66Eyr/) / 本地运行 / Docker 部署
 
-## 快速开始
-
 ```bash
-cd source_code
+# 克隆项目
+git clone https://github.com/ZhuLinsen/daily_stock_analysis.git && cd daily_stock_analysis
 
-# 1. 配置环境变量
-cp .env.example .env
-# 编辑 .env，填入 STOCK_LIST 和 LLM API Key
-
-# 2. 安装依赖
+# 安装依赖
 pip install -r requirements.txt
 
-# 3. 运行分析
-python main.py                          # 单次分析
-python main.py --schedule               # 定时模式 (每日 18:00)
-python main.py --serve                  # API 服务 + Web 工作台
-python -m uvicorn server:app --reload   # 仅 API 服务
+# 配置环境变量
+cp .env.example .env && vim .env
+
+# 运行分析
+python main.py
 ```
 
-## 文档导航
+常用命令：
 
-| 文档 | 说明 |
+```bash
+python main.py --debug
+python main.py --dry-run
+python main.py --stocks 600519,hk00700,AAPL,2330.TW
+python main.py --market-review
+python main.py --schedule
+python main.py --serve-only
+```
+
+> Docker 部署、定时任务、云服务器访问请参考 [完整指南](docs/full-guide.md)；桌面客户端打包请参考 [桌面端打包说明](docs/desktop-package.md)。
+
+## 📱 推送效果
+
+### 决策仪表盘
+```
+🎯 2026-02-08 决策仪表盘
+共分析3只股票 | 🟢买入:0 🟡观望:2 🔴卖出:1
+
+📊 分析结果摘要
+⚪ 中钨高新(000657): 观望 | 评分 65 | 看多
+⚪ 永鼎股份(600105): 观望 | 评分 48 | 震荡
+🟡 新莱应材(300260): 卖出 | 评分 35 | 看空
+
+⚪ 中钨高新 (000657)
+📰 重要信息速览
+💭 舆情情绪: 市场关注其AI属性与业绩高增长，情绪偏积极，但需消化短期获利盘和主力流出压力。
+📊 业绩预期: 基于舆情信息，公司2025年前三季度业绩同比大幅增长，基本面强劲，为股价提供支撑。
+
+🚨 风险警报:
+
+风险点1：2月5日主力资金大幅净卖出3.63亿元，需警惕短期抛压。
+风险点2：筹码集中度高达35.15%，表明筹码分散，拉升阻力可能较大。
+风险点3：舆情中提及公司历史违规记录及重组相关风险提示，需保持关注。
+✨ 利好催化:
+
+利好1：公司被市场定位为AI服务器HDI核心供应商，受益于AI产业发展。
+利好2：2025年前三季度扣非净利润同比暴涨407.52%，业绩表现强劲。
+📢 最新动态: 【最新消息】舆情显示公司是AI PCB微钻领域龙头，深度绑定全球头部PCB/载板厂。2月5日主力资金净卖出3.63亿元，需关注后续资金流向。
+
+---
+生成时间: 18:00
+```
+
+### 大盘复盘
+```
+🎯 2026-01-10 大盘复盘
+
+📊 主要指数
+- 上证指数: 3250.12 (🟢+0.85%)
+- 深证成指: 10521.36 (🟢+1.02%)
+- 创业板指: 2156.78 (🟢+1.35%)
+
+📈 市场概况
+上涨: 3920 | 下跌: 1349 | 涨停: 155 | 跌停: 3
+
+🔥 板块表现
+领涨: 互联网服务、文化传媒、小金属
+领跌: 保险、航空机场、光伏设备
+```
+
+## ⚙️ 配置说明
+
+完整环境变量、模型渠道、通知渠道、数据源优先级、交易纪律、基本面 P0 语义和部署说明请参考 [完整配置指南](docs/full-guide.md)。
+
+## 🖥️ Web 界面
+
+Web 工作台提供配置管理、任务监控、手动分析、历史报告、完整 Markdown 报告、Agent 问股、回测、持仓管理、智能导入和浅色 / 深色主题。启动方式：
+
+```bash
+python main.py --webui
+python main.py --webui-only
+```
+
+访问 `http://127.0.0.1:8000` 即可使用。认证、智能导入、搜索补全、历史报告复制、云服务器访问等细节见 [本地 WebUI 管理界面](docs/full-guide.md#本地-webui-管理界面)。
+
+## 🤖 Agent 策略问股
+
+配置任意可用 AI API Key 后，Web `/chat` 页面即可使用策略问股；如需显式关闭可设置 `AGENT_MODE=false`。
+
+- 支持均线金叉、缠论、波浪理论、多头趋势、热点题材、事件驱动、成长质量、预期重估等内置策略
+- 支持实时行情、K 线、技术指标、新闻和风险信息调用
+- 支持多轮追问、会话导出、发送到通知渠道和后台执行
+- 支持自定义策略文件与多 Agent 编排（实验性）
+
+> Agent 具体参数、`skill` 命名兼容、多 Agent 模式和预算护栏见 [完整指南](docs/full-guide.md#本地-webui-管理界面) 与 [LLM 配置指南](docs/LLM_CONFIG_GUIDE.md)。
+
+## 🧩 相关项目 (Related Projects)
+
+> DSA 聚焦日常分析报告；选股实现参考 AlphaSift，AlphaEvo 用于策略验证与进化。
+
+| 项目 | 定位 |
 |------|------|
-| [docs/project-analysis.md](docs/project-analysis.md) | 项目深度分析 (功能/架构/不足) |
-| [CHANGELOG.md](CHANGELOG.md) | 版本演进与开发日志 |
-| [docs/upstream-README.md](docs/upstream-README.md) | 上游官方 README（原版） |
-| [docs/INDEX.md](docs/INDEX.md) | 文档中心总索引 |
-| [docs/full-guide.md](docs/full-guide.md) | 完整配置与部署指南 |
-| [docs/LLM_CONFIG_GUIDE.md](docs/LLM_CONFIG_GUIDE.md) | LLM 模型配置指南 |
+| [AlphaSift](https://github.com/ZhuLinsen/alphasift) | DSA 选股实现的参考项目 |
+| [AlphaEvo](https://github.com/ZhuLinsen/alphaevo) | 策略回测与自我进化，用于验证策略规则，并通过迭代探索策略参数与组合 |
 
-## 技术栈
+## 📬 联系与合作
 
-| 层级 | 技术 |
-|------|------|
-| 后端 | Python 3.10+, FastAPI, SQLAlchemy + SQLite |
-| AI 层 | LiteLLM 多模型统一客户端 |
-| 前端 | React 19, TypeScript, Vite, TailwindCSS |
-| 桌面 | Electron |
-| 部署 | Docker, GitHub Actions |
-| 测试 | Pytest (150+), Playwright E2E |
+<table>
+  <tr>
+    <td width="92" valign="top"><strong>合作邮箱</strong></td>
+    <td valign="top">
+      <a href="mailto:zhuls345@gmail.com">zhuls345@gmail.com</a><br>
+      项目咨询、部署支持与功能扩展
+    </td>
+    <td align="center" rowspan="3" valign="middle" width="148">
+      <a href="http://xhslink.com/m/tU520DWCKT" target="_blank"><img src="./docs/assets/xiaohongshu_tick.jpg" width="112" alt="小红书二维码"></a><br>
+      <sub>扫码关注小红书</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="92" valign="top"><strong>小红书</strong></td>
+    <td valign="top"><a href="http://xhslink.com/m/tU520DWCKT">欢迎关注小红书</a></td>
+  </tr>
+  <tr>
+    <td width="92" valign="top"><strong>问题反馈</strong></td>
+    <td valign="top"><a href="https://github.com/ZhuLinsen/daily_stock_analysis/issues">提交 Issue</a></td>
+  </tr>
+</table>
+
+## 📄 License
+
+[MIT License](LICENSE) © 2026 ZhuLinsen
+
+欢迎在二次开发或引用时注明本仓库来源，感谢支持项目持续维护。
+
+## ⚠️ 免责声明
+
+本项目仅供学习和研究使用，不构成任何投资建议。股市有风险，投资需谨慎。作者不对使用本项目产生的任何损失负责。
+
+---

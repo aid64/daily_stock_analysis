@@ -8,42 +8,10 @@ if (!(Test-Path 'node_modules')) {
 npm run build
 Pop-Location
 
-# PR2：将前端构建产物同步到桌面端 renderer/web/，供 Electron 打包后通过 file:// 加载。
-# vite outDir 仍为 ../../static（保留 web 模式与 PyInstaller --add-data static;static 行为不变），
-# 此处把 static/ 复制到 apps/dsa-desktop/renderer/web/，electron-builder files glob (renderer/**/*) 会打包进去。
-$rendererWebDir = Join-Path $PSScriptRoot '..\apps\dsa-desktop\renderer\web'
-if (Test-Path $rendererWebDir) {
-  Remove-Item -Recurse -Force $rendererWebDir
+$pythonBin = $env:PYTHON_BIN
+if ([string]::IsNullOrWhiteSpace($pythonBin)) {
+  $pythonBin = 'python'
 }
-New-Item -ItemType Directory -Force -Path $rendererWebDir | Out-Null
-Copy-Item -Path (Join-Path $PSScriptRoot '..\static\*') -Destination $rendererWebDir -Recurse -Force
-Write-Host "Synced static assets to $($rendererWebDir)"
-
-# Resolve Python executable: honor $env:PYTHON_BIN if set, otherwise probe
-# %LOCALAPPDATA%\Programs\Python\PythonXXX\python.exe to avoid the Windows Store
-# python.exe stub (which exits 9009 without running anything).
-function Resolve-PythonBin {
-  if (-not [string]::IsNullOrWhiteSpace($env:PYTHON_BIN)) {
-    return $env:PYTHON_BIN
-  }
-  $localAppData = $env:LOCALAPPDATA
-  if ($localAppData) {
-    $programsPythonDir = Join-Path $localAppData 'Programs\Python'
-    if (Test-Path $programsPythonDir) {
-      $candidates = @(Get-ChildItem -Path $programsPythonDir -Directory |
-        Where-Object { $_.Name -match '^Python\d+$' } |
-        ForEach-Object { Join-Path $_.FullName 'python.exe' } |
-        Where-Object { Test-Path $_ } |
-        Sort-Object Name -Descending)
-      if ($candidates.Count -gt 0) {
-        return $candidates[0]
-      }
-    }
-  }
-  return 'python'
-}
-
-$pythonBin = Resolve-PythonBin
 
 Write-Host "Using Python: $pythonBin"
 
@@ -83,9 +51,9 @@ if (-not (Test-PythonCode -Python $pythonBin -Code "import multipart, multipart.
   throw 'python-multipart is not importable in the selected Python environment.'
 }
 
-Write-Host 'Checking AlphaSift adapter availability...'
-if (-not (Test-PythonCode -Python $pythonBin -Code "import alphasift.dsa_adapter")) {
-  throw 'alphasift.dsa_adapter is not importable after installing requirements.'
+Write-Host 'Checking built-in screening engine availability...'
+if (-not (Test-PythonCode -Python $pythonBin -Code "import src.services.screening.pipeline")) {
+  throw 'src.services.screening.pipeline is not importable.'
 }
 
 Write-Host 'Checking Futu SDK availability...'
@@ -129,9 +97,9 @@ $hiddenImports = @(
   'api.v1.endpoints.history',
   'api.v1.endpoints.stocks',
   'api.v1.endpoints.health',
-  'api.v1.endpoints.alphasift',
-  'alphasift',
-  'alphasift.dsa_adapter',
+  'api.v1.endpoints.screening',
+  'src.services.screening',
+  'src.services.screening.pipeline',
   'api.v1.schemas',
   'api.v1.schemas.analysis',
   'api.v1.schemas.history',
@@ -143,7 +111,7 @@ $hiddenImports = @(
   'src.services.task_queue',
   'src.services.analysis_service',
   'src.services.history_service',
-  'src.services.alphasift_service',
+  'src.services.screening_service',
   'uvicorn.logging',
   'uvicorn.loops',
   'uvicorn.loops.auto',
@@ -156,6 +124,7 @@ $hiddenImports = @(
   'uvicorn.lifespan.on'
 )
 $hiddenImportArgs = $hiddenImports | ForEach-Object { "--hidden-import=$_" }
+$runtimeHook = Join-Path $PSScriptRoot 'pyinstaller_runtime_compat.py'
 
 $pyInstallerArgs = @(
   '-m', 'PyInstaller',
@@ -163,28 +132,16 @@ $pyInstallerArgs = @(
   '--onedir',
   '--noconfirm',
   '--noconsole',
+  '--runtime-hook', $runtimeHook,
+  '--add-data', 'static;static',
   '--add-data', 'strategies;strategies',
+  '--add-data', 'src/assets/share_image;src/assets/share_image',
   '--collect-data', 'litellm',
   '--collect-data', 'tiktoken',
   '--collect-data', 'akshare',
-  '--collect-all', 'alphasift',
-  '--collect-all', 'futu',
-  '--collect-all', 'nacl',
-  '--optimize', '2',
-  '--exclude-module', 'playwright',
-  '--exclude-module', 'playwright._impl',
-  '--exclude-module', 'hf_xet',
-  '--exclude-module', 'discord',
-  '--exclude-module', 'pytest',
-  '--exclude-module', 'IPython',
-  '--exclude-module', 'jupyter'
+  '--collect-all', 'src.services.screening',
+  '--collect-all', 'futu'
 )
-# Web/CLI 模式需要 static/ 提供 SPA（PyInstaller --add-data static;static）；
-# 桌面模式 L2.4a 后通过 Electron loadFile 加载 renderer/web/，后端不再需要 _internal/static/，
-# 去除可省 ~5.3MB 桌面安装包体积。DSA_DESKTOP_BUILD 由 scripts/build-all.ps1 在调用前注入。
-if ($env:DSA_DESKTOP_BUILD -ne 'true') {
-  $pyInstallerArgs += @('--add-data', 'static;static')
-}
 $pyInstallerArgs += $hiddenImportArgs
 $pyInstallerArgs += 'main.py'
 
@@ -207,7 +164,7 @@ if (-not (Test-Path $packagedEntry)) {
 }
 $previousProbe = $env:DSA_PACKAGED_IMPORT_PROBE
 try {
-  foreach ($module in @('alphasift.dsa_adapter', 'futu', 'orjson', 'litellm', 'nacl.signing')) {
+  foreach ($module in @('src.services.screening.pipeline', 'futu', 'orjson')) {
     $env:DSA_PACKAGED_IMPORT_PROBE = $module
     $probeProcess = Start-Process -FilePath $packagedEntry -Wait -PassThru
     if ($probeProcess.ExitCode -ne 0) {
@@ -241,8 +198,6 @@ if (Test-Path $packagedStatic) {
   if ($LASTEXITCODE -ne 0) {
     throw "Static asset sanity check failed for packaged $packagedStatic. See GitHub #1064."
   }
-} elseif ($env:DSA_DESKTOP_BUILD -eq 'true') {
-  Write-Host "DSA_DESKTOP_BUILD=true: static/ intentionally omitted from backend _internal; frontend is bundled via apps/dsa-desktop/renderer/web/."
 } else {
   Write-Warning "Could not locate packaged static directory under dist\backend\stock_analysis; skipping post-package check."
 }
@@ -259,6 +214,21 @@ if (-not (Test-Path $packagedStrategies)) {
 $packagedStrategyCount = @(Get-ChildItem -Path $packagedStrategies -Filter '*.yaml' -File).Count
 if ($packagedStrategyCount -ne $sourceStrategyCount) {
   throw "Packaged strategies count mismatch: expected $sourceStrategyCount, got $packagedStrategyCount."
+}
+
+Write-Host 'Verifying packaged screening strategies...'
+$sourceScreeningStrategies = Join-Path 'src\services\screening' 'strategies'
+$sourceScreeningStrategyCount = @(Get-ChildItem -Path $sourceScreeningStrategies -Filter '*.yaml' -File).Count
+$packagedScreeningStrategies = Join-Path 'dist\backend\stock_analysis' '_internal\src\services\screening\strategies'
+if (-not (Test-Path $packagedScreeningStrategies)) {
+  $packagedScreeningStrategies = Join-Path 'dist\backend\stock_analysis' 'src\services\screening\strategies'
+}
+if (-not (Test-Path $packagedScreeningStrategies)) {
+  throw 'Packaged screening strategies directory not found under dist\backend\stock_analysis.'
+}
+$packagedScreeningStrategyCount = @(Get-ChildItem -Path $packagedScreeningStrategies -Filter '*.yaml' -File).Count
+if ($packagedScreeningStrategyCount -ne $sourceScreeningStrategyCount) {
+  throw "Packaged screening strategies count mismatch: expected $sourceScreeningStrategyCount, got $packagedScreeningStrategyCount."
 }
 
 Write-Host 'Backend build completed.'

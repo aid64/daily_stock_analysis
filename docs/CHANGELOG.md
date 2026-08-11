@@ -8,71 +8,103 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
-- [新功能] Multi-Agent 报告按八态用户 action 追踪 Pipeline 最终调整，排除非法 Agent 意见；仅在 canonical action 可唯一解析时生成 explanation 与 DecisionSignal，并以同一个 `final_action` 统一最终动作契约。
-- [新功能] 新增 `--portfolio futu`，只读导入 Futu OpenD 真实账户的沪深 A 股、港股、美股 LONG 正股持仓作为分析列表。
-- [修复] 桌面与 Docker 发布显式安装 `orjson`，桌面 PyInstaller 产物同时冻结并执行运行时导入探针，避免 LiteLLM 调用时报 `No module named 'orjson'`。
-- [改进] 个股报告不再单独展示“题材主线与个股位置”卡片，相关市场结构数据仍保留在分析上下文、模型 Prompt 与决策信号提取链路中。
-- [改进] 通知推送与完整 Markdown/微信报告不再重复附加“AI 决策信号”摘要，DecisionSignal 的存储、告警和 Web AI 建议页保持不变。
-- [改进] TickFlow 新增基于申万一级行业池的行业涨跌排行 fallback，并将基本面/市场结构单能力默认超时由 3 秒调整为 8 秒，降低正常慢响应被提前降级的概率。
-- [文档] 补充 macOS 未签名、未公证 DMG 被 Gatekeeper 拦截时的架构选择、安全排查与官方安装包临时放行步骤。
-- [新功能] 桌面端自绘标题栏，融合窗口控制按钮（最小化/最大化/关闭）、主题与语言切换，替代 Windows 原生 titleBarOverlay。
-- [改进] 桌面端启动进度反馈，loading 页显示当前阶段、已用时间与探针重试计数。
-- [改进] 桌面端启动加速：loading 页渲染与后端端口分配并行；health 探针首次间隔由 250ms 缩短至 100ms、最大间隔由 1500ms 缩短至 800ms。
-- [改进] 桌面端打包模式下前端改为 Electron 本地 file:// 加载（loadFile），不再经后端 HTTP 提供，降低启动延迟并消除端口耦合；dev 模式仍保留同源 loadURL。
-- [改进] 桌面端前端路由在打包模式使用 HashRouter，避免 file:// 协议下 BrowserRouter 的 pushState 破坏文件路径；Web 端保持 BrowserRouter。
-- [改进] 后端 CORS 在 DSA_DESKTOP_MODE 下显式放行 "null" origin，保证 file:// 加载的前端可携带管理员 Cookie 发起 credentialed 请求。
-- [修复] build-backend.ps1 未探测真实 Python 路径导致打包时 PyInstaller 调用 Windows Store python.exe 桩（exit 9009）。
-- [测试] 补齐桌面端 createWindow 启动路径测试：Mock Menu/ipcMain.on/BrowserWindow.on，验证 loadFile 加载 renderer/web/index.html 与 resolvedBackendUrl 注入。
-- [改进] 桌面端启动加速：spawn env 注入 `LITELLM_LOCAL_MODEL_COST_MAP=True`、`PYTHONDONTWRITEBYTECODE`、`PYTHONNOUSERSITE`、`WEBUI_AUTO_BUILD=false`，跳过 LiteLLM 远程 model cost map 同步拉取与桌面端 npm build 探测，弱网环境实测可省 10s+。
-- [改进] `stock_index_remote_service` 的 timeout / max_failures 常量改为可通过 `STOCK_INDEX_REMOTE_TIMEOUT_SECONDS` / `STOCK_INDEX_REMOTE_MAX_FAILURES` 环境变量覆盖，方便弱网用户调优。
-- [改进] `api/v1/endpoints/stocks.py` 重模块（`image_stock_extractor` / `import_parser`）改为函数级 lazy import，避免 FastAPI app 创建触发 pandas / src.llm.hermes 链式加载。
-- [改进] `src/agent/llm_adapter.py` 顶层 `import litellm` 改为模块级 `__getattr__` lazy 加载，使 FastAPI app 创建不再触发 LiteLLM 全套加载。
-- [改进] `src/analyzer.py` 顶层 `import litellm` / `from litellm import Router` 同步改为 PEP 562 `__getattr__` lazy + 函数级 import，消除 LLM 调用链上残留的远程 cost map fetch，与 `llm_adapter.py` 改造形成完整闭环。
-- [改进] 桌面端 loadFile 提前到 health ready 之前；前端新增 `<BackendGate>` 组件展示 backend connecting 状态，UI 可见时间从 43s → 1-3s。
-- [改进] `stock_analysis.spec` `optimize=0` → `optimize=2`，剥离 docstrings 与 assert，减少 PyInstaller 字节码体积与 import 时间。
-- [改进] 桌面端 PyInstaller 打包剔除 playwright / playwright._impl / hf_xet / discord / pytest / IPython / jupyter 七个未使用模块，`_internal` 体积由 317MB 降至约 206MB（-111MB），冷启动 disk I/O 与 import 时间显著下降。
-- [修复] `--exclude-module discord` 移除 discord.py 间接 import 链后 PyInstaller `hook-nacl.py` 仅收集 `_sodium.pyd` 而漏掉 `nacl.signing` 等 Python 子模块，新增 `--collect-all nacl` 显式补齐 PyNaCl 全部子模块与原生库，避免运行时 `No module named 'nacl.signing'`。
-- [改进] `scripts/build-backend.ps1` 打包后 import 探针扩展至 `alphasift.dsa_adapter` / `orjson` / `litellm` / `nacl.signing` 四个模块，覆盖桌面端运行时关键 import 路径。
-- [改进] 桌面端打包新增 `DSA_DESKTOP_BUILD` 构建期标志：`scripts/build-all.ps1` 调用 `build-backend.ps1` 时注入该变量，后端 PyInstaller 跳过 `--add-data static;static`，桌面安装包 `_internal` 不再包含重复的前端静态资源（约 -5.3MB），前端由 Electron `loadFile` 加载 `apps/dsa-desktop/renderer/web/`。
-- [改进] `scripts/build-backend-macos.sh` 同步 Windows PR1+PR2 改动：新增 `--optimize 2`、7 个 `--exclude-module`、`--collect-all nacl`，import 探针扩展至 4 个模块，并支持 `DSA_DESKTOP_BUILD` 跳过 `--add-data static:static`，保持 macOS 与 Windows 桌面包行为一致。
-- [改进] `stock_analysis.spec` 同步条件化 `static/` 收集逻辑：仅当 `DSA_DESKTOP_BUILD != 'true'` 时追加 `('static', 'static')`，避免本地直接调用 `pyinstaller stock_analysis.spec` 的用户与 CI 产物语义漂移。
-- [改进] `api/app.py` 顶层 `src.auth` / `src.data.stock_index_loader` / `src.services.system_config_service` / `src.services.runtime_scheduler` / `src.services.stock_index_remote_service` 等重型 import 改为函数级 lazy import，`uvicorn api.app:app` 冷启动不再同步加载 `requests` / `src.config` 链路；`is_auth_enabled` 仅在 `CORS_ALLOW_ALL=true` 分支触发，`find_existing_stock_index_path` / `get_remote_stock_index_cache_path` 延迟到首次 `/stocks.index.json` 请求加载。
-- [改进] `src/storage.py` 顶层 `import pandas as pd` 改为 `TYPE_CHECKING` + 函数级 lazy import（`_normalize_daily_date` / `_normalize_sql_value` / `if __name__ == "__main__"` 测试块），`save_daily_data` 的 `pd.DataFrame` 注解改为字符串字面量；`src.storage` 模块 import 不再触发 pandas 加载，减少 DB 层冷启动开销。
-- [测试] `tests/test_api_app_cors.py` 与 `tests/test_runtime_scheduler_service.py` 的 `patch("api.app.is_auth_enabled" / "api.app.RuntimeSchedulerService" / "api.app.SystemConfigService")` 改为 patch 源模块（`src.auth` / `src.services.runtime_scheduler` / `src.services.system_config_service`），与函数级 lazy import 语义保持一致。
-- [改进] `src/formatters.py` 顶层 `import markdown2` 改为 `markdown_to_html_document()` 函数级 lazy import，`src.formatters` 模块 import 不再触发 markdown2 加载，减少通知发送链路冷启动开销。
-- [改进] `src/search_service.py` 顶层 `from newspaper import Article, Config` 改为 `fetch_url_content()` 函数级 lazy import，`src.search_service` 模块 import 不再触发 newspaper3k / nltk 链式加载。
-- [改进] `api/app.py` `serve_asset` 对 `/assets/*` 命中响应显式注入 `Cache-Control: public, max-age=31536000, immutable`，利用 Vite `[hash:8]` 文件名哈希让浏览器在桌面/Web 二次启动时跳过条件式 GET，减少首屏资源重复回源；404 路径不加 immutable 头，避免错误响应被长期缓存。
-- [改进] `api/app.py` `serve_stock_index` 新增基于 `mtime + size` 的 ETag 与 `Last-Modified` 头，并在 `If-None-Match` 命中时返回 304 空响应；`/stocks.index.json` 二次请求（约 1MB JSON）改为零字节传输，桌面端冷启动二次进入与 Web 路由切换显著省流。
-- [改进] `api/v1/endpoints/system_config.py` `GET /api/v1/system/config/schema` 新增 60s TTL 的 `lru_cache` 包装（`_get_schema_with_ttl`），减少设置页 mount 时重复构建 schema dict 的开销；`/config` 主端点不缓存，避免破坏 `config_version` 乐观锁冲突检测。
-- [改进] `apps/dsa-web/src/stores/stockPoolStore.ts` `loadInitialHistory` / `loadStockBar` 新增 30s 新鲜度窗口（`initialHistoryFetchedAt` / `stockBarFetchedAt`），路由 remount 时跳过冗余 fetch；显式 `refreshHistory` / `refreshStockBar` 不受新鲜度窗口限制，仍可强制刷新。`analysisStore` 为纯状态容器无 fetch 动作，本轮未改动。
-- [改进] `apps/dsa-web/src/pages/SettingsPage.tsx` 将 `ApiTestPanel` / `AuthSettingsCard` / `ChangePasswordCard` / `IntelligentImport` / `LLMChannelEditor` / `NotificationTestPanel` 六个重组件改为 `React.lazy` + `<Suspense fallback={<SettingsLoading />}>`，SettingsPage chunk 由 309.68 kB 降至 235.63 kB（-74 kB raw / -21.5 kB gzip），首屏进入设置页时按需加载对应子分类。
-- [改进] 新增 `apps/dsa-web/src/components/common/LazyMarkdown.tsx` 与 `MarkdownRenderer.tsx`，将 `react-markdown` + `remark-gfm` 收敛到单一动态 import chunk；`ReportMarkdownBody.tsx` 与 `ChatPage.tsx` 改用 `<LazyMarkdown>`，`vendor-markdown` chunk（148.68 kB raw / 44.26 kB gzip）从 `index.html` 初始 `modulepreload` 图中移除，仅在首次渲染报告或聊天消息时按需加载。
-- [改进] `apps/dsa-web/index.html` Google Fonts `<link rel="stylesheet">` 改为 `rel="preload" as="style" onload="this.rel='stylesheet'"` + `<noscript>` 回退，消除首屏渲染阻塞；`editorial-theme.css` 已有 `'Newsreader', 'Georgia', 'Times New Roman', serif` 与 `system-ui, -apple-system, 'Segoe UI', sans-serif` fallback，桌面 file:// 模式字体不可达时安全降级。
-- [修复] `src/storage.py` `DatabaseManager.reset_instance()` 新增 `gc.collect()` 与 `atexit.unregister(_cleanup_engine)`，释放 atexit 钩子持有的 engine 引用并强制垃圾回收，解决 Windows 上 `TemporaryDirectory.cleanup()` 因 SQLite 文件句柄延迟释放抛 `PermissionError [WinError 32]` 的问题。
-- [修复] `src/analyzer.py` `_init_litellm()` 内 `Router(...)` 改为通过 `sys.modules[__name__].Router` 显式做模块属性访问；PEP 562 `__getattr__` 只对模块属性访问生效，对函数体内裸 name lookup（`LOAD_GLOBAL`）不生效，此前依赖 `@patch("src.analyzer.Router")` 注入或前置外部访问才能避免 `NameError: name 'Router' is not defined`，隔离更干净的测试环境会暴露该隐患。
-- [修复] `src/agent/llm_adapter.py` `_init_litellm()` 同步修复与 `src/analyzer.py` 相同的 PEP 562 `__getattr__` 限制：L500/L538 裸 `Router(...)` 改为通过 `sys.modules[__name__].Router` 显式做模块属性访问；此前在生产环境首次构造 Agent LLM Router 时（未经过 `@patch` 注入的路径）会抛 `NameError: name 'Router' is not defined`，因测试多走 patch 路径而长期隐藏。
-- [测试] `tests/test_system_config_service.py` / `tests/test_system_config_api.py` 新增 `os.environ` 快照恢复与 `_reload_runtime_singletons()` 重置，消除 `SystemConfigService.update(reload_now=True)` 经 `setup_env(override=True)` 污染 `os.environ` 与 `fetcher_manager` / `search_service` 全局单例导致的跨测试状态泄漏，修复全量套件下 58 个 isolation 失败。
-- [测试] `tests/conftest.py` 新增 `safe_cleanup_temp_dir()` 辅助函数，对 Windows SQLite 文件句柄延迟释放采用指数退避重试 + `gc.collect()` + `shutil.rmtree(ignore_errors=True)` 兜底；`tests/test_llm_usage.py` / `tests/test_storage.py` 全部临时目录清理改用该辅助函数，修复 10 个 `PermissionError [WinError 32]` 失败。
-- [测试] 预防性加固：`tests/test_alert_api.py` / `test_alert_worker.py` / `test_analysis_history.py` / `test_auth_api.py` / `test_auth_status_setup_state.py` / `test_backtest_service.py` / `test_config_manager.py` / `test_get_latest_data.py` / `test_intelligence_analysis_integration.py` / `test_intelligence_api.py` / `test_intelligence_service.py` / `test_main_schedule_mode.py` / `test_market_light_service.py` / `test_news_intel.py` / `test_portfolio_api.py` / `test_portfolio_pr2.py` / `test_portfolio_service.py` 共 17 个测试文件的 tearDown 裸 `temp_dir.cleanup()` 统一改用 `safe_cleanup_temp_dir()`，与 `DatabaseManager.reset_instance()` 的 `gc.collect()` 形成完整防护，避免 Windows 上偶发 `PermissionError [WinError 32]`。
-- [新功能] 新增数据保留策略与自动清理：`src/config.py` 增加 `LLM_USAGE_RETENTION_DAYS` / `DECISION_SIGNAL_RETENTION_DAYS` / `ANALYSIS_HISTORY_RETENTION_DAYS` / `REPORT_RETENTION_DAYS` / `DATA_PURGE_INTERVAL_SECONDS` 五项配置（默认 90/180/90/30 天 / 24h 间隔，0=永不清理）；`src/storage.py` 新增 `purge_expired_llm_usage` / `purge_expired_decision_signals`（级联清理 outcomes+feedback）/ `purge_expired_analysis_history`（复用 `delete_analysis_history_records` 级联清理 BacktestResult 与 source_type=analysis 的 DecisionSignal）三个方法；新增 `src/services/data_purge.py` 封装 `purge_expired_reports`（按 mtime 清理 reports/*.md）、`run_data_purge`（单次完整清理，各类异常独立捕获）与 `build_data_purge_background_task`（当所有 retention=0 时返回 None）；`src/services/runtime_scheduler.py` 注册 `data_purge` 后台任务，与 `agent_event_monitor` 共享同一调度器，任务执行前通过 `config_provider` 刷新配置以读取最新 retention 值。
-- [测试] 新增 `tests/test_data_purge.py`（18 个用例）：覆盖三个 DB purge 方法的 retention<=0 短路、按 cutoff 精准删除、DecisionSignal 子表级联清理；`purge_expired_reports` 的 .md 过滤、过期判定、缺失目录兜底；`run_data_purge` 端到端统计与 DB 异常隔离；`build_data_purge_background_task` 的全 0 返回 None、entry 形状、config_provider 运行时刷新与失败回退。
-- [新功能] A 股资金面数据源 `data_provider/moneyflow_fetcher.py` 直接对接 EastMoney push2 JSON API（无需 token）：个股主力/超大单/大单/中单/小单净流入 + 5d/10d 累计 + 连续净流入天数 + 行业资金流排行（90 个行业 top/bottom）+ 个股所属行业实际排名 + 北向资金（沪股通/深股通合计净买入 + 个股北向持股股数/市值/占比）；`AkshareFundamentalAdapter.get_capital_flow` 改为 MoneyFlowFetcher 主路径 + AkShare HTML 爬虫兜底，主路径返回 ok/partial 即跳过兜底；`src/analyzer.py` 资金面 prompt 扩展超大单/大单/中单/小单/连续天数/北向/行业排名 7 个新维度并补充 3 条决策过滤指引。
-- [改进] MoneyFlowFetcher 准确率与效率优化：实时接口 f62/f66/f72/f78/f84 在非交易时段或缺数据返回 None 时用 10 日 kline 最新日数据兜底，确保四档细分始终可用；`_request_json` 对 ConnectionError / ConnectionResetError 单次重试（间隔 0.3s），Timeout 不重试避免放大延迟；sector_flow_ranking 在 `data=None` 或 `diff=[]` 时返回 `empty_data` / `empty_diff` 诊断错误，便于排障；`fs=m:90+t:2` 与官方前端 quote.eastmoney.com 写法对齐。
-- [改进] MoneyFlowFetcher 新增 `MONEYFLOW_PARALLEL_ENABLED` 配置项（默认 false）：实测 EastMoney push2 在并发同源请求时易触发 ConnectionError 限流，默认串行执行 3 个子方法（个股/行业/北向）更稳定；启用 `ENABLE_EASTMONEY_PATCH=true` 且网络稳定时可设为 true，总耗时由 sum 降到 max；`.env.example` 同步补充 `MONEYFLOW_API_ENABLED` / `MONEYFLOW_API_TIMEOUT_SECONDS` / `MONEYFLOW_PARALLEL_ENABLED` 三项配置说明。
-- [测试] 新增 `tests/test_moneyflow_fetcher.py`（42 个用例）：覆盖 secid 转换、`_safe_float` 边界、`_request_json` 的 fail-open 与 ConnectionError 重试、个股资金流的 realtime+kline 兜底与连续天数计算、行业排名解析与个股所属行业匹配、北向资金 s2n 解析与持股字段映射、综合入口的串行/并行两条路径与子方法异常隔离、`AkshareFundamentalAdapter.get_capital_flow` 主路径优先 + 兜底降级 + 配置禁用 3 种集成场景。
-- [chore] `.gitignore` 收紧 `test_*.py` / `verify_*.py` 通配符为根目录锚定（`/test_*.py` / `/verify_*.py`），避免误忽略 `tests/test_*.py` 正式测试；新增 `.trae/` 与 `.electron-builder-cache/` 忽略规则，减少本地 IDE 与桌面端构建缓存的 git 噪声。
-- [文档] 新增 `docs/coding-standards.md`：系统化记录现有工具链（black / isort / flake8 / bandit / pytest 配置位置与 CI 接入点）、目录结构与模块职责边界、Python 代码规范（文件头 / 命名 / 类型注解 / docstring / import 顺序 / fail-open 模式）、新增配置项四步流程、测试与文档规范、Git & PR 规范、AI 协作资产治理与按改动面的验证矩阵；该文档为既有约定的汇总，不引入新规则。
-- [修复] MoneyFlowFetcher 真实 API 端到端验证发现字段映射缺陷并修复：(1) `_extract_klines` 此前仅解析 f51-f56 金额字段，未解析 `_FFLOW_KLINE_FIELDS2` 已请求的 f57-f61 占比字段，导致 `*_net_inflow_pct` 在实时接口缺数据时无法从 kline 兜底；现已按 f57=main/f58=small/f59=medium/f60=large/f61=super_large 顺序解析占比并对短串保持向后兼容。(2) `get_stock_flow` 兜底条件过严：EastMoney stock/get 接口在缺数据时 f62 返回 1 元占位符（而非 None），原 `is None` 条件无法触发；现扩展为 `None 或 <= 1.0`，与 `main_net_inflow_pct` 不一致时强制用 kline 最新日值兜底。(3) 新增 `*_pct` 字段从 kline 最新日派生的兜底逻辑，覆盖 realtime 完全缺失占比字段的场景。
-- [测试] `tests/test_moneyflow_fetcher.py` 新增 4 个用例（共 46 个）：`test_extract_klines_parses_pct_fields` 验证 f57-f61 占比解析；`test_extract_klines_handles_short_string_without_pct` 验证 6 字段旧数据向后兼容；`test_main_net_inflow_marker_value_falls_back_to_kline` 复现真实 API f62=1 占位符场景；`test_pct_fields_fall_back_to_kline_latest` 验证 *_pct=None 时从 kline 派生。76 个关联用例（test_fundamental_adapter + test_fundamental_context + test_moneyflow_fetcher）全部通过无回归。
-- [测试] MoneyFlowFetcher 真实 API 端到端验证（600519 / 000001 / 300750）发现已知问题：(a) EastMoney push2 对当前 IP 触发 ConnectionError 限流，第三只股票可能 timeout + ConnectionError 风暴导致完全失败；(b) northbound.total_flow 在交易时段返回 timestamp="15:00" 但 sh_connect_net_buy / sz_connect_net_buy / total_net_buy 全为 None，疑似返回上一交易日收盘快照，需在稳定网络环境或交易日实时时段重新验证字段语义。本次修复覆盖个股资金流字段映射缺陷，northbound 与限流问题留待生产环境部署前验证。
-- [改进] 修复 src/ → bot/ 与 src/ → api/ 的 4 处分层违反：(1) 将 `bot/models.py` 中的 `ChatType` / `Platform` / `BotMessage` / `BotResponse` / `WebhookResponse` 5 个共享 schema 类迁移至新建的 `src/schemas/bot_messages.py`，`bot/models.py` 改为 re-export 保持向后兼容；(2) 将 `api/v1/schemas/run_flow.py` 中的 10 个 RunFlow Pydantic 模型迁移至新建的 `src/schemas/run_flow.py`，`api/v1/schemas/run_flow.py` 改为 re-export；(3) 更新 `src/notification.py` / `src/core/pipeline.py` / `src/services/task_service.py` / `src/services/run_flow.py` 4 处 import 直接指向 `src.schemas.*`。bot/ 内部 17 处与 tests/ 12 处 `from bot.models import` 调用方零感知，api/ 内部 2 处 `from api.v1.schemas.run_flow import` 调用方零感知。
-- [测试] Phase 4-C 分层违反修复后跑 556 个关联用例零回归：test_moneyflow_fetcher 46 + 8 个 BotMessage 关联测试文件 167 + 6 个 RunFlowSnapshot / task_service / analysis 关联测试文件 343，全部通过；py_compile 8 个修改文件通过。
-- [测试] Phase 4-A.2 补充 `tests/test_moneyflow_fetcher.py`（46→82，新增 9 个测试类 36 个用例）与 `tests/test_data_purge.py`（18→26，新增 2 个测试类 + 1 个方法共 8 个用例），合计 64→108 用例覆盖 `_extract_klines` / `_sum_main_inflow` / `_consecutive_inflow_days` / `_to_eastmoney_secid` B 股兜底 / `_build_session` eastmoney_patch 三路径 / `enabled` 四路径 / `get_sector_flow` 异常隔离 / `get_northbound_flow` s2n 边界 / `_run_submethods_sequential` 子方法异常隔离 / `purge_expired_reports` 默认目录+stat OSError+unlink OSError / `run_data_purge` 四类清理异常独立隔离 / `build_data_purge_background_task` config_provider 返回 None 回退。已知限制：numpy 2.x 与 coverage 在 Python 3.13 上 `ImportError: cannot load module more than once per process`，无法获取量化覆盖率，改为人工静态分析识别未覆盖分支；`purge_expired_reports` 中 `entry.is_file()` 内隐式 stat 调用未被源码 try/except 覆盖，已通过 mock `is_file` 验证显式 stat 路径，源码缺陷留待后续修复（按 AGENTS.md §1 不顺手优化）。
-- [文档] Phase 4-B 为 `src/services/` 与 `data_provider/` 12 个文件的 25 个 public 类/函数/方法补全 docstring（遵循 `docs/coding-standards.md` §3.4 格式）：`moneyflow_fetcher.py` 的 `_safe_float` / `enabled` / `timeout_seconds` / `_sum_main_inflow`；`runtime_scheduler.py` 的 `start` / `stop` / `reconcile_from_config` / `run_now` / `status`；`run_diagnostics.py` 的 `snapshot`；`notification_diagnostics.py` 的 `ok`；`analysis_context_builder.py` 的 `build`；`alert_worker.py` 的 `RuntimeAlertRule` / `DBCooldownDecision` / `TriggerWriteResult`；`alert_indicators.py` 的 `TechnicalIndicatorAlert` / `IndicatorEvaluation` / `normalize_indicator_parameters`；`decision_profile_policy.py` 的 `DecisionSignalCandidate` / `GuardrailResult` / `PolicyResult`；`intelligence_service.py` 的 `FeedEntry`；`alphavantage_fetcher.py` 的 `AlphaVantageFetcher`；`finnhub_fetcher.py` 的 `FinnhubFetcher`；`tushare_fetcher.py` 的 `query`。py_compile 12 个文件全部通过。
-- [改进] Phase 4-A.3 为 3 个 public 方法补全返回类型注解（additive，不修改行为）：`src/services/history_service.py` 的 `resolve_and_get_run_flow` 补 `-> Optional[RunFlowSnapshot]`（新增 TYPE_CHECKING import）；`data_provider/base.py` 的 `get_realtime_quote` 补 `-> "Optional[UnifiedRealtimeQuote]"` 与 `get_chip_distribution` 补 `-> "Optional[ChipDistribution]"`（使用 TYPE_CHECKING + 字符串注解避免 `data_provider/__init__.py` → `base.py` → `realtime_types.py` 循环导入）。py_compile 2 个文件通过。
-- [测试] Phase 4-D 完整测试套件回归 `pytest -m "not network"`：4425 passed, 141 failed, 4 deselected（19:46）。141 个失败全部确诊为既有问题，与本会话改动无关：(a) `test_alert_worker.py` 49 + `test_auth_api.py` 27 = 76 个 `NameError: safe_cleanup_temp_dir`（测试文件未导入 conftest 工具函数）；(b) `test_system_config_api.py` 9 + `test_system_config_service.py` 49 = 58 个测试污染（独立运行 241 个全通过）；(c) `test_docker_entrypoint.py` 3 个 Docker 测试在 Windows 失败；(d) `test_local_cli_backend.py` 2 个 opencode preset 问题；(e) `test_provider_cache.py` 1 个 LiteLLM 子进程超时；(f) `test_intelligence_service.py` 1 个 flaky（独立运行通过）。本会话修改文件的对应测试全部通过：test_moneyflow_fetcher 82、test_data_purge 26、test_realtime_types 7、test_decision_profile_policy 5、test_run_flow 25、test_analysis_history 50。
+
 <!-- 新条目格式：- [类型] 描述（类型取值：新功能/改进/修复/文档/测试/chore）-->
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
+- [改进] AIHubMix 注册与引流链接统一使用 inferera.com，改善中国大陆网络直连体验。
+
+## [3.30.0] - 2026-08-09
+
+### 发布亮点
+
+- feat: LLM 渠道新增显式 Chat Completions / Responses API Surface，统一连接测试、分析、选股、图片识别与状态诊断的协议路由。
+- feat: Agent Chat 按会话持久化 Skill 选择，刷新和切换会话后可恢复，并完整保留省略、显式空列表与非空选择三态。
+- feat: Electron 桌面端恢复历史报告、市场复盘和完整报告分享图；未配置自定义品牌时，统一使用随包二维码与默认“小红书@霸天土小豆”账号文案。
+- feat: 新增单条分析目标解析契约，收紧交易所后缀、指数别名及美股代码的规范化边界。
+- fix: 修复移动端侧栏滚动、自选股详情状态、长通知标题分片及 Lark 国际域名等用户可见稳定性问题。
+- improve: 后端 CI 按测试文件分成三个 runner 并行执行，并收紧 Web 共享资产与跨层契约的门禁范围。
+
+### 新功能
+
+- LLM 渠道支持显式选择 Chat Completions 或 Responses API Surface，兼容 Responses-only 模型，并让连接测试、主分析、选股、图片识别和状态诊断复用统一路由契约。
+- Agent Chat 将 Skill 选择按会话持久化，刷新或切换会话后恢复；历史会话继续保留运行时默认，非法 Skill 请求不会误清空已有选择。
+- Electron 桌面端复用安装包自带 Chromium，为历史个股报告、市场复盘和完整报告生成 PNG 分享图；Web 与桌面端统一使用随包分发的小红书二维码。
+- `STOCK_LIST` 新增 `parse_analysis_target()` 单条目解析契约，并对外暴露可注入的指数注册表及解析结果类型。
+
+### 改进
+
+- 优化首页侧栏任务面板和自选股工作区，支持折叠任务摘要、自选股直接打开最新详情，并压缩头部操作以释放列表空间。
+- 后端 CI 按完整测试文件拆分为三个 runner 并行执行，由统一 `backend-gate` 汇总结果；继续保留稳定的离线测试语义并降低全局状态竞态风险。
+
+### 修复
+
+- 固定分享图小红书二维码下方的账号文案格式为“小红书@昵称”，未配置自定义昵称时默认显示“小红书@霸天土小豆”；不再渲染数字 ID，历史 ID 配置不会改变分享图模板。
+- 修复首页移动端历史、自选和今日列表无法稳定纵向触摸滚动的问题，同时保持桌面端卡片裁剪行为。
+- 长通知包含一级 Markdown 标题时按对应标题边界正确分片，避免错误递归耗尽长度预算并中断发送。
+- 收敛自选股详情与今日状态语义：刷新和查询期间不再开放过期报告，失败时不会将旧历史误标为今日分析，并限制逐股票 fallback 并发及取消失效批次。
+- 收敛 Responses 渠道的协议、provider、route alias 与 wire-model 契约，拒绝协议不匹配、同名 alias 混用 Surface 及非法历史配置。
+- 飞书交互机器人在 `FEISHU_DOMAIN=lark` 时让 Stream 长连接和消息回复统一使用 Lark 国际版 API 域名，避免连接国内域名后返回 `Incorrect domain name`。
+- 显式交易所后缀、畸形混合 alias、dotted-prefix 及外盘半显式后缀的非法输入不再静默改写或降级为错误市场。
+- `us` 前缀保持大小写不敏感，但 ticker base 必须满足规范的大写美股代码形态；非法小写、标点或数字输入直接返回 `unsupported`。
+- 带 `.US` 后缀的规范美股代码不再因前两字符碰撞 `sh`、`hk`、`bj` 或 `us` 前缀而被错误拆分。
+
+### 测试
+
+- 非 Web 改动默认执行完整后端门禁；纯 Web、共享 public 资产、渠道模板和设置帮助的过滤语义补充回归测试，Docker 构建继续按实际输入过滤。
+
+### 文档
+
+- FAQ 补充 macOS 桌面应用被 Gatekeeper quarantine 阻止启动时，对受信任安装包进行临时放行的步骤。
+
+## [3.29.0] - 2026-08-02
+
+### 发布亮点
+
+- feat: 将参考 AlphaSift 实现的选股核心与策略正式纳入 DSA，新增选股运行历史、数据源历史和候选深度分析链路。
+- feat: 新增 1080px 个股决策卡与高密度市场复盘分享图，支持 Web 原生分享和下载回退。
+- feat: 新增 Skill Opinion Outcome 计算、表现统计与基于真实样本的有界运行时权重。
+- improve: 优化选股快照复用、热点按需加载、多源并发和候选轮换，缩短长流程等待并提升结果多样性。
+- fix: 加固关闭认证、短凭证诊断脱敏、CI 超时取证和桌面冻结包启动链路。
+- fix: 修复 Longbridge 量比、股票代码窗口解析、选股后置重排及分享图交互等稳定性问题。
+
+### 新功能
+
+- SkillAggregator 基于独立满足 30 条 evaluated 门槛的真实 Skill Outcome bucket，使用 Beta 先验收缩、unable 惩罚和多周期证据加权生成有界运行时权重；缺失、低样本或异常统计保持中性。
+- 选股结果按 `run_id` 持久化到 DSA 数据库，新增运行历史和数据源历史 API，接入公告事件上下文及其搜索缓存，并支持将候选连同筛选策略映射的 skill 交给单股深度分析。
+- 新增按 skill、horizon 与 outcome engine version 独立聚合的只读 Skill Opinion 表现统计；少于 30 条 evaluated 样本时仅返回观察性计数，不输出表现指标或调整运行时权重。
+- 新增按 individual SkillAgent 自身 signal、版本化 engine 与本地已存同源日线窗口计算并持久化 `skill_opinion_outcomes` 的核心服务。
+
+### 改进
+
+- 选中热点后先展示榜单已有摘要和核心股，后台再补充完整详情，并将单次热点源等待上限收紧为 8 秒。
+- 热点成分股并行获取东方财富与同花顺数据，并按固定数据源优先级合并；真实供应商调用增加限流、可终止 timeout、并发槽和 worker 回收，题材详情可按需复用 DSA 原生搜索服务补充安全且带链接的近期消息。
+- 精简选股页面的重复说明，将任务标识、快照统计和排序诊断折叠到运行详情。
+- 将参考 AlphaSift 实现的选股核心与策略正式纳入 DSA，统一使用 `ScreeningService`、`SCREENING_ENABLED` 和 `/api/v1/screening`，并保留 Apache-2.0 归因与来源版本记录。
+- Web 选股使用浏览器匿名种子与运行 ID 在最终评分后的有界近分池中生成每次运行的候选组合；本地评分覆盖完整短名单，远程分析继续遵守数量上限，硬过滤、风险否决和得分保持不变。
+- 热点榜单刷新与选股长流程解除双向串行等待，热点详情改为选中后按需加载；选股默认复用 5 分钟内且数据源优先级一致的成功全市场快照，并展示快照、候选上下文、LLM 重排、最终评分和新闻事件增强阶段。
+- 图片报告改用独立的 1080px 个股决策卡和高密度市场复盘卡，优先从结构化 payload 精确填充数据并保留 Markdown 回退；小红书账号与二维码支持关闭或替换，Web 支持原生分享与下载回退。
+
+### 修复
+
+- Web 分享图在按需生成完成后通过第二次用户点击同步打开系统分享，避免首次异步生成使原生分享退化为下载。
+- Web 分享图改为用户点击“分享”后才按需生成，不再在报告加载时自动请求。
+- 移除基础设置选股卡片中仍跳转到“数据源”的过期“查看配置项”按钮，并将 `SCREENING_ENABLED` 及 Web 选股功能开关归入“基础设置”。
+- `scripts/ci_gate.sh` 的离线测试增加单测 timeout 与 faulthandler 取证，并同步 Docker 发布流程的 CI 依赖，避免无 traceback 卡住或发布门禁缺少 `pytest-timeout`。
+- 选股策略栏稳定展示完整中文策略列表，并保留自定义策略 ID 入口。
+- 选股热点详情统一使用中文业务文案，不再显示内部类名、字段名和原始数据源错误。
+- 刷新热点榜单并保留当前题材时同步绕过详情缓存重拉该题材，避免新榜单继续搭配旧路线与成分股。
+- 选股尾部轮换以分析器输入顺序为权威并保留并列分候选顺序；热点消息增强、共享缓存 owner、全局并发容量和新闻搜索 deadline 统一收敛。
+- Outcome 候选按上次尝试时间公平调度，避免持续新增的缺失 key 使旧 `pending` outcome 永久得不到重试。
+- 选股主模型返回空内容、非 JSON 或低覆盖结构时继续尝试备用模型；全部失败时明确展示确定性因子排序状态，且不把 `reasoning_content` 当作最终结果。
+- 选股日线增强改用请求级 DSA-first fetcher 注入，多个后置分析器按最新分数逐级重排，远程分析状态跟随实际提交候选，避免重叠请求泄漏 wrapper 或改写未提交候选。
+- 统一等价股票代码的本地日线候选与同源窗口解析；冲突沪深交易所代码不再降级匹配裸码，回测仅接受快照或交易日历确认的起点。
+- 关闭认证时强制再次校验当前管理员密码，命中 rate limit 时返回 429，前端在当前密码缺失时阻止提交并显示内联提示（#1970）。
+- 本地 CLI 的 `stdout_preview` / `stderr_preview` 按环境变量、JSON、YAML/日志标量与 URL 的独立契约脱敏短凭证，避免 API key、secret 或 token 进入诊断（refs #1784）。
+- PyInstaller 冻结包在 NLTK 3.10 导入保护下误判内置 `_internal` 标准库时不再启动失败；Windows/macOS 打包脚本统一接入兼容 runtime hook。
+- 分享图按字段合并历史结构化数据与 Markdown，多市场逐区域复用持久化 payload，隐藏不可用市场灯号维度并保留配色方案；中英韩模板跟随报告语言，原生分享失败时自动回退下载。
+- 飞书文件报告在写入或上传前清理隐藏的市场 metadata；桌面运行时默认隐藏未随包提供 renderer 的 Web 分享按钮。
+- `redact_diagnostic_text()` 的命令替换扫描不再吞掉尾随非敏感诊断字段，并统一 `export FOO=$(...)` 与 `FOO=$(...)` 的脱敏行为。
+- Longbridge 量比改用 adaptive keyword args 调用 `history_candlesticks_by_offset`，兼容 0.2.74 与 4.x SDK 参数顺序（fixes #2100）。
 
 ## [3.28.0] - 2026-07-26
 
@@ -118,6 +150,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### 文档
 
 - 修复文档中的失效相对链接。
+- [修复] #2026 外股代码映射到中文显示名时英文新闻相关性判定漏判：新增同源 STOCK_ENGLISH_NAME_MAP 单一真源、canonicalize_foreign_stock_code 规范化入口与 _foreign_english_query_terms 别名解析，使 AAPL/00700/BABA 等 ticker 即使 stock_name 为中文也能在查询构建、相关性打分与多维度情报路径上复用 canonical 英文名，并补齐 .US/.HK suffix / HK 前缀全形式的归类与回归用例；同时在 _score_news_relevance 对 alias 展开 term 做去重，避免 legal alias 展开短名与显式 short alias 重复计分。
+- [新功能] Tushare 数据源支持通过 `TUSHARE_HTTP_URL` 环境变量自定义接入地址，便于网络无法直达 `api.tushare.pro` 时切换自建网关或第三方兼容镜像；留空保持官方默认地址不变（fixes #1985）
+- [文档] `.env.example` 与 `.github/workflows/00-daily-analysis.yml` 同步映射 `TUSHARE_HTTP_URL`，避免出现"配置项有但 workflow 漏映射"的半修状态
+- [修复] #2051 PR Review 的特权 `pull_request_target` 流程不再检出 fork PR head：敏感文件、标签、报告与 AI 审查统一通过 GitHub API 将 PR 元数据和 diff 作为数据读取，只执行主分支可信脚本；Python 语法、Flake8、确定性检查和离线测试继续由无 secrets 的 `pull_request` CI / `backend-gate` 执行，兼容 `actions/checkout` 新增的 fork checkout 安全保护。
+- [修复] 修复 Windows 上 mimetypes 冷启动时读取注册表导致的进程卡死
 
 ## [3.27.0] - 2026-07-19
 
@@ -2144,7 +2181,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
-[Unreleased]: https://github.com/ZhuLinsen/daily_stock_analysis/compare/v3.28.0...HEAD
+[Unreleased]: https://github.com/ZhuLinsen/daily_stock_analysis/compare/v3.30.0...HEAD
+[3.30.0]: https://github.com/ZhuLinsen/daily_stock_analysis/compare/v3.29.0...v3.30.0
+[3.29.0]: https://github.com/ZhuLinsen/daily_stock_analysis/compare/v3.28.0...v3.29.0
 [3.28.0]: https://github.com/ZhuLinsen/daily_stock_analysis/compare/v3.27.0...v3.28.0
 [3.27.0]: https://github.com/ZhuLinsen/daily_stock_analysis/compare/v3.26.1...v3.27.0
 [3.26.1]: https://github.com/ZhuLinsen/daily_stock_analysis/compare/v3.25.0...v3.26.1
