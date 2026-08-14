@@ -38,6 +38,20 @@ function pct(value?: number | null): string {
   return `${value.toFixed(1)}%`;
 }
 
+function num(value?: number | null, digits = 2): string {
+  if (value == null) return '--';
+  return value.toFixed(digits);
+}
+
+function hasRiskMetrics(metrics: PerformanceMetrics): boolean {
+  return (
+    metrics.sharpeRatio != null ||
+    metrics.maxDrawdownPct != null ||
+    metrics.profitLossRatio != null ||
+    metrics.annualizedReturnPct != null
+  );
+}
+
 function phaseLabel(row: BacktestResultItem, language: UiLanguage): string {
   const label = getMarketPhaseSummaryLabel(row.marketPhaseSummary, language);
   if (label) {
@@ -196,6 +210,22 @@ const PerformanceCard: React.FC<{ metrics: PerformanceMetrics; title: string; la
       <MetricRow label={text.stopLossTriggerRate} value={pct(metrics.stopLossTriggerRate)} />
       <MetricRow label={text.takeProfitTriggerRate} value={pct(metrics.takeProfitTriggerRate)} />
       <MetricRow label={text.avgDaysToFirstHit} value={metrics.avgDaysToFirstHit != null ? metrics.avgDaysToFirstHit.toFixed(1) : '--'} />
+      {hasRiskMetrics(metrics) ? (
+        <>
+          <div className="mt-2 mb-1 border-t border-white/10 pt-2">
+            <span className="text-xs text-muted-text uppercase tracking-wide">{text.riskMetricsSection}</span>
+          </div>
+          <MetricRow label={text.sharpeRatio} value={num(metrics.sharpeRatio)} accent />
+          <MetricRow label={text.annualizedSharpeRatio} value={num(metrics.annualizedSharpeRatio)} />
+          <MetricRow label={text.maxDrawdown} value={pct(metrics.maxDrawdownPct)} />
+          <MetricRow label={text.calmarRatio} value={num(metrics.calmarRatio)} />
+          <MetricRow label={text.profitLossRatio} value={num(metrics.profitLossRatio)} />
+          <MetricRow label={text.avgWin} value={pct(metrics.avgWinPct)} />
+          <MetricRow label={text.avgLoss} value={pct(metrics.avgLossPct)} />
+          <MetricRow label={text.annualizedReturn} value={pct(metrics.annualizedReturnPct)} accent />
+          <MetricRow label={text.cumulativeReturn} value={pct(metrics.cumulativeReturnPct)} />
+        </>
+      ) : null}
       <div className="backtest-metric-footer">
         <span className="text-xs text-muted-text">{text.evaluationCount}</span>
         <span className="text-xs text-secondary-text font-mono">

@@ -1263,6 +1263,19 @@ class Config:
     portfolio_risk_lookback_days: int = 180
     portfolio_fx_update_enabled: bool = True
 
+    # === Quant module: three-layer position sizer ===
+    position_sizer_risk_per_trade_pct: float = 2.0
+    position_sizer_max_position_pct: float = 25.0
+    position_sizer_max_total_exposure_pct: float = 95.0
+
+    # === Quant module: strategy auto-stop (rule-based timing) ===
+    strategy_autostop_enabled: bool = True
+    strategy_autostop_drawdown_threshold_pct: float = 20.0
+    strategy_autostop_underperform_periods: int = 5
+    strategy_autostop_manual_resume_required: bool = True
+    strategy_autostop_drawdown_recover_pct: float = 10.0
+    strategy_autostop_underperform_recover_periods: int = 2
+
     # Discord 机器人状态
     discord_bot_status: str = "A股智能分析 | /help"
 
@@ -2332,6 +2345,54 @@ class Config:
                 minimum=1,
             ),
             portfolio_fx_update_enabled=os.getenv('PORTFOLIO_FX_UPDATE_ENABLED', 'true').lower() == 'true',
+            position_sizer_risk_per_trade_pct=parse_env_float(
+                os.getenv('POSITION_SIZER_RISK_PER_TRADE_PCT'),
+                2.0,
+                field_name='POSITION_SIZER_RISK_PER_TRADE_PCT',
+                minimum=0.0,
+            ),
+            position_sizer_max_position_pct=parse_env_float(
+                os.getenv('POSITION_SIZER_MAX_POSITION_PCT'),
+                25.0,
+                field_name='POSITION_SIZER_MAX_POSITION_PCT',
+                minimum=0.0,
+            ),
+            position_sizer_max_total_exposure_pct=parse_env_float(
+                os.getenv('POSITION_SIZER_MAX_TOTAL_EXPOSURE_PCT'),
+                95.0,
+                field_name='POSITION_SIZER_MAX_TOTAL_EXPOSURE_PCT',
+                minimum=0.0,
+            ),
+            strategy_autostop_enabled=parse_env_bool(
+                os.getenv('STRATEGY_AUTOSTOP_ENABLED'), default=True
+            ),
+            strategy_autostop_drawdown_threshold_pct=parse_env_float(
+                os.getenv('STRATEGY_AUTOSTOP_DRAWDOWN_THRESHOLD_PCT'),
+                20.0,
+                field_name='STRATEGY_AUTOSTOP_DRAWDOWN_THRESHOLD_PCT',
+                minimum=0.0,
+            ),
+            strategy_autostop_underperform_periods=parse_env_int(
+                os.getenv('STRATEGY_AUTOSTOP_UNDERPERFORM_PERIODS'),
+                5,
+                field_name='STRATEGY_AUTOSTOP_UNDERPERFORM_PERIODS',
+                minimum=1,
+            ),
+            strategy_autostop_manual_resume_required=parse_env_bool(
+                os.getenv('STRATEGY_AUTOSTOP_MANUAL_RESUME_REQUIRED'), default=True
+            ),
+            strategy_autostop_drawdown_recover_pct=parse_env_float(
+                os.getenv('STRATEGY_AUTOSTOP_DRAWDOWN_RECOVER_PCT'),
+                10.0,
+                field_name='STRATEGY_AUTOSTOP_DRAWDOWN_RECOVER_PCT',
+                minimum=0.0,
+            ),
+            strategy_autostop_underperform_recover_periods=parse_env_int(
+                os.getenv('STRATEGY_AUTOSTOP_UNDERPERFORM_RECOVER_PERIODS'),
+                2,
+                field_name='STRATEGY_AUTOSTOP_UNDERPERFORM_RECOVER_PERIODS',
+                minimum=0,
+            ),
             screening_enabled=parse_env_bool(os.getenv('SCREENING_ENABLED'), default=False),
         )
     

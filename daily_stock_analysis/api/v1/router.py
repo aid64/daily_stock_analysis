@@ -24,6 +24,7 @@ from api.v1.endpoints import (
     intelligence,
     portfolio,
     stocks,
+    strategy_autostop,
     system_config,
     usage,
 )
@@ -102,6 +103,12 @@ router.include_router(
     screening.router,
     prefix="/screening",
     tags=["Screening"]
+)
+
+router.include_router(
+    strategy_autostop.router,
+    prefix="/strategy-autostop",
+    tags=["StrategyAutostop"]
 )
 
 router.include_router(

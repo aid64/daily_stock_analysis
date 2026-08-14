@@ -109,5 +109,16 @@ class PerformanceMetrics(BaseModel):
     ambiguous_rate: Optional[float] = None
     avg_days_to_first_hit: Optional[float] = None
 
+    # 风险调整收益指标（risk-adjusted return metrics）
+    sharpe_ratio: Optional[float] = Field(None, description="每笔交易夏普比率 = mean/std")
+    annualized_sharpe_ratio: Optional[float] = Field(None, description="年化夏普比率 = sharpe * sqrt(252/eval_window_days)")
+    max_drawdown_pct: Optional[float] = Field(None, description="最大回撤百分比（基于累积收益曲线）")
+    calmar_ratio: Optional[float] = Field(None, description="卡尔玛比率 = 年化收益率 / 最大回撤")
+    profit_loss_ratio: Optional[float] = Field(None, description="盈亏比 = avg(win) / abs(avg(loss))")
+    avg_win_pct: Optional[float] = Field(None, description="平均盈利百分比")
+    avg_loss_pct: Optional[float] = Field(None, description="平均亏损百分比")
+    annualized_return_pct: Optional[float] = Field(None, description="年化收益率百分比（几何年化）")
+    cumulative_return_pct: Optional[float] = Field(None, description="累积收益率百分比")
+
     advice_breakdown: Dict[str, Any] = Field(default_factory=dict)
     diagnostics: Dict[str, Any] = Field(default_factory=dict)
