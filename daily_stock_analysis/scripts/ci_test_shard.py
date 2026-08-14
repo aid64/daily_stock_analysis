@@ -12,8 +12,8 @@ import sys
 from typing import Mapping, Sequence
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DURATIONS_PATH = REPO_ROOT / ".github" / "ci-test-durations.json"
+REPO_ROOT = Path(__file__).resolve().parents[1]  # 项目根 daily_stock_analysis/
+DEFAULT_DURATIONS_PATH = REPO_ROOT.parent / ".github" / "ci-test-durations.json"  # .github 在仓库根
 
 
 def discover_test_files(repo_root: Path = REPO_ROOT) -> list[str]:

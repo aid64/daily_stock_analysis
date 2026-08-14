@@ -9,7 +9,7 @@ from pathlib import Path
 import yaml
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]  # tests/ -> daily_stock_analysis/ -> 仓库根
 
 
 def _read(relative_path: str) -> str:
@@ -48,13 +48,13 @@ def test_heavy_ci_jobs_are_path_filtered_and_backend_tests_are_sharded() -> None
     )
     assert changes_job["outputs"]["docker"] == "${{ steps.filter.outputs.docker }}"
     assert backend_filter_step["with"]["predicate-quantifier"] == "every"
-    assert backend_filters["backend_non_web"] == ["**", "!apps/dsa-web/**"]
+    assert backend_filters["backend_non_web"] == ["**", "!daily_stock_analysis/apps/dsa-web/**"]
     assert "docker:" in filters
-    assert "docker/**" in filters
+    assert "daily_stock_analysis/docker/**" in filters
     assert {
-        "apps/dsa-web/public/**",
-        "apps/dsa-web/src/components/settings/llmProviderTemplates.ts",
-        "apps/dsa-web/src/locales/settingsHelp.ts",
+        "daily_stock_analysis/apps/dsa-web/public/**",
+        "daily_stock_analysis/apps/dsa-web/src/components/settings/llmProviderTemplates.ts",
+        "daily_stock_analysis/apps/dsa-web/src/locales/settingsHelp.ts",
     } == backend_contract_paths
 
     backend_tests_job = ci["jobs"]["backend-tests"]
@@ -91,7 +91,7 @@ def test_heavy_ci_jobs_are_path_filtered_and_backend_tests_are_sharded() -> None
     }
 
     requirements = _read(".github/requirements-ci.txt")
-    ci_gate = _read("scripts/ci_gate.sh")
+    ci_gate = _read("daily_stock_analysis/scripts/ci_gate.sh")
     assert "pytest-xdist" not in requirements
     assert "PYTEST_WORKERS" not in ci_gate
     assert "pytest-split" not in requirements
@@ -132,8 +132,8 @@ def test_backend_filter_covers_mixed_changes_and_shared_web_assets() -> None:
         return backend_non_web or web_contract_hit
 
     assert backend_filter_step["with"]["predicate-quantifier"] == "every"
-    assert backend_output(["apps/dsa-web/src/App.tsx"]) is False
-    assert backend_output(["apps/dsa-web/src/App.tsx", "src/config.py"]) is True
-    assert backend_output(["apps/dsa-web/src/App.tsx", "docs/CHANGELOG.md"]) is True
-    assert backend_output(["apps/dsa-web/public/stocks.index.json"]) is True
-    assert backend_output(["apps/dsa-web/public/runtime/new-asset.json"]) is True
+    assert backend_output(["daily_stock_analysis/apps/dsa-web/src/App.tsx"]) is False
+    assert backend_output(["daily_stock_analysis/apps/dsa-web/src/App.tsx", "daily_stock_analysis/src/config.py"]) is True
+    assert backend_output(["daily_stock_analysis/apps/dsa-web/src/App.tsx", "daily_stock_analysis/docs/CHANGELOG.md"]) is True
+    assert backend_output(["daily_stock_analysis/apps/dsa-web/public/stocks.index.json"]) is True
+    assert backend_output(["daily_stock_analysis/apps/dsa-web/public/runtime/new-asset.json"]) is True

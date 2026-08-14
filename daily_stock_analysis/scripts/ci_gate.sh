@@ -47,7 +47,7 @@ offline_test_suite() {
       echo "PYTEST_SPLITS and PYTEST_GROUP must be positive integers with group <= splits." >&2
       exit 2
     fi
-    if [[ ! -f .github/ci-test-durations.json ]]; then
+    if [[ ! -f ../.github/ci-test-durations.json ]]; then
       echo "Missing .github/ci-test-durations.json required for balanced CI shards." >&2
       exit 2
     fi

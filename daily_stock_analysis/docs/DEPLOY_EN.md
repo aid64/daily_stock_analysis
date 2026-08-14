@@ -36,6 +36,7 @@ sudo systemctl enable docker
 # Clone code (or upload code to server)
 git clone <your-repo-url> /opt/stock-analyzer
 cd /opt/stock-analyzer
+cd daily_stock_analysis  # Enter the project subdirectory
 
 # Copy and edit configuration file
 cp .env.example .env
@@ -163,7 +164,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/stock-analyzer
+WorkingDirectory=/opt/stock-analyzer/daily_stock_analysis
 Environment="PATH=/opt/stock-analyzer/venv/bin"
 ExecStart=/opt/stock-analyzer/venv/bin/python main.py --schedule
 Restart=always

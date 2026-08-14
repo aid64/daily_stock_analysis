@@ -14,7 +14,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CHANGELOG = ROOT / "docs" / "CHANGELOG.md"
+CHANGELOG = ROOT / "daily_stock_analysis" / "docs" / "CHANGELOG.md"
 LOGGER = logging.getLogger(__name__)
 KNOWN_AUTHOR_LOGINS = {
     "Alfred": "massif-01",

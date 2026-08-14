@@ -8,7 +8,7 @@ from pathlib import Path
 import yaml
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]  # tests/ -> daily_stock_analysis/ -> 仓库根
 
 
 def _read(relative_path: str) -> str:
@@ -28,8 +28,8 @@ def _job_run_text(job: dict) -> str:
 
 
 def test_futu_sdk_is_pinned_and_verified_across_linux_distributions() -> None:
-    requirements = _read("requirements.txt")
-    dockerfile = _read("docker/Dockerfile")
+    requirements = _read("daily_stock_analysis/requirements.txt")
+    dockerfile = _read("daily_stock_analysis/docker/Dockerfile")
     ci = _workflow(".github/workflows/ci.yml")
     daily = _workflow(".github/workflows/00-daily-analysis.yml")
     docker_publish = _workflow(".github/workflows/docker-publish.yml")
@@ -55,8 +55,8 @@ def test_futu_sdk_is_collected_and_probed_in_desktop_backends() -> None:
     )
     filters = str(filter_step["with"]["filters"])
     jobs = ci["jobs"]
-    macos_script = _read("scripts/build-backend-macos.sh")
-    windows_script = _read("scripts/build-backend.ps1")
+    macos_script = _read("daily_stock_analysis/scripts/build-backend-macos.sh")
+    windows_script = _read("daily_stock_analysis/scripts/build-backend.ps1")
 
     assert "futu_packaging:" in filters
     assert "requirements.txt" in filters

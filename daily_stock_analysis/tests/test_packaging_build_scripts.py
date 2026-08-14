@@ -93,7 +93,7 @@ def test_macos_unsigned_packaging_contract_is_explicit() -> None:
     )
     backend_script = _read_text(REPO_ROOT / "scripts" / "build-backend-macos.sh")
     desktop_script = _read_text(REPO_ROOT / "scripts" / "build-desktop-macos.sh")
-    workflow = _read_text(REPO_ROOT / ".github" / "workflows" / "ci.yml")
+    workflow = _read_text(REPO_ROOT.parent / ".github" / "workflows" / "ci.yml")
 
     assert package["build"]["mac"]["identity"] is None
     assert package["build"]["mac"]["hardenedRuntime"] is False
@@ -115,7 +115,7 @@ def test_macos_unsigned_packaging_contract_is_explicit() -> None:
     assert "code has no resources but signature indicates they must be present" in (
         desktop_script
     )
-    assert "- 'scripts/macos-signature-audit.sh'" in workflow
+    assert "- 'daily_stock_analysis/scripts/macos-signature-audit.sh'" in workflow
     assert "run: bash scripts/build-backend-macos.sh" in workflow
     assert "run: bash scripts/build-desktop-macos.sh" in workflow
 

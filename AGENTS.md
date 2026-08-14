@@ -7,22 +7,22 @@
 ## 1. 硬规则
 
 - 遵循现有目录边界：
-  - 后端逻辑优先放在 `src/`、`data_provider/`、`api/`、`bot/`
-  - Web 前端改动在 `apps/dsa-web/`
-  - 桌面端改动在 `apps/dsa-desktop/`
-  - 部署与流水线改动在 `scripts/`、`.github/workflows/`、`docker/`
+  - 后端逻辑优先放在 `daily_stock_analysis/src/`、`daily_stock_analysis/data_provider/`、`daily_stock_analysis/api/`、`daily_stock_analysis/bot/`
+  - Web 前端改动在 `daily_stock_analysis/apps/dsa-web/`
+  - 桌面端改动在 `daily_stock_analysis/apps/dsa-desktop/`
+  - 部署与流水线改动在 `daily_stock_analysis/scripts/`、`.github/workflows/`、`daily_stock_analysis/docker/`
 - 未经明确确认，不执行 `git commit`、`git tag`、`git push`。
 - commit message 使用英文，不添加 `Co-Authored-By`。
 - 不写死密钥、账号、路径、模型名、端口或环境差异逻辑。
 - 优先复用现有模块、配置入口、脚本和测试，不新增平行实现。
 - 默认稳定性优先于“顺手优化”；非当前任务直接需要的重构、抽象和基础设施迁移一律克制。
-- 新增配置项时，必须同步更新 `.env.example` 和相关文档。
-- 涉及用户可见能力、CLI/API 行为、部署方式、通知方式、报告结构变化时，必须同步更新相关文档与 `docs/CHANGELOG.md`。
+- 新增配置项时，必须同步更新 `daily_stock_analysis/.env.example` 和相关文档。
+- 涉及用户可见能力、CLI/API 行为、部署方式、通知方式、报告结构变化时，必须同步更新相关文档与 `daily_stock_analysis/docs/CHANGELOG.md`。
 - 修改报告格式、报告渲染效果或 Web UI 界面时，PR 描述必须附受影响报告 / 页面截图；涉及前后差异时优先附前后对比，无法截图时说明原因与替代可视证据。
 - Issue / PR 过程截图、审查截图、一次性验收截图和临时可视证据不得作为仓库文件合入；应放在 PR 描述、PR 评论、GitHub 附件、Actions artifact 或外部可访问证据链接中。产品长期文档确需保留的示意图除外，但文件名和文档语义必须脱离具体 issue / PR 编号。
-- `docs/CHANGELOG.md` 的 `[Unreleased]` 段使用**扁平格式**：每条独立一行，格式为 `- [类型] 描述`，类型取值：`新功能`/`改进`/`修复`/`文档`/`测试`/`chore`；**禁止在 `[Unreleased]` 内新增 `### 类目标题`**，以减少并发 PR 的 merge 冲突。发版时由 maintainer 汇总整理成带标题的正式格式。
+- `daily_stock_analysis/docs/CHANGELOG.md` 的 `[Unreleased]` 段使用**扁平格式**：每条独立一行，格式为 `- [类型] 描述`，类型取值：`新功能`/`改进`/`修复`/`文档`/`测试`/`chore`；**禁止在 `[Unreleased]` 内新增 `### 类目标题`**，以减少并发 PR 的 merge 冲突。发版时由 maintainer 汇总整理成带标题的正式格式。
 - `README.md` 只用于项目定位、核心能力总览、快速开始、主要入口、赞助/合作等首页级信息；非必要不更新 README，避免持续膨胀。
-- 更细的模块行为、页面交互、专题配置、排障说明、字段契约、实现语义和边界条件，优先更新对应 `docs/*.md` 或专题文档，不写入 README。
+- 更细的模块行为、页面交互、专题配置、排障说明、字段契约、实现语义和边界条件，优先更新对应 `daily_stock_analysis/docs/*.md` 或专题文档，不写入 README。
 - 变更中英双语文档之一时，需评估另一份是否需要同步；若未同步，交付说明里要写明原因。
 - 注释、docstring、日志文案以清晰准确为准，不强制要求英文，但应与文件语境保持一致。
 
@@ -47,12 +47,12 @@
 - `CLAUDE.md` 必须是指向 `AGENTS.md` 的软链接，用于兼容 Claude 生态。
 - `.github/copilot-instructions.md` 与 `.github/instructions/*.instructions.md` 是 GitHub Copilot / Coding Agent 的镜像或分层补充；若与本文件冲突，以 `AGENTS.md` 为准。
 - 仓库协作 skill 存放在 `.claude/skills/`，分析产物存放在 `.claude/reviews/`；前者可以入库，后者默认视为本地产物。
-- 根目录 `SKILL.md` 与 `docs/openclaw-skill-integration.md` 属于产品或外部集成说明，不是仓库协作规则真源。
+- `daily_stock_analysis/SKILL.md` 与 `daily_stock_analysis/docs/openclaw-skill-integration.md` 属于产品或外部集成说明，不是仓库协作规则真源。
 - 若未来新增 `.agents/skills/` 或其他 agent 专用目录，必须先明确单一真源，再通过脚本或镜像同步；禁止手工长期维护多份同义内容。
 - 修改 AI 协作治理资产时，执行：
 
 ```bash
-python scripts/check_ai_assets.py
+python daily_stock_analysis/scripts/check_ai_assets.py
 ```
 
 ## 3. 仓库速览
@@ -60,30 +60,31 @@ python scripts/check_ai_assets.py
 - 项目定位：股票智能分析系统，覆盖 A 股、港股、美股。
 - 主流程：抓取数据 -> 技术分析/新闻检索 -> LLM 分析 -> 生成报告 -> 通知推送。
 - 关键入口：
-  - `main.py`：分析任务主入口
-  - `server.py`：FastAPI 服务入口
-  - `apps/dsa-web/`：Web 前端
-  - `apps/dsa-desktop/`：Electron 桌面端
+  - `daily_stock_analysis/main.py`：分析任务主入口
+  - `daily_stock_analysis/server.py`：FastAPI 服务入口
+  - `daily_stock_analysis/apps/dsa-web/`：Web 前端
+  - `daily_stock_analysis/apps/dsa-desktop/`：Electron 桌面端
   - `.github/workflows/`：CI、发布、每日任务
 - 核心职责：
-  - `src/core/`：主流程编排
-  - `src/services/`：业务服务层
-  - `src/repositories/`：数据访问层
-  - `src/reports/`：报告生成
-  - `src/schemas/`：Schema / 数据结构
-  - `data_provider/`：多数据源适配与 fallback
-  - `api/`：FastAPI API
-  - `bot/`：机器人接入
-  - `scripts/`：本地脚本
+  - `daily_stock_analysis/src/core/`：主流程编排
+  - `daily_stock_analysis/src/services/`：业务服务层
+  - `daily_stock_analysis/src/repositories/`：数据访问层
+  - `daily_stock_analysis/src/reports/`：报告生成
+  - `daily_stock_analysis/src/schemas/`：Schema / 数据结构
+  - `daily_stock_analysis/data_provider/`：多数据源适配与 fallback
+  - `daily_stock_analysis/api/`：FastAPI API
+  - `daily_stock_analysis/bot/`：机器人接入
+  - `daily_stock_analysis/scripts/`：本地脚本
   - `.github/scripts/`：GitHub 自动化脚本
-  - `tests/`：pytest 测试
-  - `docs/`：文档与说明
+  - `daily_stock_analysis/tests/`：pytest 测试
+  - `daily_stock_analysis/docs/`：文档与说明
 
 ## 4. 常用命令
 
 ### 运行应用
 
 ```bash
+# 在 daily_stock_analysis/ 子目录下执行
 python main.py
 python main.py --debug
 python main.py --dry-run
@@ -98,6 +99,7 @@ uvicorn server:app --reload --host 0.0.0.0 --port 8000
 ### 后端验证
 
 ```bash
+# 在 daily_stock_analysis/ 子目录下执行
 pip install -r requirements.txt
 pip install flake8 pytest
 ./scripts/ci_gate.sh
@@ -108,6 +110,7 @@ python -m py_compile <changed_python_files>
 ### Web / Desktop
 
 ```bash
+# 在 daily_stock_analysis/ 子目录下执行
 cd apps/dsa-web
 npm ci
 npm run lint
@@ -163,34 +166,34 @@ gh run view <run_id> --log-failed
 ### 按改动面执行
 
 - Python 后端改动：
-  - 适用范围：`main.py`、`src/`、`data_provider/`、`api/`、`bot/`、`tests/`
-  - 优先执行：`./scripts/ci_gate.sh`
+  - 适用范围：`daily_stock_analysis/main.py`、`daily_stock_analysis/src/`、`daily_stock_analysis/data_provider/`、`daily_stock_analysis/api/`、`daily_stock_analysis/bot/`、`daily_stock_analysis/tests/`
+  - 优先执行：在 `daily_stock_analysis/` 下执行 `./scripts/ci_gate.sh`
   - 最低要求：`python -m py_compile <changed_python_files>`
   - 若影响 API、任务编排、报告生成、通知发送、数据源 fallback、认证、调度，交付说明中要写明是否覆盖了对应路径。
 
 - Web 前端改动：
-  - 适用范围：`apps/dsa-web/`
-  - 默认执行：`cd apps/dsa-web && npm ci && npm run lint && npm run build`
+  - 适用范围：`daily_stock_analysis/apps/dsa-web/`
+  - 默认执行：`cd daily_stock_analysis/apps/dsa-web && npm ci && npm run lint && npm run build`
   - 若涉及 API 联调、路由、状态管理、Markdown/图表渲染或认证状态，交付说明中要明确说明联动面和未覆盖风险。
 
 - 桌面端改动：
-  - 适用范围：`apps/dsa-desktop/`、`scripts/run-desktop.ps1`、`scripts/build-desktop*.ps1`、`scripts/build-*.sh`、`docs/desktop-package.md`
+  - 适用范围：`daily_stock_analysis/apps/dsa-desktop/`、`daily_stock_analysis/scripts/run-desktop.ps1`、`daily_stock_analysis/scripts/build-desktop*.ps1`、`daily_stock_analysis/scripts/build-*.sh`、`daily_stock_analysis/docs/desktop-package.md`
   - 默认执行：先构建 Web，再构建桌面端
   - 如受平台限制未能完整验证，需要明确说明是否验证了 Web 构建产物、Electron 构建以及 Release 工作流影响。
 
 - API / Schema / 认证联动改动：
-  - 适用范围：`api/**`、`src/schemas/**`、`src/services/**`、`apps/dsa-web/**`、`apps/dsa-desktop/**`
+  - 适用范围：`daily_stock_analysis/api/**`、`daily_stock_analysis/src/schemas/**`、`daily_stock_analysis/src/services/**`、`daily_stock_analysis/apps/dsa-web/**`、`daily_stock_analysis/apps/dsa-desktop/**`
   - 至少覆盖对应后端验证 + 受影响客户端构建验证。
   - 若涉及登录、Cookie、会话、轮询状态、字段增删或枚举变化，必须明确写出兼容性影响。
 
 - 文档与治理文件改动：
-  - 适用范围：`README.md`、`docs/**`、`AGENTS.md`、`.github/copilot-instructions.md`、`.github/instructions/**`、`.claude/skills/**`
+  - 适用范围：`README.md`、`daily_stock_analysis/docs/**`、`AGENTS.md`、`.github/copilot-instructions.md`、`.github/instructions/**`、`.claude/skills/**`
   - 不强制代码测试。
   - 需确认命令、配置项、文件名、工作流名称与实际仓库一致。
-  - 改动 AI 协作治理资产时，执行 `python scripts/check_ai_assets.py`。
+  - 改动 AI 协作治理资产时，执行 `python daily_stock_analysis/scripts/check_ai_assets.py`。
 
 - 工作流 / 脚本 / Docker 改动：
-  - 适用范围：`.github/**`、`scripts/**`、`docker/**`
+  - 适用范围：`.github/**`、`daily_stock_analysis/scripts/**`、`daily_stock_analysis/docker/**`
   - 运行最接近改动面的本地验证。
   - 交付时说明影响了哪条流水线、发布路径或部署路径。
   - 若未执行 Docker / GitHub Actions 相关验证，明确说明原因与潜在风险。
@@ -203,11 +206,11 @@ gh run view <run_id> --log-failed
 ## 7. 稳定性护栏
 
 - 配置与运行入口：
-  - 修改 `.env` 语义、默认值、CLI 参数、服务启动方式、调度语义时，要同时评估本地运行、Docker、GitHub Actions、API、Web、Desktop 的影响。
+  - 修改 `daily_stock_analysis/.env` 语义、默认值、CLI 参数、服务启动方式、调度语义时，要同时评估本地运行、Docker、GitHub Actions、API、Web、Desktop 的影响。
   - 新配置优先做到“不配置也可运行，配置后增强能力”，避免叠加开关和互斥模式。
 
 - 数据源与 fallback：
-  - 修改 `data_provider/` 时，要关注数据源优先级、失败降级、字段标准化、缓存与超时策略。
+  - 修改 `daily_stock_analysis/data_provider/` 时，要关注数据源优先级、失败降级、字段标准化、缓存与超时策略。
   - 单一数据源失败不应拖垮整个分析流程，除非需求明确要求 fail-fast。
 
 - API / Web / Desktop 兼容：
@@ -217,7 +220,7 @@ gh run view <run_id> --log-failed
 - 报告 / Prompt / 通知：
   - 修改报告结构、Prompt、提取器、通知模板、机器人链路时，要检查上游输入与下游消费方是否仍兼容。
   - 单一通知渠道失败不应拖垮整个分析主流程，除非需求明确要求 fail-fast。
-  - 修改 `src/services/image_stock_extractor.py` 中 `EXTRACT_PROMPT` 时，要在 PR 描述中附完整最新 prompt。
+  - 修改 `daily_stock_analysis/src/services/image_stock_extractor.py` 中 `EXTRACT_PROMPT` 时，要在 PR 描述中附完整最新 prompt。
 
 - 工作流 / 发布 / 打包：
   - 修改自动 tag、Release、Docker 发布、日常分析或桌面端打包流程时，要评估触发条件、产物路径、权限边界和回滚方式。

@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent  # scripts/ -> daily_stock_analysis/ -> 仓库根
 AGENTS = ROOT / "AGENTS.md"
 CLAUDE = ROOT / "CLAUDE.md"
 COPILOT = ROOT / ".github" / "copilot-instructions.md"

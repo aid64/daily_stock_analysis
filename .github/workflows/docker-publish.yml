@@ -60,7 +60,7 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
           cache-dependency-path: |
-            requirements.txt
+            daily_stock_analysis/requirements.txt
             .github/requirements-ci.txt
 
       - name: Install backend gate dependencies
@@ -83,6 +83,7 @@ jobs:
           done
 
       - name: Run backend gate before publish
+        working-directory: daily_stock_analysis
         run: ./scripts/ci_gate.sh
 
       - name: Validate release docs
@@ -155,7 +156,7 @@ jobs:
             --build-arg DSA_WEB_VERSION="${{ steps.release_ref.outputs.version }}" \
             --build-arg DSA_WEB_REVISION="${{ steps.release_ref.outputs.revision }}" \
             -t stock-analysis:release \
-            -f docker/Dockerfile .
+            -f daily_stock_analysis/docker/Dockerfile daily_stock_analysis
           docker run --rm stock-analysis:release python -c "
           from src.config import get_config; print('ok-config')
           from src.storage import DatabaseManager; print('ok-storage')
@@ -169,8 +170,8 @@ jobs:
       - name: Build and push release images
         uses: docker/build-push-action@v5
         with:
-          context: .
-          file: docker/Dockerfile
+          context: daily_stock_analysis
+          file: daily_stock_analysis/docker/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |

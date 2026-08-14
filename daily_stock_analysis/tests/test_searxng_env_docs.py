@@ -19,7 +19,7 @@ def test_env_example_documents_searxng_actions_variable_mapping() -> None:
 
 def test_daily_analysis_workflow_matches_documented_searxng_variable_mapping() -> None:
     workflow = (
-        ROOT_DIR / ".github" / "workflows" / "00-daily-analysis.yml"
+        ROOT_DIR.parent / ".github" / "workflows" / "00-daily-analysis.yml"
     ).read_text(encoding="utf-8")
 
     assert (

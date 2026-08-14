@@ -48,44 +48,49 @@ CI 通过 `pytest -m "not network"` 排除网络测试，避免外部依赖导�
 仓库根目录的职责边界（与 `AGENTS.md` §3 一致）：
 
 ```
-daily_stock_analysis/
-├── src/                    # 后端核心逻辑
-│   ├── core/              # 主流程编排
-│   ├── services/          # 业务服务层
-│   ├── repositories/      # 数据访问层
-│   ├── reports/           # 报告生成
-│   ├── schemas/           # Schema / 数据结构
-│   ├── agent/             # Agent / LLM 适配
-│   └── patches/           # 第三方库补丁
-├── data_provider/         # 多数据源适配与 fallback
-├── api/                   # FastAPI API
-│   ├── v1/endpoints/      # 路由
-│   ├── v1/schemas/        # 请求/响应 schema
-│   └── middlewares/       # 中间件
-├── bot/                   # 机器人接入
-│   ├── commands/          # 命令处理
-│   └── platforms/         # 平台适配
-├── apps/
-│   ├── dsa-web/           # React Web 前端
-│   └── dsa-desktop/       # Electron 桌面端
-├── scripts/               # 本地脚本
-├── .github/
-│   ├── workflows/         # CI / 发布 / 每日任务
-│   └── scripts/           # GitHub Actions 自动化脚本
-├── docker/                # Docker 配置
-├── tests/                 # pytest 测试
-├── docs/                  # 文档与说明
-├── archive/               # 已废弃的 fork 内容（只读归档）
-├── .claude/skills/        # AI 协作 skill（入库）
-└── .claude/reviews/       # AI 协作产物（本地，不入库）
+仓库根/
+├── daily_stock_analysis/      # 主项目子目录
+│   ├── src/                    # 后端核心逻辑
+│   │   ├── core/              # 主流程编排
+│   │   ├── services/          # 业务服务层
+│   │   ├── repositories/      # 数据访问层
+│   │   ├── reports/           # 报告生成
+│   │   ├── schemas/           # Schema / 数据结构
+│   │   ├── agent/             # Agent / LLM 适配
+│   │   └── patches/           # 第三方库补丁
+│   ├── data_provider/         # 多数据源适配与 fallback
+│   ├── api/                   # FastAPI API
+│   │   ├── v1/endpoints/      # 路由
+│   │   ├── v1/schemas/        # 请求/响应 schema
+│   │   └── middlewares/       # 中间件
+│   ├── bot/                   # 机器人接入
+│   │   ├── commands/          # 命令处理
+│   │   └── platforms/         # 平台适配
+│   ├── apps/
+│   │   ├── dsa-web/           # React Web 前端
+│   │   └── dsa-desktop/       # Electron 桌面端
+│   ├── scripts/               # 本地脚本
+│   ├── docker/                # Docker 配置
+│   ├── tests/                 # pytest 测试
+│   ├── docs/                  # 文档与说明
+│   └── archive/               # 已废弃的 fork 内容（只读归档）
+├── .github/                   # CI / 发布 / 每日任务（仓库根）
+│   ├── workflows/
+│   └── scripts/
+├── .claude/                   # AI 协作资产（仓库根）
+│   ├── skills/                # AI 协作 skill（入库）
+│   └── reviews/               # AI 协作产物（本地，不入库）
+├── AGENTS.md                  # AI 协作规则真源
+├── CLAUDE.md                  # -> AGENTS.md 软链接
+└── README.md
 ```
 
 ### 2.1 改动边界硬规则
 
-- 后端逻辑放 `src/`、`data_provider/`、`api/`、`bot/`
-- Web 前端改动在 `apps/dsa-web/`
-- 桌面端改动在 `apps/dsa-desktop/`
-- 部署与流水线改动在 `scripts/`、`.github/workflows/`、`docker/`
+- 后端逻辑放 `daily_stock_analysis/src/`、`daily_stock_analysis/data_provider/`、`daily_stock_analysis/api/`、`daily_stock_analysis/bot/`
+- Web 前端改动在 `daily_stock_analysis/apps/dsa-web/`
+- 桌面端改动在 `daily_stock_analysis/apps/dsa-desktop/`
+- 部署与流水线改动在 `daily_stock_analysis/scripts/`、`.github/workflows/`、`daily_stock_analysis/docker/`
 - `archive/` 目录只读，不在其中继续开发
 
 ## 3. Python 代码规范
