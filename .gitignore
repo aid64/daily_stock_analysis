@@ -81,6 +81,10 @@ reports/
 !quant_research/data/
 quant_research/data/cache/
 quant_research/data/raw/
+# quant_research Python 数据层代码包（不被全局 data/ 规则忽略）
+!quant_research/quant_research/data/
+# quant_research 配置模板需入库（全局 .env.* 规则的例外）
+!quant_research/.env.example
 
 # ── 系统文件 ─────────────────────────────────
 .DS_Store

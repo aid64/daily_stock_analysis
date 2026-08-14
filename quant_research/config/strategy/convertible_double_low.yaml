@@ -1,0 +1,14 @@
+# 可转债双低轮动策略配置（改良版）
+# 双低 = 价格 + 溢价率 × 100，加信用 / 强赎 / 期限过滤
+
+name: convertible_double_low
+params:
+  top_n: 5                      # 持仓数（1 万本金约束，建议 ≤ 5）
+  min_rating: "AA-"             # 最低信用评级
+  exclude_force_redeem: true    # 剔除已发强赎提示
+  min_maturity_years: 0.5       # 剩余期限最低
+  min_volume: 1000000           # 流动性过滤：日成交额（元）
+rebalance_freq: W
+max_positions: 5
+# universe 动态生成（按日从可转债列表中筛），无需静态配置
+universe_source: dynamic
