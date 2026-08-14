@@ -13,8 +13,11 @@
 .env.*.local
 
 # ── 打包桌面应用 ─────────────────────────────
-# 桌面端构建产物（用户运行时数据，已移到 apps/dsa-desktop/dist/installed/）
-apps/dsa-desktop/dist/installed/
+# 桌面端构建产物（用户运行时数据，已移到 daily_stock_analysis/apps/dsa-desktop/dist/installed/）
+daily_stock_analysis/apps/dsa-desktop/dist/installed/
+# 历史版本打包产物（旧版安装包与解压目录，仅供本地参考，不入库）
+daily_stock_analysis/apps/dsa-desktop/dist-v*/
+daily_stock_analysis/apps/dsa-desktop/old-installers/
 
 # ── Python ───────────────────────────────────
 __pycache__/
@@ -74,6 +77,11 @@ reports/
 *.sqlite
 *.sqlite3
 
+# quant_research 子项目：保留目录结构入 git，仅忽略大文件缓存
+!quant_research/data/
+quant_research/data/cache/
+quant_research/data/raw/
+
 # ── 系统文件 ─────────────────────────────────
 .DS_Store
 Thumbs.db
@@ -86,9 +94,9 @@ htmlcov/
 # ── 本地临时文件 ─────────────────────────────
 local/
 run.sh
-# 仅忽略根目录的 verify_*.py / test_*.py 临时脚本，不影响 tests/ 目录下的正式测试
-/verify_*.py
-/test_*.py
+# 仅忽略 daily_stock_analysis/ 下的 verify_*.py / test_*.py 临时脚本，不影响 tests/ 目录下的正式测试
+daily_stock_analysis/verify_*.py
+daily_stock_analysis/test_*.py
 test.sh
 
 # ── Claude 工作区 ────────────────────────────
@@ -98,14 +106,14 @@ test.sh
 
 # ── 前端构建产物 ─────────────────────────────
 static/
-/apps/dsa-desktop/dist/
-/apps/dsa-desktop/node_modules/
+daily_stock_analysis/apps/dsa-desktop/dist/
+daily_stock_analysis/apps/dsa-desktop/node_modules/
 /node_modules/
 # PR2：build-backend.ps1 把 static/ 同步到 renderer/web/，供 Electron 打包后 file:// 加载
-apps/dsa-desktop/renderer/web/
+daily_stock_analysis/apps/dsa-desktop/renderer/web/
 
 # ── 文档规范 ─────────────────────────────────
-docs/specs/
+daily_stock_analysis/docs/specs/
 
 # ── WorkBuddy AI 辅助文件 ────────────────────
 .workbuddy/

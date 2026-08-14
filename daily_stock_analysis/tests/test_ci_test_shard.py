@@ -71,7 +71,7 @@ def test_invalid_initial_totals_are_rejected() -> None:
 
 
 def test_duration_file_tracks_current_baseline_and_valid_paths() -> None:
-    duration_path = REPO_ROOT / ".github" / "ci-test-durations.json"
+    duration_path = REPO_ROOT.parent / ".github" / "ci-test-durations.json"
     assert duration_path.is_file()
     durations = load_durations(duration_path)
 

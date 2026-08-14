@@ -22,6 +22,7 @@
 # 克隆仓库
 git clone https://github.com/ZhuLinsen/daily_stock_analysis.git
 cd daily_stock_analysis
+cd daily_stock_analysis  # 进入项目子目录
 
 # 创建虚拟环境
 python -m venv venv
@@ -101,7 +102,7 @@ npm run build
 
 ## 📋 优先贡献方向
 
-查看 [README](../README.md) 了解项目当前的核心能力与主要入口：
+查看 [README](../../README.md) 了解项目当前的核心能力与主要入口：
 
 - 🔔 新通知渠道（钉钉、飞书、Telegram）
 - 🤖 新 AI 模型支持（GPT-4、Claude）

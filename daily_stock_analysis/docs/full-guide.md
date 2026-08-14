@@ -2,25 +2,26 @@
 
 本文档包含 A股智能分析系统的完整配置说明，适合需要高级功能或特殊部署方式的用户。
 
-> 💡 快速上手请参考 [README.md](../README.md)，本文档为进阶配置。
+> 💡 快速上手请参考 [README.md](../../README.md)，本文档为进阶配置。
 
 ## 📁 项目结构
 
 ```
-daily_stock_analysis/
-├── main.py              # 主程序入口
-├── src/                 # 核心业务逻辑
-│   ├── analyzer.py      # AI 分析器
-│   ├── config.py        # 配置管理
-│   ├── notification.py  # 消息推送
-│   └── ...
-├── data_provider/       # 多数据源适配器
-├── bot/                 # 机器人交互模块
-├── api/                 # FastAPI 后端服务
-├── apps/dsa-web/        # React 前端
-├── docker/              # Docker 配置
-├── docs/                # 项目文档
-└── .github/workflows/   # GitHub Actions
+仓库根/
+├── daily_stock_analysis/   # 主项目子目录
+│   ├── main.py              # 主程序入口
+│   ├── src/                 # 核心业务逻辑
+│   │   ├── analyzer.py      # AI 分析器
+│   │   ├── config.py        # 配置管理
+│   │   ├── notification.py  # 消息推送
+│   │   └── ...
+│   ├── data_provider/       # 多数据源适配器
+│   ├── bot/                 # 机器人交互模块
+│   ├── api/                 # FastAPI 后端服务
+│   ├── apps/dsa-web/        # React 前端
+│   ├── docker/              # Docker 配置
+│   └── docs/                # 项目文档
+└── .github/workflows/       # GitHub Actions（仓库根）
 ```
 
 ## 📑 目录
@@ -508,6 +509,7 @@ Dockerfile 使用多阶段构建，前端会在构建镜像时自动打包并内
 # 1. 克隆仓库
 git clone https://github.com/ZhuLinsen/daily_stock_analysis.git
 cd daily_stock_analysis
+cd daily_stock_analysis  # 进入项目子目录
 
 # 2. 配置环境变量
 cp .env.example .env

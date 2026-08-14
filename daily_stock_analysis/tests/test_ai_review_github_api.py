@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT_PATH = ROOT / '.github' / 'scripts' / 'ai_review.py'
+SCRIPT_PATH = ROOT.parent / '.github' / 'scripts' / 'ai_review.py'
 SPEC = importlib.util.spec_from_file_location('ai_review_script', SCRIPT_PATH)
 assert SPEC and SPEC.loader
 ai_review = importlib.util.module_from_spec(SPEC)

@@ -60,14 +60,14 @@ jobs:
               /\.(py|md|ts|tsx)$/.test(filename) ||
               filename === 'README.md' ||
               filename === 'AGENTS.md' ||
-              filename === 'requirements.txt' ||
+              filename === 'daily_stock_analysis/requirements.txt' ||
+              filename === 'daily_stock_analysis/pyproject.toml' ||
+              filename === 'daily_stock_analysis/setup.cfg' ||
               filename === '.github/requirements-ci.txt' ||
-              filename === 'pyproject.toml' ||
-              filename === 'setup.cfg' ||
               filename === '.github/PULL_REQUEST_TEMPLATE.md' ||
-              filename === 'docker/Dockerfile' ||
-              filename === 'docker-compose.yml' ||
-              filename.startsWith('apps/dsa-web/') ||
+              filename === 'daily_stock_analysis/docker/Dockerfile' ||
+              filename === 'daily_stock_analysis/docker/docker-compose.yml' ||
+              filename.startsWith('daily_stock_analysis/apps/dsa-web/') ||
               filename.startsWith('.github/workflows/') ||
               filename.startsWith('.github/scripts/');
 

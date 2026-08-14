@@ -36,6 +36,7 @@ sudo systemctl enable docker
 # 克隆代码（或上传代码到服务器）
 git clone <your-repo-url> /opt/stock-analyzer
 cd /opt/stock-analyzer
+cd daily_stock_analysis  # 进入项目子目录
 
 # 复制并编辑配置文件
 cp .env.example .env
@@ -175,7 +176,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/stock-analyzer
+WorkingDirectory=/opt/stock-analyzer/daily_stock_analysis
 Environment="PATH=/opt/stock-analyzer/venv/bin"
 ExecStart=/opt/stock-analyzer/venv/bin/python main.py --schedule
 Restart=always

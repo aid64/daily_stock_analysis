@@ -19,7 +19,7 @@ Analyze your watchlist daily -> generate a decision dashboard -> push to Telegra
 
 [**Product Preview**](#-product-preview) · [**Key Features**](#-key-features) · [**Quick Start**](#-quick-start) · [**Sample Output**](#-sample-output) · [**Documentation Index**](./INDEX_EN.md) · [**Full Guide**](./full-guide_EN.md)
 
-English | [简体中文](../README.md) | [繁體中文](README_CHT.md)
+English | [简体中文](../../README.md) | [繁體中文](README_CHT.md)
 
 </div>
 
@@ -155,6 +155,7 @@ By default, the workflow runs every weekday at 18:00 Beijing time and skips non-
 ```bash
 # Clone the project
 git clone https://github.com/ZhuLinsen/daily_stock_analysis.git && cd daily_stock_analysis
+cd daily_stock_analysis  # Enter the project subdirectory
 
 # Install dependencies
 pip install -r requirements.txt
@@ -276,7 +277,7 @@ After configuring any available AI API key, the Web `/chat` page can use strateg
 
 ## 📄 License
 
-[MIT License](../LICENSE) © 2026 ZhuLinsen
+[MIT License](../../LICENSE) © 2026 ZhuLinsen
 
 If you use or build on this project, attribution with a link back to this repository is appreciated.
 

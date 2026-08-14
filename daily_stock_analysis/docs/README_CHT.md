@@ -19,7 +19,7 @@
 
 [**產品預覽**](#-產品預覽) · [**功能特性**](#-功能特性) · [**快速開始**](#-快速開始) · [**推送效果**](#-推送效果) · [**文檔中心**](./INDEX.md) · [**完整指南**](./full-guide.md)
 
-繁體中文 | [English](README_EN.md) | [简体中文](../README.md)
+繁體中文 | [English](README_EN.md) | [简体中文](../../README.md)
 
 </div>
 
@@ -155,6 +155,7 @@
 ```bash
 # 克隆項目
 git clone https://github.com/ZhuLinsen/daily_stock_analysis.git && cd daily_stock_analysis
+cd daily_stock_analysis  # 進入項目子目錄
 
 # 安裝依賴
 pip install -r requirements.txt
@@ -276,7 +277,7 @@ python main.py --webui-only
 
 ## 📄 License
 
-[MIT License](../LICENSE) © 2026 ZhuLinsen
+[MIT License](../../LICENSE) © 2026 ZhuLinsen
 
 如果你在項目中使用或基於本項目進行二次開發，非常歡迎在 README 或文檔中註明來源並附上本倉庫鏈接。
 

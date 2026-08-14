@@ -22,6 +22,7 @@ Thank you for your interest in contributing! All kinds of contributions are welc
 # Clone the repository
 git clone https://github.com/ZhuLinsen/daily_stock_analysis.git
 cd daily_stock_analysis
+cd daily_stock_analysis  # Enter the project subdirectory
 
 # Create a virtual environment
 python -m venv venv
