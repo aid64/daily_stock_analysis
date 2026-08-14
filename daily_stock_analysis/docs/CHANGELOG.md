@@ -12,6 +12,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 <!-- 新条目格式：- [类型] 描述（类型取值：新功能/改进/修复/文档/测试/chore）-->
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
 - [改进] AIHubMix 注册与引流链接统一使用 inferera.com，改善中国大陆网络直连体验。
+- [新功能] 回测指标新增风险调整收益：夏普比率、年化夏普、最大回撤、卡尔玛比率、盈亏比、平均盈亏、年化收益率与累积收益率，并在前端 PerformanceCard 展示。
+- [改进] BacktestSummary 表新增 9 个风险指标列，附带 SQLite ALTER TABLE 自动迁移。
+- [新功能] 新增三层仓位管理服务 position_sizer.py：基础仓位（风险敞口）× 账户净值动态调整 × 机会分类风险映射，支持全局总仓位上限与配置化注入。
+- [新功能] 新增策略自动停止服务 strategy_autostop_service.py：回撤超阈值或连续跑输基准时暂停策略并发送告警，状态持久化到 strategy_autostop_state 表，支持手动暂停/恢复与自动恢复两种模式，active→paused 状态变化时去重通知。
+- [新功能] 新增策略自动停止 API（/api/v1/strategy-autostop）：含评估、状态列表、单个状态查询、手动暂停、手动恢复 5 个端点。
+- [改进] config.py 与 .env.example 同步 position_sizer 与 strategy_autostop 相关配置项。
+- [chore] .gitignore 补充 apps/dsa-desktop/dist-v*/ 与 old-installers/ 忽略规则，避免历史打包产物入库。
+- [新功能] 新增独立量化研究子项目 quant_research/（P0 骨架）：配置层（Hydra + Pydantic）、数据层（Tushare/Baostock/AKShare 多源 fallback + Parquet 缓存 + 退市股 universe 还原）、下载脚本 download_data.py 与单元测试，与主项目解耦。
+- [chore] .gitignore 为 quant_research 子项目加例外：保留 data/ 目录结构入库，仅忽略 cache/ 与 raw/ 大文件缓存。
+- [新功能] quant_research P2 回测层：封装 Backtrader 引擎（BacktestEngine + BacktestResult），实现 A 股佣金/印花税/过户费/最低5元、T+1 限制、涨跌停过滤（主板10%/创业板科创板20%/北交所30%），内置 SMA 双均线示例策略与 run_backtest.py 脚本。
+- [修复] quant_research 回测佣金计算：CommInfoBase 缺少 percabs=True 导致 backtrader 将 commission 从绝对小数再乘 0.01，费率缩小 100 倍；同步修复 TradeAnalyzer 盈亏比提取（pnl.total 而非 pnl.net.total）。
+- [测试] quant_research 新增回测引擎测试 test_backtest.py（21 项）：覆盖佣金计算、T+1 限制、涨跌停过滤、涨跌停幅度判定、引擎完整流程与边界场景。
+- [chore] 仓库目录重构：主项目内容（api/apps/bot/data_provider/docker/docs/scripts/src/strategies/templates/tests/main.py/server.py 等）移入 daily_stock_analysis/ 子目录，与 quant_research/ 并列；仓库根保留 .github/.claude/AGENTS.md/CLAUDE.md/LICENSE/.gitignore 等治理文件。
+- [改进] 同步更新 CI workflows（6 个文件加 working-directory: daily_stock_analysis 或路径前缀）、AGENTS.md 路径引用、.gitignore 锚定路径、check_ai_assets.py/ci_test_shard.py/ci_gate.sh 脚本的 ROOT 解析与 .github/ 路径引用。
+- [改进] 目录重构路径修复（第二轮）：修复 ai_review.py/build_release_notes.py/generate_notification_actions_env_table.py 脚本路径；.env.example 移入 daily_stock_analysis/；更新 pr-review.yml isReviewable 逻辑、copilot-instructions.md、instructions/*.md applyTo glob、PULL_REQUEST_TEMPLATE.md 路径引用；修复 README.md 和 docs/ 下 8 个文档的快速开始命令链与失效链接；修复 8 个测试文件的 .github/ 路径解析与 CI 契约断言。
 
 ## [3.30.0] - 2026-08-09
 
