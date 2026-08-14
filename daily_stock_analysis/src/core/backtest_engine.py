@@ -11,7 +11,13 @@ from dataclasses import dataclass
 from datetime import date
 import math
 import re
+import statistics
 from typing import Any, Dict, Iterable, List, Optional, Protocol, Sequence
+
+
+# Annualization constants for risk metrics derived from per-trade returns.
+# Each completed backtest row represents one trade spanning eval_window_days.
+TRADING_DAYS_PER_YEAR = 252
 
 
 OVERALL_SENTINEL_CODE = "__overall__"
@@ -452,6 +458,11 @@ class BacktestEngine:
         advice_breakdown = cls._compute_advice_breakdown(completed)
         diagnostics = cls._compute_diagnostics(results_list)
 
+        risk_metrics = cls._compute_risk_metrics(
+            completed=completed,
+            eval_window_days=int(eval_window_days),
+        )
+
         return {
             "scope": scope,
             "code": code,
@@ -476,6 +487,15 @@ class BacktestEngine:
             "avg_days_to_first_hit": avg_days_to_first_hit,
             "advice_breakdown": advice_breakdown,
             "diagnostics": diagnostics,
+            "sharpe_ratio": risk_metrics.get("sharpe_ratio"),
+            "annualized_sharpe_ratio": risk_metrics.get("annualized_sharpe_ratio"),
+            "max_drawdown_pct": risk_metrics.get("max_drawdown_pct"),
+            "calmar_ratio": risk_metrics.get("calmar_ratio"),
+            "profit_loss_ratio": risk_metrics.get("profit_loss_ratio"),
+            "avg_win_pct": risk_metrics.get("avg_win_pct"),
+            "avg_loss_pct": risk_metrics.get("avg_loss_pct"),
+            "annualized_return_pct": risk_metrics.get("annualized_return_pct"),
+            "cumulative_return_pct": risk_metrics.get("cumulative_return_pct"),
         }
 
     @staticmethod
@@ -817,4 +837,118 @@ class BacktestEngine:
         return {
             "eval_status": status_counts,
             "first_hit": first_hit_counts,
+        }
+
+    @staticmethod
+    def _compute_risk_metrics(
+        *,
+        completed: List[BacktestResultLike],
+        eval_window_days: int,
+    ) -> Dict[str, Optional[float]]:
+        """Compute risk-adjusted return metrics from per-trade returns.
+
+        Each completed backtest row is treated as one independent trade with
+        return ``simulated_return_pct`` (in percent). Cash positions contribute
+        0% return. Metrics:
+
+        - ``sharpe_ratio``: per-trade Sharpe = mean / std (sample stdev)
+        - ``annualized_sharpe_ratio``: scaled by sqrt(252 / eval_window_days)
+        - ``max_drawdown_pct``: peak-to-trough drawdown of cumulative equity curve
+        - ``calmar_ratio``: annualized return / max drawdown
+        - ``profit_loss_ratio``: avg(win) / abs(avg(loss))
+        - ``avg_win_pct`` / ``avg_loss_pct``: mean win / loss return
+        - ``annualized_return_pct``: geometric annualized return
+        - ``cumulative_return_pct``: total cumulative return of equity curve
+        """
+        empty: Dict[str, Optional[float]] = {
+            "sharpe_ratio": None,
+            "annualized_sharpe_ratio": None,
+            "max_drawdown_pct": None,
+            "calmar_ratio": None,
+            "profit_loss_ratio": None,
+            "avg_win_pct": None,
+            "avg_loss_pct": None,
+            "annualized_return_pct": None,
+            "cumulative_return_pct": None,
+        }
+
+        returns_pct = [
+            float(r.simulated_return_pct)
+            for r in completed
+            if r.simulated_return_pct is not None
+        ]
+        if not returns_pct:
+            return empty
+
+        # Win / loss averages and profit-loss ratio
+        wins = [r for r in returns_pct if r > 0]
+        losses = [r for r in returns_pct if r < 0]
+        avg_win_pct = round(sum(wins) / len(wins), 4) if wins else None
+        avg_loss_pct = round(sum(losses) / len(losses), 4) if losses else None
+        if avg_win_pct is not None and avg_loss_pct is not None and avg_loss_pct != 0:
+            profit_loss_ratio = round(abs(avg_win_pct / avg_loss_pct), 4)
+        else:
+            profit_loss_ratio = None
+
+        # Per-trade Sharpe (returns in percent; std also in percent, so ratio is scale-free)
+        mean_return = statistics.mean(returns_pct)
+        stdev_return = statistics.stdev(returns_pct) if len(returns_pct) > 1 else 0.0
+        sharpe_ratio = (
+            round(mean_return / stdev_return, 4) if stdev_return > 0 else None
+        )
+
+        # Annualized Sharpe: each trade spans eval_window_days trading days
+        eval_days = int(eval_window_days) if eval_window_days > 0 else 1
+        trades_per_year = TRADING_DAYS_PER_YEAR / eval_days
+        annualized_sharpe_ratio = (
+            round(sharpe_ratio * math.sqrt(trades_per_year), 4)
+            if sharpe_ratio is not None
+            else None
+        )
+
+        # Cumulative equity curve (convert percent returns to multiplicative factors)
+        equity = 1.0
+        peak = 1.0
+        max_drawdown_pct = 0.0
+        for r_pct in returns_pct:
+            equity *= (1.0 + r_pct / 100.0)
+            if equity > peak:
+                peak = equity
+            if peak > 0:
+                drawdown = (peak - equity) / peak * 100.0
+                if drawdown > max_drawdown_pct:
+                    max_drawdown_pct = drawdown
+        cumulative_return_pct = round((equity - 1.0) * 100.0, 4)
+        max_drawdown_pct = round(max_drawdown_pct, 4) if max_drawdown_pct > 0 else 0.0
+
+        # Annualized return: geometric, based on total trading days elapsed
+        total_trading_days = len(returns_pct) * eval_days
+        if total_trading_days > 0 and equity > 0:
+            annualized_return_pct = round(
+                (equity ** (TRADING_DAYS_PER_YEAR / total_trading_days) - 1.0) * 100.0,
+                4,
+            )
+        else:
+            annualized_return_pct = None
+
+        # Calmar ratio: annualized return / max drawdown
+        if (
+            annualized_return_pct is not None
+            and max_drawdown_pct is not None
+            and max_drawdown_pct > 0
+        ):
+            calmar_ratio = round(annualized_return_pct / max_drawdown_pct, 4)
+        else:
+            calmar_ratio = None
+
+        return {
+            "sharpe_ratio": sharpe_ratio,
+            "annualized_sharpe_ratio": annualized_sharpe_ratio,
+            "max_drawdown_pct": max_drawdown_pct if max_drawdown_pct > 0 else None,
+            "calmar_ratio": calmar_ratio,
+            "profit_loss_ratio": profit_loss_ratio,
+            "avg_win_pct": avg_win_pct,
+            "avg_loss_pct": avg_loss_pct,
+            "annualized_return_pct": annualized_return_pct,
+            "cumulative_return_pct": cumulative_return_pct,
         }

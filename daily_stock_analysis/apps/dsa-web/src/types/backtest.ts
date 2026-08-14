@@ -107,6 +107,17 @@ export interface PerformanceMetrics {
   ambiguousRate?: number;
   avgDaysToFirstHit?: number;
 
+  // Risk-adjusted return metrics
+  sharpeRatio?: number;
+  annualizedSharpeRatio?: number;
+  maxDrawdownPct?: number;
+  calmarRatio?: number;
+  profitLossRatio?: number;
+  avgWinPct?: number;
+  avgLossPct?: number;
+  annualizedReturnPct?: number;
+  cumulativeReturnPct?: number;
+
   adviceBreakdown: Record<string, unknown>;
   diagnostics: Record<string, unknown>;
 }

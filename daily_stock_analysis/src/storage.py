@@ -500,6 +500,17 @@ class BacktestSummary(Base):
     ambiguous_rate = Column(Float)
     avg_days_to_first_hit = Column(Float)
 
+    # 风险调整收益指标（risk-adjusted return metrics）
+    sharpe_ratio = Column(Float)
+    annualized_sharpe_ratio = Column(Float)
+    max_drawdown_pct = Column(Float)
+    calmar_ratio = Column(Float)
+    profit_loss_ratio = Column(Float)
+    avg_win_pct = Column(Float)
+    avg_loss_pct = Column(Float)
+    annualized_return_pct = Column(Float)
+    cumulative_return_pct = Column(Float)
+
     # 诊断字段（JSON 字符串）
     advice_breakdown_json = Column(Text)
     diagnostics_json = Column(Text)
@@ -513,6 +524,31 @@ class BacktestSummary(Base):
             name='uix_backtest_summary_scope_code_window_version',
         ),
     )
+
+
+class StrategyAutostopState(Base):
+    """Strategy auto-stop state (rule-based timing module).
+
+    Tracks pause/resume state and consecutive underperform count for each
+    strategy key, so that autostop decisions persist across process restarts
+    and alert deduplication is possible.
+    """
+
+    __tablename__ = 'strategy_autostop_state'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    strategy_key = Column(String(128), nullable=False, unique=True, index=True)
+    status = Column(String(16), nullable=False, default='active', index=True)  # active / paused
+    paused_at = Column(DateTime, nullable=True)
+    pause_reason = Column(String(64), nullable=True)  # drawdown / underperform / manual
+    pause_metric_value = Column(Float, nullable=True)
+    consecutive_underperform_count = Column(Integer, nullable=False, default=0)
+    last_evaluated_at = Column(DateTime, nullable=True)
+    last_drawdown_pct = Column(Float, nullable=True)
+    last_strategy_return_pct = Column(Float, nullable=True)
+    last_benchmark_return_pct = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
 class PortfolioAccount(Base):
@@ -1377,6 +1413,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
             self._ensure_intelligence_item_scope_values()
             self._ensure_schema_migration_record()
             self._ensure_intelligence_items_unique_index()
+            self._ensure_backtest_summary_risk_columns()
 
             self._initialized = True
             logger.info(f"数据库初始化完成: {db_url}")
@@ -1747,6 +1784,71 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
                         delay = self._sqlite_write_retry_base_delay * (2 ** attempt)
                         logger.warning(
                             "[LLM usage] SQLite telemetry column backfill locked, "
+                            "retrying: %s (%s/%s, %.2fs)",
+                            column,
+                            attempt + 1,
+                            max_retries,
+                            delay,
+                        )
+                        if delay > 0:
+                            time.sleep(delay)
+                        continue
+                    raise
+
+    def _ensure_backtest_summary_risk_columns(self) -> None:
+        """Add nullable risk-adjusted return columns to backtest_summaries.
+
+        Columns: sharpe_ratio, annualized_sharpe_ratio, max_drawdown_pct,
+        calmar_ratio, profit_loss_ratio, avg_win_pct, avg_loss_pct,
+        annualized_return_pct, cumulative_return_pct.
+        """
+        if not self._is_sqlite_engine:
+            return
+        try:
+            existing = {
+                column["name"]
+                for column in inspect(self._engine).get_columns(BacktestSummary.__tablename__)
+            }
+        except Exception as exc:
+            logger.warning(
+                "[Backtest] failed to inspect risk columns; "
+                "skipping best-effort SQLite column backfill: %s",
+                exc,
+            )
+            return
+
+        risk_columns = {
+            "sharpe_ratio": "FLOAT",
+            "annualized_sharpe_ratio": "FLOAT",
+            "max_drawdown_pct": "FLOAT",
+            "calmar_ratio": "FLOAT",
+            "profit_loss_ratio": "FLOAT",
+            "avg_win_pct": "FLOAT",
+            "avg_loss_pct": "FLOAT",
+            "annualized_return_pct": "FLOAT",
+            "cumulative_return_pct": "FLOAT",
+        }
+        max_retries = self._sqlite_write_retry_max
+        for column, column_type in risk_columns.items():
+            if column in existing:
+                continue
+            for attempt in range(max_retries + 1):
+                try:
+                    with self._engine.begin() as connection:
+                        connection.exec_driver_sql(
+                            f"ALTER TABLE {BacktestSummary.__tablename__} "
+                            f"ADD COLUMN {column} {column_type}"
+                        )
+                    existing.add(column)
+                    break
+                except OperationalError as exc:
+                    if self._is_sqlite_duplicate_column_error(exc, column):
+                        existing.add(column)
+                        break
+                    if self._is_sqlite_locked_error(exc) and attempt < max_retries:
+                        delay = self._sqlite_write_retry_base_delay * (2 ** attempt)
+                        logger.warning(
+                            "[Backtest] SQLite risk column backfill locked, "
                             "retrying: %s (%s/%s, %.2fs)",
                             column,
                             attempt + 1,
