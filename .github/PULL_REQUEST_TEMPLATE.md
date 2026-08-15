@@ -36,7 +36,7 @@ git diff --name-only "$BASE_REF"..HEAD
 
 - 文件总数 / 变更行数（建议粘贴 `git diff --stat "$BASE_REF"..HEAD`）：
 - 文件清单（按实际 diff 全量，逐项列出）：
-- 文档更新文件（`docs/*`）：
+- 文档更新文件（`daily_stock_analysis/docs/*`）：
 
 ## Issue Link
 
@@ -51,7 +51,7 @@ git diff --name-only "$BASE_REF"..HEAD
 *(EN) Paste the commands you actually ran and their key output (don't just write "tested"):*
 
 ```bash
-# example
+# example (run inside daily_stock_analysis/)
 ./scripts/ci_gate.sh
 python -m pytest -m "not network"
 ```
@@ -87,12 +87,12 @@ python -m pytest -m "not network"
 >
 > 若本 PR 修改 Web UI，建议至少补一条可复现路径，例如（优先 settings page）：
 >
-> - Playwright 截图产物：`apps/dsa-web/e2e/smoke.spec.ts`（`cd apps/dsa-web && npx playwright test e2e/smoke.spec.ts --grep "settings page renders title and save actions after login"`）
+> - Playwright 截图产物：`daily_stock_analysis/apps/dsa-web/e2e/smoke.spec.ts`（`cd daily_stock_analysis/apps/dsa-web && npx playwright test e2e/smoke.spec.ts --grep "settings page renders title and save actions after login"`）
 > - 审查证据链接：可直接使用 Actions 产物、GitHub 评论附件或外部可访问链接。
 
 > 替代证据模板（设置页变更建议）：
-> - 命令：`cd apps/dsa-web && npx playwright test e2e/smoke.spec.ts --grep "settings page"`
-> - 产物路径：`apps/dsa-web/test-results/**/smoke-settings-page-*.png`
+> - 命令：`cd daily_stock_analysis/apps/dsa-web && npx playwright test e2e/smoke.spec.ts --grep "settings page"`
+> - 产物路径：`daily_stock_analysis/apps/dsa-web/test-results/**/smoke-settings-page-*.png`
 > - 说明：截图中应可见本次修改的系统设置项（字段、标签、帮助文案）
 
 - 截图链接 / Screenshot links（Web UI/报告改动项必填，未提供请在下方“不适用原因”给出替代证据）：
@@ -100,8 +100,8 @@ python -m pytest -m "not network"
 - 前后对比 / Before & After（如有）：
 - settings 字段变更说明：截图或产物应明确包含 `MARKET_REVIEW_REGION` 字段与帮助文案区块（中文/英文）。
 - 不适用原因 / Reason if not applicable（若未附截图，此项务必填写，且包含可复现证据与命令）：
-  - Playwright 命令（无截图时）：`cd apps/dsa-web && npx playwright test e2e/smoke.spec.ts --grep "settings page"`
-  - 产物路径（无截图时）：`apps/dsa-web/test-results/**/smoke-settings-page-*.png`
+  - Playwright 命令（无截图时）：`cd daily_stock_analysis/apps/dsa-web && npx playwright test e2e/smoke.spec.ts --grep "settings page"`
+  - 产物路径（无截图时）：`daily_stock_analysis/apps/dsa-web/test-results/**/smoke-settings-page-*.png`
   - 说明：截图（或产物）必须可见本次修改的设置字段文案与帮助信息。
 
 > 若本 PR 修改 Web 设置字段（字段、文案或帮助文案），截图或替代证据必须可定位到对应设置项区域并可追溯至变更项；该项为必填。
@@ -136,8 +136,8 @@ python -m pytest -m "not network"
 
 ## EXTRACT_PROMPT Change (if applicable)
 
-若本 PR 修改了 `src/services/image_stock_extractor.py` 中的 `EXTRACT_PROMPT`，请在此处粘贴完整变更后的 prompt。  
-*If this PR changes `EXTRACT_PROMPT` in `src/services/image_stock_extractor.py`, paste the full updated prompt here:*
+若本 PR 修改了 `daily_stock_analysis/src/services/image_stock_extractor.py` 中的 `EXTRACT_PROMPT`，请在此处粘贴完整变更后的 prompt。  
+*If this PR changes `EXTRACT_PROMPT` in `daily_stock_analysis/src/services/image_stock_extractor.py`, paste the full updated prompt here:*
 
 <details>
 <summary>展开 / Expand: Full EXTRACT_PROMPT</summary>
@@ -156,4 +156,4 @@ python -m pytest -m "not network"
 - [ ] 已提供回滚方案 / A rollback plan is provided
 - [ ] 若修改报告格式或 Web UI 界面，已在 PR 描述/评论附受影响报告 / 页面截图，且未把一次性验收截图作为仓库文件合入 / If report formatting or Web UI changed, affected report/page screenshots are linked in the PR body/comments and one-off acceptance screenshots are not committed as repository files
 - [ ] 若本 PR 修改 Web 设置字段（字段、文案或帮助文本），请补充设置页截图；无法截图时需提供替代可视证据（命令 + 产物路径），并指向对应变更项 / If Web settings fields changed (labels or help text), screenshots of the settings page are required; if unavailable, provide alternative visual evidence with command + artifact path that points to the changed item.
-- [ ] 若涉及用户可见变更，已同步更新相关文档与 `docs/CHANGELOG.md`；`README.md` 仅在首页级信息变化时更新，细节优先写入 `docs/*.md` / If user-visible changes are included, relevant docs and `docs/CHANGELOG.md` are updated; `README.md` is updated only for homepage-level changes, with details kept in `docs/*.md`
+- [ ] 若涉及用户可见变更，已同步更新相关文档与 `daily_stock_analysis/docs/CHANGELOG.md`；`README.md` 仅在首页级信息变化时更新，细节优先写入 `daily_stock_analysis/docs/*.md` / If user-visible changes are included, relevant docs and `daily_stock_analysis/docs/CHANGELOG.md` are updated; `README.md` is updated only for homepage-level changes, with details kept in `daily_stock_analysis/docs/*.md`

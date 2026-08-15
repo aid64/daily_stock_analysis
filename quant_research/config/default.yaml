@@ -1,0 +1,64 @@
+# ===================================
+# quant_research 默认配置
+# ===================================
+
+# ── 数据层 ───────────────────────────────────
+data:
+  primary: tushare              # 主数据源：tushare / baostock / akshare
+  fallbacks: [baostock, akshare]  # 失败后按顺序 fallback
+  cache_dir: data/cache         # Parquet 缓存根目录
+  cache_format: parquet
+  adjust: hfq                   # 复权方式：qfq 前复权 / hfq 后复权 / none 不复权
+  cache_compression: zstd       # parquet 压缩：snappy / zstd / gzip
+
+# ── 数据源：Tushare ──────────────────────────
+tushare:
+  # token 从 .env 的 TUSHARE_TOKEN 注入，不要在此写死
+  token: ${oc.env:TUSHARE_TOKEN,""}
+  points: 15000
+  rate_limit_per_min: 200       # 15000 积分约 500 次/分，保守取 200
+  retry_max: 3
+  retry_backoff: 1.5            # 指数退避底数
+
+# ── 策略（占位，P1 启用）─────────────────────
+strategy:
+  name: etf_momentum
+  params:
+    lookback: 60
+    top_k: 3
+    ma_filter: 250
+  rebalance_freq: W             # W 周 / M 月
+  max_positions: 5
+
+# ── 回测（占位，P2 启用）─────────────────────
+backtest:
+  start: "2015-01-01"
+  end: "2024-12-31"
+  initial_capital: 10000.0
+  commission_rate: 0.0001       # 双边万 1
+  stamp_duty: 0.0005            # 卖出单边 0.05%
+  transfer_fee: 0.00002         # 双边 0.002%
+  min_commission: 5.0           # 单笔最低 5 元（1 万本金约束）
+  slippage: 0.001               # 0.1%
+  allow_t_plus_1: true
+  respect_limit_up_down: true
+
+# ── 风控（占位，P2 启用）─────────────────────
+risk:
+  max_single_position: 0.3
+  max_drawdown_circuit_breaker: 0.15
+  stop_loss_atr_mult: 2.0
+  three_tier_ratios:
+    base: 0.5                   # 底仓
+    tactical: 0.3               # 机动仓
+    cash: 0.2                   # 现金
+
+# ── 通知（占位，P5 启用）─────────────────────
+notify:
+  enabled: false
+  bot_api: ${oc.env:DSA_BOT_API,"http://localhost:8000"}
+
+# ── 日志 ─────────────────────────────────────
+logging:
+  level: ${oc.env:QR_LOG_LEVEL,INFO}
+  format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"

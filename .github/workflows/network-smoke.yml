@@ -27,17 +27,19 @@ jobs:
       - name: 📦 Install dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r daily_stock_analysis/requirements.txt
           pip install pytest
 
       - name: 🌐 Run pytest network smoke (non-blocking)
         continue-on-error: true
+        working-directory: daily_stock_analysis
         run: |
           set -o pipefail
           python -m pytest -m network -q | tee pytest-network.log
 
       - name: 🚀 Run quick smoke (non-blocking)
         continue-on-error: true
+        working-directory: daily_stock_analysis
         run: |
           set -o pipefail
           ./scripts/test.sh quick --no-notify | tee quick-smoke.log
@@ -48,6 +50,6 @@ jobs:
         with:
           name: network-smoke-logs-${{ github.run_number }}
           path: |
-            pytest-network.log
-            quick-smoke.log
+            daily_stock_analysis/pytest-network.log
+            daily_stock_analysis/quick-smoke.log
           if-no-files-found: ignore

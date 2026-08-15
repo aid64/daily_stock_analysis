@@ -53,10 +53,11 @@ jobs:
       - name: 安装依赖
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r daily_stock_analysis/requirements.txt
           python -c "import futu; print('✅ futu SDK import OK')"
       
       - name: 创建必要目录
+        working-directory: daily_stock_analysis
         run: |
           mkdir -p data logs reports
       
@@ -426,6 +427,7 @@ jobs:
           # 如果有 TickFlow 或 Tushare Pro，可按权限把 tickflow / tushare 放在更靠前位置
           REALTIME_SOURCE_PRIORITY: ${{ vars.REALTIME_SOURCE_PRIORITY || 'tencent,akshare_sina,efinance,akshare_em' }}
           
+        working-directory: daily_stock_analysis
         run: |
           # 解析自选股配置：
           # 1. Repository/Environment secrets 或 Repository variables（STOCK_LIST_CONFIG）
@@ -540,12 +542,13 @@ jobs:
         with:
           name: analysis-reports-${{ github.run_number }}
           path: |
-            reports/
-            logs/
+            daily_stock_analysis/reports/
+            daily_stock_analysis/logs/
           retention-days: 30
       
       - name: 显示运行结果
         if: always()
+        working-directory: daily_stock_analysis
         run: |
           echo ""
           echo "=========================================="

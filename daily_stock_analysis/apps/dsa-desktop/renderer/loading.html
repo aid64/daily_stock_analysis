@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Daily Stock Analysis</title>
+    <style>
+      :root {
+        color-scheme: dark light;
+        --bg: #f4f7fb;
+        --bg-secondary: #e8edf5;
+        --panel: rgba(255, 255, 255, 0.88);
+        --text: #172033;
+        --muted: #5e6a7e;
+        --accent: #0ea5c6;
+        --danger-bg: rgba(225, 29, 72, 0.08);
+        --danger-border: rgba(225, 29, 72, 0.32);
+        --danger-text: #b91c3c;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #08080c;
+          --bg-secondary: #131722;
+          --panel: rgba(16, 18, 28, 0.9);
+          --text: #e2e8f0;
+          --muted: #94a3b8;
+          --accent: #38bdf8;
+          --danger-bg: rgba(239, 68, 68, 0.08);
+          --danger-border: rgba(239, 68, 68, 0.4);
+          --danger-text: #fecaca;
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Fira Sans", "IBM Plex Sans", "Segoe UI", sans-serif;
+        background: radial-gradient(circle at top left, var(--bg-secondary), var(--bg) 55%);
+        color: var(--text);
+        height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .panel {
+        width: min(640px, 90vw);
+        background: var(--panel);
+        border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
+        border-radius: 16px;
+        padding: 32px 36px;
+        box-shadow: 0 30px 80px rgba(15, 23, 42, 0.18);
+        backdrop-filter: blur(18px);
+      }
+
+      .title {
+        font-size: 24px;
+        margin: 0 0 8px;
+        letter-spacing: 0.4px;
+      }
+
+      .subtitle {
+        margin: 0 0 24px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .status {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 14px;
+        color: var(--muted);
+      }
+
+      .progress {
+        margin-top: 10px;
+        font-size: 12px;
+        color: var(--muted);
+        display: flex;
+        gap: 12px;
+        min-height: 16px;
+      }
+
+      .progress span:empty {
+        display: none;
+      }
+
+      .error {
+        margin-top: 16px;
+        padding: 12px 14px;
+        border-radius: 10px;
+        background: var(--danger-bg);
+        border: 1px solid var(--danger-border);
+        color: var(--danger-text);
+        font-size: 12px;
+        line-height: 1.5;
+        display: none;
+      }
+
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 12px rgba(56, 189, 248, 0.8);
+        animation: pulse 1.5s ease-in-out infinite;
+      }
+
+      .tips {
+        margin-top: 20px;
+        font-size: 12px;
+        color: rgba(148, 163, 184, 0.8);
+      }
+
+      @keyframes pulse {
+        0%, 100% {
+          transform: scale(1);
+          opacity: 1;
+        }
+        50% {
+          transform: scale(1.4);
+          opacity: 0.6;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="panel">
+      <h1 class="title">Daily Stock Analysis</h1>
+      <p class="subtitle">正在启动本地分析服务</p>
+      <div class="status">
+        <span class="dot"></span>
+        <span id="statusText">正在准备后端服务...</span>
+      </div>
+      <div class="progress">
+        <span id="elapsedText">0.0s</span>
+        <span id="attemptsText"></span>
+      </div>
+      <p class="tips">如长时间无响应，请检查 API 密钥配置与网络连接。</p>
+      <div class="error" id="errorBox"></div>
+    </div>
+    <script>
+      (function () {
+        var params = new URLSearchParams(window.location.search);
+        var error = params.get('error');
+        if (error) {
+          var box = document.getElementById('errorBox');
+          if (box) {
+            box.textContent = 'Error: ' + decodeURIComponent(error);
+            box.style.display = 'block';
+          }
+        }
+
+        var statusText = document.getElementById('statusText');
+        var elapsedText = document.getElementById('elapsedText');
+        var attemptsText = document.getElementById('attemptsText');
+        var startedAt = Date.now();
+
+        function formatElapsed(ms) {
+          var safe = Math.max(0, ms || 0);
+          var seconds = Math.floor(safe / 1000);
+          var tenths = Math.floor((safe % 1000) / 100);
+          return seconds + '.' + tenths + 's';
+        }
+
+        // 本地计时器：持续更新已用时间，让用户在 IPC 事件间隙也能感知"在动"
+        setInterval(function () {
+          if (elapsedText) {
+            elapsedText.textContent = formatElapsed(Date.now() - startedAt);
+          }
+        }, 200);
+
+        // 监听 main 进程推送的启动进度（preload 注入的 onStartupProgress）
+        var desktop = window.dsaDesktop;
+        if (desktop && typeof desktop.onStartupProgress === 'function') {
+          desktop.onStartupProgress(function (payload) {
+            if (!payload) return;
+            if (payload.message && statusText) {
+              statusText.textContent = payload.message;
+            }
+            if (attemptsText) {
+              if (typeof payload.attempts === 'number' && payload.attempts > 0) {
+                attemptsText.textContent = '尝试 ' + payload.attempts + ' 次';
+              } else {
+                attemptsText.textContent = '';
+              }
+            }
+          });
+        }
+      })();

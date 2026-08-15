@@ -7,10 +7,10 @@ If any instruction in this file conflicts with `AGENTS.md`, follow `AGENTS.md`.
 ## Core Rules
 
 - Respect directory boundaries:
-  - Backend: `src/`, `data_provider/`, `api/`, `bot/`
-  - Web: `apps/dsa-web/`
-  - Desktop: `apps/dsa-desktop/`
-  - Deployment/workflows: `scripts/`, `.github/workflows/`, `docker/`
+  - Backend: `daily_stock_analysis/src/`, `daily_stock_analysis/data_provider/`, `daily_stock_analysis/api/`, `daily_stock_analysis/bot/`
+  - Web: `daily_stock_analysis/apps/dsa-web/`
+  - Desktop: `daily_stock_analysis/apps/dsa-desktop/`
+  - Deployment/workflows: `daily_stock_analysis/scripts/`, `.github/workflows/`, `daily_stock_analysis/docker/`
 - Do not run `git commit`, `git tag`, or `git push` without explicit user confirmation.
 - Before creating/updating PRs, PR review, or issue analysis, refresh the latest code baseline with `git fetch --all --prune`; if the worktree is clean and the current branch can fast-forward, run `git pull --ff-only`. If local changes, conflicts, missing upstream, or non-fast-forward history make that unsafe, do not stash/reset/overwrite local state; analyze against fetched remote refs or record the baseline gap before proceeding.
 - PR titles should use `<type>: <change summary>` such as `fix: 修复大盘分析历史记录丢失`; use `fix`/`feat`/`refactor`/`docs`/`chore`/`test`/`ci` where possible, and avoid `[codex]`, `codex`, `autocode`, `copilot`, or other tool/agent source prefixes. Treat this as process guidance and do not use title format mismatches as a hard review blocker.
@@ -24,11 +24,11 @@ If any instruction in this file conflicts with `AGENTS.md`, follow `AGENTS.md`.
 
 ## Validation
 
-- Backend changes: prefer `./scripts/ci_gate.sh`; at minimum run `python -m py_compile` on changed Python files and the closest deterministic tests.
-- Web changes: run `cd apps/dsa-web && npm ci && npm run lint && npm run build`.
+- Backend changes: prefer `./scripts/ci_gate.sh` (run inside `daily_stock_analysis/`); at minimum run `python -m py_compile` on changed Python files and the closest deterministic tests.
+- Web changes: run `cd apps/dsa-web && npm ci && npm run lint && npm run build` (inside `daily_stock_analysis/`).
 - Desktop changes: build web first, then desktop if feasible.
 - Review work should prioritize CI evidence (`gh pr checks`, workflow logs) before re-running local validation.
-- AI governance changes: run `python scripts/check_ai_assets.py`.
+- AI governance changes: run `python daily_stock_analysis/scripts/check_ai_assets.py`.
 
 ## AI Asset Governance
 

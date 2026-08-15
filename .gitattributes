@@ -1,43 +1,44 @@
-# 对 changelog 使用 union 合并策略
-# 多个并发 PR 向 [Unreleased] 末尾追加条目时，Git 直接取两边所有行而不产生冲突标记。
-# 适用于 append-only 的 changelog 文件。
-docs/CHANGELOG.md merge=union
+# ── 换行符规范 ──────────────────────────────────────────────────────────
+# 文本文件统一使用 LF 换行符 (跨平台兼容)
+*       text=auto eol=lf
 
-# Documentation image/design assets are binary. Keep GitHub review diffs from
-# trying to decode moved binary files as UTF-8.
-sources/**/*.ai binary
-sources/**/*.gif binary
-sources/**/*.ico binary
-sources/**/*.jpg binary
-sources/**/*.jpeg binary
-sources/**/*.png binary
-sources/**/*.psd binary
-docs/assets/**/*.ai binary
-docs/assets/**/*.gif binary
-docs/assets/**/*.ico binary
-docs/assets/**/*.jpg binary
-docs/assets/**/*.jpeg binary
-docs/assets/**/*.png binary
-docs/assets/**/*.psd binary
+# 二进制文件不转换
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.db    binary
+*.sqlite binary
+*.exe   binary
+*.dll   binary
+*.pyd   binary
+*.so    binary
+*.pak   binary
+*.asar  binary
+*.bin   binary
 
-# === 强制 LF 的文件类型（内核/系统解释器直接消费） ===
-# Shell 脚本（entrypoint.sh、任何 .sh）
-*.sh text eol=lf
-*.bash text eol=lf
+# Shell 脚本
+*.sh    text eol=lf
 
-# Dockerfile（包括多阶段或变体）
-Dockerfile text eol=lf
-Dockerfile.* text eol=lf
+# Windows 批处理
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
 
-# Makefile
-Makefile text eol=lf
+# Python (PEP 8 推荐 LF)
+*.py    text eol=lf diff=python
 
-# 环境变量文件（如果被 shell 直接 source 使用）
-.env text eol=lf
+# Web 前端
+*.js    text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.json  text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
 
-# === 新增：二进制文件（禁止 Git 修改换行/编码） ===
-# 证书、密钥等（如果有）
-*.pem binary
-*.crt binary
-*.key binary
-*.p12 binary
+# Markdown / 文档
+*.md    text eol=lf

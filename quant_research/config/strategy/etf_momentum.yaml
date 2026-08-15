@@ -1,0 +1,24 @@
+# ETF 动量轮动策略配置
+# 双动量（绝对 + 相对）+ MA250 过滤
+
+name: etf_momentum
+params:
+  lookback: 60                  # 动量计算窗口（约 3 个月）
+  top_k: 3                      # 持仓数
+  ma_filter: 250                # 均线过滤窗口（约 1 年）
+  min_volume: 1000000           # 流动性过滤：日均成交额（元）
+rebalance_freq: W               # W 周 / M 月
+max_positions: 3
+universe:                       # 默认 ETF 池（宽基 + 行业）
+  - 510300.SH  # 沪深300ETF
+  - 510500.SH  # 中证500ETF
+  - 159915.SZ  # 创业板ETF
+  - 512100.SH  # 中证1000ETF
+  - 588000.SH  # 科创50ETF
+  - 510050.SH  # 上证50ETF
+  - 512880.SH  # 证券ETF
+  - 515790.SH  # 光伏ETF
+  - 515030.SH  # 新能源车ETF
+  - 512480.SH  # 半导体ETF
+  - 515170.SH  # 食品饮料ETF
+  - 512010.SH  # 医药ETF
