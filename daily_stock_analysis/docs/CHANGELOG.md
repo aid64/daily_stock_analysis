@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [chore] 仓库目录重构：主项目内容（api/apps/bot/data_provider/docker/docs/scripts/src/strategies/templates/tests/main.py/server.py 等）移入 daily_stock_analysis/ 子目录，与 quant_research/ 并列；仓库根保留 .github/.claude/AGENTS.md/CLAUDE.md/LICENSE/.gitignore 等治理文件。
 - [改进] 同步更新 CI workflows（6 个文件加 working-directory: daily_stock_analysis 或路径前缀）、AGENTS.md 路径引用、.gitignore 锚定路径、check_ai_assets.py/ci_test_shard.py/ci_gate.sh 脚本的 ROOT 解析与 .github/ 路径引用。
 - [改进] 目录重构路径修复（第二轮）：修复 ai_review.py/build_release_notes.py/generate_notification_actions_env_table.py 脚本路径；.env.example 移入 daily_stock_analysis/；更新 pr-review.yml isReviewable 逻辑、copilot-instructions.md、instructions/*.md applyTo glob、PULL_REQUEST_TEMPLATE.md 路径引用；修复 README.md 和 docs/ 下 8 个文档的快速开始命令链与失效链接；修复 8 个测试文件的 .github/ 路径解析与 CI 契约断言。
+- [修复] 单股推送模式在未配置通知渠道时仍会落盘本地个股报告；CLI 启动分析若因空股票列表、个股结果全失败或本地报告保存失败而未生成报告，会显式返回失败并记录原因。
+- [修复] 合并推送模式下即使个股汇总报告落盘失败，仍会先发送已有的合并通知；仅启用大盘复盘但最终未生成任何复盘内容时，分析任务会显式返回失败。
 
 ## [3.30.0] - 2026-08-09
 
