@@ -59,6 +59,7 @@ from src.utils.data_processing import (
 
 if TYPE_CHECKING:
     from src.analyzer import AnalysisResult
+    from src.schemas.run_flow import RunFlowSnapshot
 
 logger = logging.getLogger(__name__)
 
