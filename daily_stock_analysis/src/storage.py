@@ -2915,6 +2915,11 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
             )
             return result.rowcount or 0
 
+        return self._run_write_transaction(
+            "delete analysis history records",
+            _write,
+        )
+
     def purge_expired_llm_usage(self, retention_days: int) -> int:
         """删除超过保留天数的 LLM 调用记录。
 
