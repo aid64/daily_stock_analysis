@@ -34,7 +34,6 @@ export function ApiTestPanel(): React.ReactElement {
   const [selectedTests, setSelectedTests] = useState<ApiTestType[]>(['health', 'stocks', 'history', 'generation']);
   const [results, setResults] = useState<ApiTestResult[]>([]);
   const [isRunning, setIsRunning] = useState(false);
-  const [overallStartTime, setOverallStartTime] = useState(0);
   const [expandedResult, setExpandedResult] = useState<ApiTestType | null>(null);
 
   const toggleTest = useCallback((type: ApiTestType) => {
@@ -226,7 +225,6 @@ export function ApiTestPanel(): React.ReactElement {
   const runAllTests = useCallback(async () => {
     setResults([]);
     setIsRunning(true);
-    setOverallStartTime(performance.now());
 
     const testMap: Record<ApiTestType, () => Promise<ApiTestResult>> = {
       health: runHealthCheck,
@@ -253,7 +251,7 @@ export function ApiTestPanel(): React.ReactElement {
   const passedCount = results.filter((r) => r.status === 'success').length;
   const warningCount = results.filter((r) => r.status === 'warning').length;
   const failedCount = results.filter((r) => r.status === 'failed').length;
-  const totalLatency = Math.round(performance.now() - overallStartTime);
+  const totalLatency = results.reduce((sum, r) => sum + r.latencyMs, 0);
 
   const renderStatusIcon = (status: ApiTestResult['status']) => {
     switch (status) {
