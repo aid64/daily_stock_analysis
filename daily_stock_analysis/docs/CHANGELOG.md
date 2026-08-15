@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [改进] 目录重构路径修复（第二轮）：修复 ai_review.py/build_release_notes.py/generate_notification_actions_env_table.py 脚本路径；.env.example 移入 daily_stock_analysis/；更新 pr-review.yml isReviewable 逻辑、copilot-instructions.md、instructions/*.md applyTo glob、PULL_REQUEST_TEMPLATE.md 路径引用；修复 README.md 和 docs/ 下 8 个文档的快速开始命令链与失效链接；修复 8 个测试文件的 .github/ 路径解析与 CI 契约断言。
 - [修复] 单股推送模式在未配置通知渠道时仍会落盘本地个股报告；CLI 启动分析若因空股票列表、个股结果全失败或本地报告保存失败而未生成报告，会显式返回失败并记录原因。
 - [修复] 合并推送模式下即使个股汇总报告落盘失败，仍会先发送已有的合并通知；仅启用大盘复盘但最终未生成任何复盘内容时，分析任务会显式返回失败。
+- [修复] 修复 DatabaseManager.delete_analysis_history_records 定义写事务后未实际执行的问题：删除历史记录功能失效并使删除接口返回 500，同时影响数据清理统计与观点样本孤儿数据清理。
+- [chore] 修复 CI 后端依赖清单 .github/requirements-ci.txt 在目录重构后的相对路径引用（../requirements.txt → ../daily_stock_analysis/requirements.txt），backend-tests 依赖安装不再失败。
+- [修复] 修复 Web 设置页 API 测试面板在渲染期间调用 performance.now() 触发 react-hooks/purity lint 错误导致 web-gate 阻断的问题，总耗时改为已完成测试耗时求和。
+- [测试] test_pipeline_single_stock_notify 断言的报告文件名由硬编码日期改为动态当天日期，消除跨日运行失败。
 
 ## [3.30.0] - 2026-08-09
 
