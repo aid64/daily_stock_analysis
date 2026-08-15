@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [chore] 修复 CI 后端依赖清单 .github/requirements-ci.txt 在目录重构后的相对路径引用（../requirements.txt → ../daily_stock_analysis/requirements.txt），backend-tests 依赖安装不再失败。
 - [修复] 修复 Web 设置页 API 测试面板在渲染期间调用 performance.now() 触发 react-hooks/purity lint 错误导致 web-gate 阻断的问题，总耗时改为已完成测试耗时求和。
 - [测试] test_pipeline_single_stock_notify 断言的报告文件名由硬编码日期改为动态当天日期，消除跨日运行失败。
+- [修复] history_service.py 在 TYPE_CHECKING 块中补充 RunFlowSnapshot 导入，修复 flake8 F821 未定义名称导致 backend-gate 阻断的问题。
 
 ## [3.30.0] - 2026-08-09
 
