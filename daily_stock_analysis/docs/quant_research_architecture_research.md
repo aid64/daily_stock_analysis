@@ -1301,6 +1301,19 @@ class Notifier:
 - **闸影响实证（ETF 动量 8 折 WF，对照 R1b 复核 `output/wf_r2_gate_etf.csv`）**：3/8 折逐位不变（该窗口无涨跌停事件），4 折 |Δ| 3-9pp（此前存在涨停追买/跌停卖出的不可能成交），OOS 累计 +17.2% → +14.7%——**结构性真实性修正的量化证据**：旧回测的成交里有物理上不可能的订单；合成场景（无涨跌停事件）R2 前后逐位一致，确认闸不误伤。
 
 **测试规模**：178 → 218 项全过（+13 MWUCore、+18 RuleBook、+9 相关迁移）。
+**R3 Runner 编排层（05534b30）**：痛点 6 修复。`quant_research/runner.py` 收拢两脚本的参数类型表（并集）、网格解析与组合预算、warmup 计算、feeds 切片、折切分、指标行、训练窗锁参准则、MWU 网格键路由与文件 SHA-256；`run_grid.py`/`run_walk_forward.py` 退化为 CLI 薄入口。验证：ETF WF 重跑输出与重构前逐字节一致（主 CSV 与 locked CSV）。
+
+**R4 实验注册层（082cf2b8）**：痛点 5 修复。`core/experiments.py`：run_id = UTC 时间戳 + 参数哈希；`output/runs/<run_id>/meta.json` + 追加式 `index.jsonl`——试验数 N 从此机器可追溯（P0-2 DSR/HLZ 校正的输入）；已接入 run_backtest/run_grid/run_walk_forward 三个入口。qlib Recorder 语义的文件系统实现，不引 MLflow。
+
+**R5 Panel + 因子层 + 两段式转债回测**：痛点 3/4 修复。
+- `core/panel.py`：PIT 长表 → (date × symbol) 字段矩阵（price/premium_rate），静态字段（rating/maturity_date 等）按品种广播；`get_panel(field, start, end)` 查询式截面 + `forward_returns(periods)` 前向收益矩阵。849 只转债在矩阵范式下只是 849 列。
+- `core/factors.py`：装饰器注册因子 → Panel 向量化计算；内置 double_low/price/premium_rate/conv_value；`ic_series`（RankIC 缺省）与 `evaluate_factor`（mean IC/ICIR/t 值/覆盖率）。
+- `backtest/two_stage.py`：第一段矩阵选债 `compute_cb_target_weights`（逐调仓日调 `pit_snapshot_picks` 单一过滤链——与 PIT 专家共享，语义一致由构造保证）；第二段 `WeightTargetStrategy` 经 `TargetWeightExecutionMixin`（自 ETFMWU 抽取的执行逻辑）消费权重计划，跑在 BacktestEngine 上享有 RuleBook 强制闸。`pit_to_feeds` 只为被选中券建 feed（并集成为选债副产品），**precompute_cb_union 预计算步骤废除**。
+- 过程中暴露并修复两个真 bug：①共享执行逻辑中目标外 1 手持仓因"超额×0.98 取整"永远无法卖出（ETFMomentum 用 close() 全平所以从未暴露，mixin 语义偏离）；②PIT 合成 feed 退市后价格 NaN 被估值防御计 0、净值塌方——修正为目标外整仓 + 退市券价格前向填充（到期/强赎按最后成交价退出的诚实近似）。
+- **两段式新基线**（转债双低月频 v2 过滤 2020-2026、1 万本金）：+15.28%/6.6 年（年化 +1.85%）、回撤 25.30%、成交 190 笔、换手 52.12x。收盘价近似口径（PIT 无 OHLC，open=close 合成），不可与旧 MWU 组合基线逐位对比，作为独立基线记录。
+- **因子 IC 报告**（`output/cb_factor_ic_report.csv`，849 只全量池 2019-2026）：双低因子 RankIC -0.05~-0.06（5/10/20 日）、|t| 12.8-16.6，周期越长越强——**横截面预测力统计显著**（HLZ 门槛 t>3）；conv_value 同向显著；单独 premium_rate 不显著（RankIC≈0，Pearson 为负）——双低的预测力主要来自价格分量。诚实边界：IC 显著 ≠ 成本后可交易，52x 换手下的费用已证明吞掉毛 alpha。
+
+**测试规模**：178 → 237 项全过。
 
 ### 6.3 风险点
 

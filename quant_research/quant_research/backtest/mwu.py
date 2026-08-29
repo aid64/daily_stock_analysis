@@ -190,74 +190,18 @@ class DefensiveExpert:
 # ── MWU 融合层 ──────────────────────────────────────────────
 
 
-class ETFMWU(bt.Strategy):
-    """ETF 多策略 MWU 融合（P3）
+# ── 执行层（R5 抽取：ETFMWU 与 WeightTargetStrategy 共用）────
 
-    每个调仓周期按专家纸面收益乘性更新权重，按权重合成目标组合。
-    防御专家 + 动量专家 + 均值回归专家组合时，MWU 自动完成
-    "牛市抬动量、震荡抬均值回归、熊市抬防御"的风格切换——
-    即 P2 结论"需要市场状态门控"的免预测实现。
 
-    纸面收益 = 上期建议组合的等权价格收益（不含交易成本），
-    专家空选时按现金收益 0 处理。
+class TargetWeightExecutionMixin:
+    """目标权重调仓执行：先卖后买、整数手、5% 容差、止损带
+
+    依赖宿主提供 bt.Strategy 上下文（self.datas/self.broker/
+    getposition/self.params 中的 lot 配置）。
     """
-
-    params = (
-        ("experts", None),            # [Expert, ...]，至少 2 个
-        ("eta", 0.1),                 # MWU 学习率 η ∈ (0, 1]
-        ("loss_scale", 0.05),         # 满量程单期收益：±5% → loss 1/0（R1b 线性映射）
-        ("share_alpha", 0.02),        # Fixed Share 回拉系数：每期向均匀
-                                      # 分布回拉 α/N。标准 MWU 只惩罚不奖励，
-                                      # 专家权重被长期熊市压到 0 后，即使后续
-                                      # 表现最优占比也无法恢复（A 股 2015 股灾
-                                      # → 2019-21 结构牛实测锁死）；Fixed Share
-                                      # 变体是 regime switch 场景的标准修正
-        ("rebalance_freq", "W"),      # W 周 / M 月 / D 日
-        ("lot_size", 100),            # ETF 最小交易单位
-        ("defensive", None),          # 防御资产代码（止损排除 + 申报单位）
-        ("defensive_lot_size", 10),   # 债券 ETF 申报单位 10 张
-        ("convertible_symbols", ()),
-        ("convertible_lot_size", 10),
-        ("stop_loss_pct", None),      # 每日止损带（防御资产除外）
-    )
 
     _LOT_BUFFER = 0.98   # 与 ETFMomentum 一致的现金缓冲
     _TOLERANCE = 1.05    # 卖出容差：目标市值 5% 以内的偏离不动
-
-    def __init__(self):
-        experts = list(self.p.experts or [])
-        if len(experts) < 2:
-            raise ValueError("ETFMWU 至少需要 2 个专家")
-        self._experts = experts
-        # 权重更新/建议合成委托 MWUCore（与实盘 LiveMWU 共用唯一实现）
-        self._core = MWUCore(
-            [e.name for e in experts],
-            eta=float(self.p.eta),
-            loss_scale=float(self.p.loss_scale),
-            share_alpha=float(self.p.share_alpha),
-        )
-        self._last_period: tuple | None = None
-
-    @property
-    def _weights(self) -> dict[str, float]:
-        """当前专家权重（只读视图，供探针/诊断）"""
-        return self._core.weights
-
-    # ── 工具（与 ETFMomentum 同约定）────────────
-
-    def _is_rebalance_day(self, dt) -> bool:
-        freq = str(self.p.rebalance_freq).upper()
-        if freq == "D":
-            return True
-        if freq == "M":
-            key = (dt.year, dt.month)
-        else:
-            iso = dt.isocalendar()
-            key = (iso[0], iso[1])
-        if key != self._last_period:
-            self._last_period = key
-            return True
-        return False
 
     def _get_data(self, name: str):
         for d in self.datas:
@@ -275,27 +219,6 @@ class ETFMWU(bt.Strategy):
             return int(self.p.defensive_lot_size)
         return int(self.p.lot_size)
 
-    # ── MWU 核心 ────────────────────────────────
-
-    def _current_prices(self) -> dict[str, float]:
-        """当前 bar 全部标的的收盘价 {symbol: price}（含 NaN，由核心过滤）"""
-        return {d._name: float(d.close[0]) for d in self.datas}
-
-    def _update_weights(self) -> None:
-        """乘性更新 + Fixed Share 回拉 + 归一化（委托 MWUCore）"""
-        self._core.update_weights(self._current_prices())
-
-    def _target_portfolio(self) -> dict[str, float]:
-        """专家建议按当前权重合成 {symbol: 组合权重}，并记录选取价格"""
-        view = BTMarketView(self.datas)
-        prices = self._current_prices()
-        picks = {e.name: e.select(view) for e in self._experts}
-        target = self._core.combine(picks)
-        self._core.record_picks(picks, prices)
-        return target
-
-    # ── 交易执行 ────────────────────────────────
-
     def _check_stop_loss(self) -> None:
         if self.p.stop_loss_pct is None:
             return
@@ -312,11 +235,16 @@ class ETFMWU(bt.Strategy):
                 self.close(d)
 
     def _rebalance_to(self, target: dict[str, float]) -> None:
-        """按目标权重调仓：先卖后买，整数手，买不起一手的自动跳过"""
+        """按目标权重调仓：先卖后买，整数手，买不起一手的自动跳过
+
+        全平语义（R5 修正）：目标权重 ≤0 的持仓整仓卖出（此前按"超额
+        ×0.98 取整"计算，1 手持仓的超额取整为 0，导致小资金 1 手仓位
+        永远无法换仓）；目标内超配部分仍按超额+缓冲卖出。
+        """
         total_value = self.broker.getvalue()
         open_syms = self._open_order_symbols()
 
-        # 卖出：当前市值超出目标市值 5% 容差的部分
+        # 卖出：目标外的持仓整仓退出；目标内仅卖出超出 5% 容差的部分
         for d in self.datas:
             name = d._name
             if name in open_syms:
@@ -330,6 +258,12 @@ class ETFMWU(bt.Strategy):
             lot = self._lot_of(name)
             tgt_value = total_value * float(target.get(name, 0.0))
             cur_value = pos.size * price
+            if name not in target or float(target.get(name, 0.0)) <= 0.0:
+                # 全平：整仓（按申报单位取整）
+                lots = pos.size // lot
+                if lots > 0:
+                    self.sell(d, size=lots * lot)
+                continue
             if cur_value > tgt_value * self._TOLERANCE:
                 lots = int((cur_value - tgt_value) * self._LOT_BUFFER / price / lot)
                 if lots > 0:
@@ -363,6 +297,90 @@ class ETFMWU(bt.Strategy):
 
         for diff_value, d, size in sorted(buy_candidates, key=lambda x: x[0]):
             self.buy(d, size=size)
+
+
+class ETFMWU(TargetWeightExecutionMixin, bt.Strategy):
+    """ETF 多策略 MWU 融合（P3）
+
+    每个调仓周期按专家纸面收益乘性更新权重，按权重合成目标组合。
+    防御专家 + 动量专家 + 均值回归专家组合时，MWU 自动完成
+    "牛市抬动量、震荡抬均值回归、熊市抬防御"的风格切换——
+    即 P2 结论"需要市场状态门控"的免预测实现。
+
+    纸面收益 = 上期建议组合的等权价格收益（不含交易成本），
+    专家空选时按现金收益 0 处理。
+    """
+
+    params = (
+        ("experts", None),            # [Expert, ...]，至少 2 个
+        ("eta", 0.1),                 # MWU 学习率 η ∈ (0, 1]
+        ("loss_scale", 0.05),         # 满量程单期收益：±5% → loss 1/0（R1b 线性映射）
+        ("share_alpha", 0.02),        # Fixed Share 回拉系数：每期向均匀
+                                      # 分布回拉 α/N。标准 MWU 只惩罚不奖励，
+                                      # 专家权重被长期熊市压到 0 后，即使后续
+                                      # 表现最优占比也无法恢复（A 股 2015 股灾
+                                      # → 2019-21 结构牛实测锁死）；Fixed Share
+                                      # 变体是 regime switch 场景的标准修正
+        ("rebalance_freq", "W"),      # W 周 / M 月 / D 日
+        ("lot_size", 100),            # ETF 最小交易单位
+        ("defensive", None),          # 防御资产代码（止损排除 + 申报单位）
+        ("defensive_lot_size", 10),   # 债券 ETF 申报单位 10 张
+        ("convertible_symbols", ()),
+        ("convertible_lot_size", 10),
+        ("stop_loss_pct", None),      # 每日止损带（防御资产除外）
+    )
+
+    def __init__(self):
+        experts = list(self.p.experts or [])
+        if len(experts) < 2:
+            raise ValueError("ETFMWU 至少需要 2 个专家")
+        self._experts = experts
+        # 权重更新/建议合成委托 MWUCore（与实盘 LiveMWU 共用唯一实现）
+        self._core = MWUCore(
+            [e.name for e in experts],
+            eta=float(self.p.eta),
+            loss_scale=float(self.p.loss_scale),
+            share_alpha=float(self.p.share_alpha),
+        )
+        self._last_period: tuple | None = None
+
+    @property
+    def _weights(self) -> dict[str, float]:
+        """当前专家权重（只读视图，供探针/诊断）"""
+        return self._core.weights
+
+    # ── MWU 核心 ────────────────────────────────
+
+    def _is_rebalance_day(self, dt) -> bool:
+        freq = str(self.p.rebalance_freq).upper()
+        if freq == "D":
+            return True
+        if freq == "M":
+            key = (dt.year, dt.month)
+        else:
+            iso = dt.isocalendar()
+            key = (iso[0], iso[1])
+        if key != self._last_period:
+            self._last_period = key
+            return True
+        return False
+
+    def _current_prices(self) -> dict[str, float]:
+        """当前 bar 全部标的的收盘价 {symbol: price}（含 NaN，由核心过滤）"""
+        return {d._name: float(d.close[0]) for d in self.datas}
+
+    def _update_weights(self) -> None:
+        """乘性更新 + Fixed Share 回拉 + 归一化（委托 MWUCore）"""
+        self._core.update_weights(self._current_prices())
+
+    def _target_portfolio(self) -> dict[str, float]:
+        """专家建议按当前权重合成 {symbol: 组合权重}，并记录选取价格"""
+        view = BTMarketView(self.datas)
+        prices = self._current_prices()
+        picks = {e.name: e.select(view) for e in self._experts}
+        target = self._core.combine(picks)
+        self._core.record_picks(picks, prices)
+        return target
 
     # ── 主循环 ──────────────────────────────────
 

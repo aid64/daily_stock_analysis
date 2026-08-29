@@ -495,36 +495,97 @@ class PITConvertibleDoubleLowExpert:
         if snapshot.empty:
             return {}
         current_ts = pd.Timestamp(view.current_date()).normalize()
-        current_date = view.current_date().isoformat()
-        snapshot = self._apply_v2_filters(snapshot, current_ts)
-        if snapshot.empty:
-            return {}
-        if self.min_candidates is not None:
-            # 池萎缩让位：完整过滤链后候选不足以分散持仓时退出（单一来源
-            # _filter_double_low_pool，与实际选债的过滤口径一致）
-            pool = _filter_double_low_pool(
-                snapshot,
-                min_rating=self.min_rating,
-                max_premium=self.max_premium,
-                exclude_new_days=self.exclude_new_days,
-                max_price_median=self.max_price_median,
-                as_of=current_date,
-            )
-            if len(pool) < self.min_candidates:
-                return {}
-        picks = compute_double_low_scores(
+        return pit_snapshot_picks(
             snapshot,
             top_n=self.top_n,
             min_rating=self.min_rating,
             max_premium=self.max_premium,
             exclude_new_days=self.exclude_new_days,
             max_price_median=self.max_price_median,
-            as_of=current_date,
+            as_of=current_ts,
+            max_conv_value=self.max_conv_value,
+            min_maturity_days=self.min_maturity_days,
+            max_price=self.max_price,
+            min_candidates=self.min_candidates,
         )
-        if picks.empty:
+
+
+def pit_snapshot_picks(
+    snapshot: pd.DataFrame,
+    *,
+    top_n: int,
+    min_rating: str = "AA-",
+    max_premium: float = 20.0,
+    exclude_new_days: int = 30,
+    max_price_median: bool = True,
+    as_of,
+    max_conv_value: Optional[float] = None,
+    min_maturity_days: Optional[int] = None,
+    max_price: Optional[float] = None,
+    min_candidates: Optional[int] = None,
+) -> dict[str, float]:
+    """PIT 双低选债的唯一过滤链（重构 R5：PIT 专家与两段式回测共用）
+
+    输入为单日截面长表（含 symbol/price/premium_rate[/rating/list_date/
+    maturity_date]），价格须为当日真实价（专家模式由 feed 覆盖、两段式
+    模式来自 PIT 本身），非有限/非正价格行在此剔除。
+
+    过滤顺序（与 2026-08-18 起的专家语义逐位一致）：
+    1. v2 生命周期过滤（max_conv_value 转股价值上限 / min_maturity_days
+       剩余期限下限 / max_price 价格硬顶；None 关闭）
+    2. min_candidates 池规模下限（完整过滤链后候选不足 → 返回空 = 让位现金）
+    3. 双低打分（评级/溢价率/中位数/新债过滤 + top_n 等权）
+    """
+    if snapshot is None or snapshot.empty:
+        return {}
+    current_ts = pd.Timestamp(as_of).normalize()
+    table = snapshot.copy()
+    table["price"] = pd.to_numeric(table["price"], errors="coerce")
+    table = table[np.isfinite(table["price"]) & (table["price"] > 0)]
+    if table.empty:
+        return {}
+
+    # 1) v2 过滤（与 PITConvertibleDoubleLowExpert._apply_v2_filters 同序同义）
+    if max_conv_value is not None:
+        conv_value = table["price"] / (1.0 + table["premium_rate"] / 100.0)
+        table = table[conv_value <= max_conv_value]
+    if min_maturity_days is not None and "maturity_date" in table.columns:
+        maturity = pd.to_datetime(table["maturity_date"], errors="coerce")
+        remain_days = (maturity - current_ts).dt.days
+        table = table[remain_days.isna() | (remain_days >= min_maturity_days)]
+    if max_price is not None:
+        table = table[table["price"] <= max_price]
+    if table.empty:
+        return {}
+
+    as_of_str = current_ts.date().isoformat()
+    # 2) 池规模下限（完整过滤链口径，与实际选债一致）
+    if min_candidates is not None:
+        pool = _filter_double_low_pool(
+            table,
+            min_rating=min_rating,
+            max_premium=max_premium,
+            exclude_new_days=exclude_new_days,
+            max_price_median=max_price_median,
+            as_of=as_of_str,
+        )
+        if len(pool) < min_candidates:
             return {}
-        weight = 1.0 / len(picks)
-        return {symbol: weight for symbol in picks["symbol"]}
+
+    # 3) 双低打分选债
+    picks = compute_double_low_scores(
+        table,
+        top_n=top_n,
+        min_rating=min_rating,
+        max_premium=max_premium,
+        exclude_new_days=exclude_new_days,
+        max_price_median=max_price_median,
+        as_of=as_of_str,
+    )
+    if picks.empty:
+        return {}
+    weight = 1.0 / len(picks)
+    return {symbol: weight for symbol in picks["symbol"]}
 
 
 def validate_pit_snapshot(
