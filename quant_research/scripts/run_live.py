@@ -125,7 +125,9 @@ def main(argv: Optional[list[str]] = None) -> int:
             logger.info("非交易时段，跳过")
         else:
             # 最新参考价 = 窗口末收盘价（Paper）；TDX 可替换为 GetQuote
-            latest = {sym: float(w["closes"][-1]) for sym, w in price_series.items()}
+            latest = {
+                sym: float(closes[-1]) for sym, (closes, _amt) in price_series.items()
+            }
             target_weights = mwu.update(price_series)
             action = executor.rebalance(target_weights, latest)
             logger.info("调仓结果: %s - %s", action.kind, action.message)
@@ -139,14 +141,17 @@ def main(argv: Optional[list[str]] = None) -> int:
     return 0
 
 
-def _load_price_window(as_of: pd.Timestamp) -> dict[str, dict]:
-    """从快照加载每标的最近 _WINDOW 根收盘价与近 20 日成交额"""
+def _load_price_window(as_of: pd.Timestamp) -> dict[str, tuple]:
+    """从快照加载每标的最近 _WINDOW 根收盘价与近 20 日成交额
+
+    返回 {symbol: (closes, amounts)}，与 LiveMWU.update 的输入契约一致。
+    """
     snapshot_path = _PROJECT_ROOT / "output" / "feeds_snapshot.pkl"
     if not snapshot_path.exists():
         return {}
 
     feeds = pd.read_pickle(snapshot_path)
-    out: dict[str, dict] = {}
+    out: dict[str, tuple] = {}
     for sym, df in feeds.items():
         df = df[df["date"] <= as_of]
         if len(df) < 2:
@@ -156,7 +161,7 @@ def _load_price_window(as_of: pd.Timestamp) -> dict[str, dict]:
             amount = df["amount"].to_numpy(dtype=float)[-min(20, len(df)):]
         else:
             amount = np.full(min(20, len(df)), 1e8)
-        out[sym] = {"closes": closes, "amount": amount}
+        out[sym] = (closes, amount)
     return out
 
 

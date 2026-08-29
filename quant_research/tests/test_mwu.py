@@ -33,6 +33,7 @@ from quant_research.config.schema import (
     DataSource,
     TushareConfig,
 )
+from quant_research.core.market import ArrayMarketView
 from tests.test_backtest import _make_trend_bars
 
 
@@ -67,47 +68,19 @@ class TestRsi:
 # ── 专家信号 ─────────────────────────────────
 
 
-class _FakeData:
-    """最小 data 桩：close/amount 语义与 backtrader line 对齐
+def _series(name: str, closes: np.ndarray, amount: float = 1e8):
+    """构造单标的测试数据 (name, closes, amount)，经 _view 包装成 MarketView"""
+    return (name, closes, amount)
 
-    - get(size)：最近 size 个值（backtrader LineBuffer.get 语义）
-    - close[0]：最新值（backtrader line 索引 0 = 当前 bar）
+
+def _view(*series) -> ArrayMarketView:
+    """由 (name, closes, amount) 序列构建测试用 MarketView
+
+    时间语义与 backtrader line / ArraySeries 一致：closes[-1] 为当前 bar。
     """
-
-    def __init__(self, name: str, closes: np.ndarray, amount: float = 1e8):
-        self._name = name
-        self._closes = closes
-        self._amount = amount
-        self._len = len(closes)
-
-    def __len__(self):
-        return self._len
-
-    def __getitem__(self, idx: int):
-        return self._closes[idx - 1]  # 0 → 最新，-1 → 前一日
-
-    @property
-    def close(self) -> _FakeData:
-        return self
-
-    @property
-    def amount(self) -> _AmountLine:
-        return _AmountLine(self._amount)
-
-    def get(self, size: int = 1):
-        if size == 1:
-            return self._closes[-1:]
-        return self._closes[-size:]
-
-
-class _AmountLine:
-    """常数成交额线"""
-
-    def __init__(self, amount: float):
-        self._amount = amount
-
-    def get(self, size: int = 1):
-        return np.full(size, self._amount)
+    return ArrayMarketView({
+        name: (closes, amount) for name, closes, amount in series
+    })
 
 
 class TestMeanReversionExpert:
@@ -116,7 +89,7 @@ class TestMeanReversionExpert:
         closes = np.linspace(1.0, 2.0, 200)
         closes[-2:] = closes[-3] * np.array([0.95, 0.92])
         expert = MeanReversionExpert(rsi_period=2, rsi_buy=30, ma_filter=200, top_k=1)
-        sel = expert.select([_FakeData("DIP.SH", closes)])
+        sel = expert.select(_view(_series("DIP.SH", closes)))
         assert "DIP.SH" in sel
         assert sel["DIP.SH"] == pytest.approx(1.0)
 
@@ -125,39 +98,39 @@ class TestMeanReversionExpert:
         closes = np.linspace(2.0, 1.0, 200)
         closes[-1] = closes[-2] * 0.95
         expert = MeanReversionExpert(rsi_period=2, rsi_buy=30, ma_filter=200, top_k=1)
-        assert expert.select([_FakeData("BEAR.SH", closes)]) == {}
+        assert expert.select(_view(_series("BEAR.SH", closes))) == {}
 
     def test_high_rsi_not_selected(self):
         closes = np.linspace(1.0, 3.0, 200)  # 持续上涨，RSI=100
         expert = MeanReversionExpert(rsi_period=2, rsi_buy=30, ma_filter=200, top_k=1)
-        assert expert.select([_FakeData("UP.SH", closes)]) == {}
+        assert expert.select(_view(_series("UP.SH", closes))) == {}
 
 
 class TestDefensiveExpert:
     def test_selects_symbol(self):
         expert = DefensiveExpert("DEF.SH")
-        assert expert.select([_FakeData("DEF.SH", np.full(30, 1.0))]) == {"DEF.SH": 1.0}
+        assert expert.select(_view(_series("DEF.SH", np.full(30, 1.0)))) == {"DEF.SH": 1.0}
 
     def test_empty_when_symbol_missing(self):
         expert = DefensiveExpert("DEF.SH")
-        assert expert.select([_FakeData("OTHER.SH", np.full(30, 1.0))]) == {}
+        assert expert.select(_view(_series("OTHER.SH", np.full(30, 1.0)))) == {}
 
     def test_empty_when_nan_price(self):
         expert = DefensiveExpert("DEF.SH")
-        assert expert.select([_FakeData("DEF.SH", np.array([1.0, np.nan]))]) == {}
+        assert expert.select(_view(_series("DEF.SH", np.array([1.0, np.nan])))) == {}
 
 
 class TestMomentumExpert:
     def test_selects_strongest(self):
-        up = _FakeData("UP.SH", 1.0 * 1.005 ** np.arange(80))
-        flat = _FakeData("FLAT.SH", np.full(80, 1.0))
+        up = _series("UP.SH", 1.0 * 1.005 ** np.arange(80))
+        flat = _series("FLAT.SH", np.full(80, 1.0))
         expert = MomentumExpert(lookback=5, top_k=1, ma_filter=10, min_volume=0.0)
-        assert list(expert.select([up, flat])) == ["UP.SH"]
+        assert list(expert.select(_view(up, flat))) == ["UP.SH"]
 
     def test_all_downtrend_empty(self):
-        down = _FakeData("DOWN.SH", 1.0 * 0.998 ** np.arange(80))
+        down = _series("DOWN.SH", 1.0 * 0.998 ** np.arange(80))
         expert = MomentumExpert(lookback=5, top_k=1, ma_filter=10, min_volume=0.0)
-        assert expert.select([down]) == {}
+        assert expert.select(_view(down)) == {}
 
 
 # ── build_experts ─────────────────────────────
@@ -226,8 +199,11 @@ class TestConvertibleDoubleLowExpert:
              "rating": "A+", "list_date": "2024-01-01"},
         ])
 
-    def _datas(self, prices: dict[str, float]) -> list[_FakeData]:
-        return [_FakeData(sym, np.full(300, p)) for sym, p in prices.items()]
+    def _datas(self, prices: dict[str, float]) -> ArrayMarketView:
+        """常数价格视图（300 根，覆盖 MA/动量窗口）"""
+        return _view(*(
+            _series(sym, np.full(300, p)) for sym, p in prices.items()
+        ))
 
     def test_selects_top_n_by_double_low(self):
         exp = ConvertibleDoubleLowExpert(

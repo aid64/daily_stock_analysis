@@ -6,14 +6,15 @@
 
 from __future__ import annotations
 
-from typing import Iterable
-
 import numpy as np
 import backtrader as bt
 
+from ..core.market import MarketView
+from .adapter import BTMarketView
+
 
 def momentum_scores(
-    datas: Iterable,
+    view: MarketView,
     windows: tuple[int, ...],
     ma_filter: int,
     min_volume: float,
@@ -30,15 +31,15 @@ def momentum_scores(
     need = max(max_win + 1, ma_win)
 
     scores: dict[str, float] = {}
-    for d in datas:
-        if d._name == defensive:
+    for s in view.all_series():
+        if s.name == defensive:
             continue
 
-        if len(d) < need:
+        if len(s) < need:
             continue
 
-        closes = np.asarray(d.close.get(size=need), dtype=float)
-        amounts = np.asarray(d.amount.get(size=min(20, len(d))), dtype=float)
+        closes = np.asarray(s.closes(need), dtype=float)
+        amounts = np.asarray(s.amounts(min(20, len(s))), dtype=float)
 
         if closes.size < need or amounts.size == 0:
             continue
@@ -77,9 +78,9 @@ def momentum_scores(
             vol = float(np.std(log_ret))
             if vol <= 0:
                 continue
-            scores[d._name] = mom / vol
+            scores[s.name] = mom / vol
         else:
-            scores[d._name] = mom
+            scores[s.name] = mom
     return scores
 
 
@@ -217,7 +218,7 @@ class ETFMomentum(bt.Strategy):
         防御资产不参与（由轮动逻辑单独处理）。
         """
         return momentum_scores(
-            self.datas,
+            BTMarketView(self.datas),
             windows=self._mom_windows(),
             ma_filter=int(self.p.ma_filter),
             min_volume=float(self.p.min_volume),

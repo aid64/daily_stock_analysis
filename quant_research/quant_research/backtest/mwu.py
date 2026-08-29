@@ -11,37 +11,47 @@
 - 评论区修正："组合优化是真正的 alpha 放大器"（认可融合/调度价值）；
   "取整那点影响说明规模太小"（1 万本金不做整数规划，沿用 lot 取整
   + 2% 缓冲）；"执行只有 trade-off"（不做拆单，无 market impact）。
+- 理论边界提示（PRIMARY_SOURCE_RESEARCH.md 第 3 节）：regret 界是
+  相对保证，不保证绝对收益；专家无样本外边际时融合层只能"不比
+  最优专家差太多"。
 
-专家（Expert）是快照选择器：select(datas) 返回该专家当前的目标
-持仓 {symbol: 专家内权重}。MWU 层每个调仓周期：
+专家（Expert）是快照选择器：select(view) 返回该专家当前的目标
+持仓 {symbol: 专家内权重}，数据访问只经 core.market.MarketView
+协议（重构 R1：回测/实盘共用同一专家代码，不再各写一份）。
 
-1. 用专家上期建议组合的纸面收益 r_i 更新权重：
-   l_i = clip(-r_i / loss_scale, 0, 1)
-   w_i ← w_i · (1 - η·l_i)，归一化（权重下限 1e-6 防数值下溢后
-   无法恢复）
-2. 目标组合 = Σ w_i × 专家组合（同标的权重合并）
+权重乘性更新与 Fixed Share 回拉的唯一实现是 core.mwu_core.MWUCore，
+ETFMWU（回测）与 LiveMWU（实盘）都委托它，保证两侧语义逐位一致。
+MWU 层每个调仓周期：
+
+1. 用专家上期建议组合的纸面收益 r_i 更新权重（MWUCore.update_weights）
+2. 目标组合 = Σ w_i × 专家组合（MWUCore.combine）
 3. 按目标权重交易（先卖后买、整数手、2% 现金缓冲）
 """
 
 from __future__ import annotations
 
-from typing import Iterable, Protocol
-
 import numpy as np
 import backtrader as bt
 
+from ..core.market import MarketView
+from ..core.mwu_core import MWUCore
+from .adapter import BTMarketView
 from .strategies import momentum_scores
 
 
 # ── 专家信号层 ──────────────────────────────────────────────
 
 
-class Expert(Protocol):
-    """专家协议：快照选择器，返回 {symbol: 专家内目标权重}"""
+class Expert:
+    """专家协议：快照选择器，返回 {symbol: 专家内目标权重}
+
+    子类按需实现 select(view)。name 用于 MWU 权重字典的键。
+    """
 
     name: str
 
-    def select(self, datas: Iterable) -> dict[str, float]: ...
+    def select(self, view: MarketView) -> dict[str, float]:
+        raise NotImplementedError
 
 
 def rsi(closes: np.ndarray, period: int) -> float:
@@ -88,9 +98,9 @@ class MomentumExpert:
                 return windows
         return (self.lookback,)
 
-    def select(self, datas: Iterable) -> dict[str, float]:
+    def select(self, view: MarketView) -> dict[str, float]:
         scores = momentum_scores(
-            datas,
+            view,
             windows=self._windows(),
             ma_filter=self.ma_filter,
             min_volume=self.min_volume,
@@ -129,15 +139,15 @@ class MeanReversionExpert:
         self.top_k = int(top_k)
         self.min_volume = float(min_volume)
 
-    def select(self, datas: Iterable) -> dict[str, float]:
+    def select(self, view: MarketView) -> dict[str, float]:
         need = max(self.rsi_period + 1, self.ma_filter)
         candidates: list[tuple[float, str]] = []
 
-        for d in datas:
-            if len(d) < need:
+        for s in view.all_series():
+            if len(s) < need:
                 continue
-            closes = np.asarray(d.close.get(size=need), dtype=float)
-            amounts = np.asarray(d.amount.get(size=min(20, len(d))), dtype=float)
+            closes = np.asarray(s.closes(need), dtype=float)
+            amounts = np.asarray(s.amounts(min(20, len(s))), dtype=float)
             if closes.size < need or amounts.size == 0:
                 continue
             if not (np.isfinite(closes).all() and np.isfinite(amounts).all()):
@@ -150,7 +160,7 @@ class MeanReversionExpert:
                 continue
             value = rsi(closes, self.rsi_period)
             if np.isfinite(value) and value < self.rsi_buy:
-                candidates.append((value, d._name))
+                candidates.append((value, s.name))
 
         candidates.sort()  # RSI 升序，最超卖优先
         picked = candidates[: self.top_k]
@@ -167,13 +177,13 @@ class DefensiveExpert:
         self.name = name
         self.symbol = symbol
 
-    def select(self, datas: Iterable) -> dict[str, float]:
-        for d in datas:
-            if d._name != self.symbol:
-                continue
-            price = float(d.close[0])
-            if np.isfinite(price) and price > 0:
-                return {self.symbol: 1.0}
+    def select(self, view: MarketView) -> dict[str, float]:
+        s = view.series(self.symbol)
+        if s is None:
+            return {}
+        price = s.last_close()
+        if np.isfinite(price) and price > 0:
+            return {self.symbol: 1.0}
         return {}
 
 
@@ -212,7 +222,6 @@ class ETFMWU(bt.Strategy):
     )
 
     _LOT_BUFFER = 0.98   # 与 ETFMomentum 一致的现金缓冲
-    _W_FLOOR = 1e-6      # 权重下限，防乘性更新数值下溢后无法恢复
     _TOLERANCE = 1.05    # 卖出容差：目标市值 5% 以内的偏离不动
 
     def __init__(self):
@@ -220,12 +229,19 @@ class ETFMWU(bt.Strategy):
         if len(experts) < 2:
             raise ValueError("ETFMWU 至少需要 2 个专家")
         self._experts = experts
-        n = len(experts)
-        self._weights: dict[str, float] = {e.name: 1.0 / n for e in experts}
-        self._share_mass = float(self.p.share_alpha) / n  # 每期回拉质量
+        # 权重更新/建议合成委托 MWUCore（与实盘 LiveMWU 共用唯一实现）
+        self._core = MWUCore(
+            [e.name for e in experts],
+            eta=float(self.p.eta),
+            loss_scale=float(self.p.loss_scale),
+            share_alpha=float(self.p.share_alpha),
+        )
         self._last_period: tuple | None = None
-        # 上期各专家的建议 {expert_name: {symbol: 选取时收盘价}}
-        self._last_picks: dict[str, dict[str, float]] = {}
+
+    @property
+    def _weights(self) -> dict[str, float]:
+        """当前专家权重（只读视图，供探针/诊断）"""
+        return self._core.weights
 
     # ── 工具（与 ETFMomentum 同约定）────────────
 
@@ -261,62 +277,21 @@ class ETFMWU(bt.Strategy):
 
     # ── MWU 核心 ────────────────────────────────
 
-    def _update_weights(self) -> None:
-        """乘性更新 + Fixed Share 回拉 + 归一化（第一期无基准时仅回拉）"""
-        eta = float(self.p.eta)
-        scale = float(self.p.loss_scale)
-        for e in self._experts:
-            prev = self._last_picks.get(e.name)
-            if not prev:
-                continue
-            rets = []
-            for sym, base in prev.items():
-                d = self._get_data(sym)
-                if d is None or base <= 0:
-                    continue
-                price = float(d.close[0])
-                if np.isfinite(price) and price > 0:
-                    rets.append(price / base - 1.0)
-            r = float(np.mean(rets)) if rets else 0.0
-            loss = min(max(-r / scale, 0.0), 1.0)
-            self._weights[e.name] = self._weights[e.name] * (1.0 - eta * loss)
+    def _current_prices(self) -> dict[str, float]:
+        """当前 bar 全部标的的收盘价 {symbol: price}（含 NaN，由核心过滤）"""
+        return {d._name: float(d.close[0]) for d in self.datas}
 
-        # Fixed Share：向均匀分布回拉，防止权重锁死
-        # w_i ← (1 - α)·w_i/Z + α/N，α = share_alpha
-        total = sum(max(w, self._W_FLOOR) for w in self._weights.values())
-        n = len(self._experts)
-        for k in self._weights:
-            normalized = max(self._weights[k], self._W_FLOOR) / total
-            self._weights[k] = (1.0 - self._share_mass * n) * normalized + self._share_mass
+    def _update_weights(self) -> None:
+        """乘性更新 + Fixed Share 回拉 + 归一化（委托 MWUCore）"""
+        self._core.update_weights(self._current_prices())
 
     def _target_portfolio(self) -> dict[str, float]:
         """专家建议按当前权重合成 {symbol: 组合权重}，并记录选取价格"""
-        target: dict[str, float] = {}
-        picks_by_expert: dict[str, dict[str, float]] = {}
-
-        for e in self._experts:
-            sel = e.select(self.datas)
-            picks_by_expert[e.name] = sel
-            if not sel:
-                continue
-            w = self._weights.get(e.name, 0.0)
-            if w <= 0:
-                continue
-            for sym, ew in sel.items():
-                target[sym] = target.get(sym, 0.0) + w * float(ew)
-
-        # 记录选取时价格，供下期纸面收益计算
-        recorded: dict[str, dict[str, float]] = {}
-        for name, sel in picks_by_expert.items():
-            rec: dict[str, float] = {}
-            for sym in sel:
-                d = self._get_data(sym)
-                if d is not None:
-                    price = float(d.close[0])
-                    if np.isfinite(price) and price > 0:
-                        rec[sym] = price
-            recorded[name] = rec
-        self._last_picks = recorded
+        view = BTMarketView(self.datas)
+        prices = self._current_prices()
+        picks = {e.name: e.select(view) for e in self._experts}
+        target = self._core.combine(picks)
+        self._core.record_picks(picks, prices)
         return target
 
     # ── 交易执行 ────────────────────────────────

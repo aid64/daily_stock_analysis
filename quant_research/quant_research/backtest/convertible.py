@@ -359,17 +359,17 @@ class ConvertibleDoubleLowExpert:
         self.exclude_new_days = int(exclude_new_days)
         self.max_price_median = bool(max_price_median)
 
-    def _compute_rank(self, datas) -> dict[str, int]:
+    def _compute_rank(self, view) -> dict[str, int]:
         """基于快照 + 当前 feed 现价计算双低排名（越小越优）"""
         table = self._bond_table.copy()
         rows = []
-        for d in datas:
-            name = d._name
+        for s in view.all_series():
+            name = s.name
             row = table[table["symbol"] == name]
             if row.empty:
                 continue
             r = row.iloc[0].to_dict()
-            price = float(d.close[0])
+            price = s.last_close()
             if not np.isfinite(price) or price <= 0:
                 continue
             premium = float(pd.to_numeric(r.get("premium_rate", np.nan), errors="coerce"))
@@ -391,8 +391,8 @@ class ConvertibleDoubleLowExpert:
         cand = cand.sort_values("_double_low", ascending=True)
         return {row["symbol"]: i for i, row in cand.reset_index(drop=True).iterrows()}
 
-    def select(self, datas) -> dict[str, float]:
-        rank = self._compute_rank(datas)
+    def select(self, view) -> dict[str, float]:
+        rank = self._compute_rank(view)
         if not rank:
             return {}
         top = sorted(rank, key=rank.get)[: self.top_n]
@@ -476,28 +476,27 @@ class PITConvertibleDoubleLowExpert:
             snapshot = snapshot[snapshot["price"] <= self.max_price]
         return snapshot
 
-    def _snapshot(self, datas) -> pd.DataFrame:
-        current_date = pd.Timestamp(datas[0].datetime.date(0)).normalize()
+    def _snapshot(self, view) -> pd.DataFrame:
+        current_date = pd.Timestamp(view.current_date()).normalize()
         snapshot = self._pit_table[self._pit_table["as_of"] == current_date].copy()
         if snapshot.empty:
             return snapshot
-        prices = {
-            data._name: float(data.close[0])
-            for data in datas
-            if np.isfinite(float(data.close[0])) and float(data.close[0]) > 0
-        }
+        prices = {}
+        for s in view.all_series():
+            p = s.last_close()
+            if np.isfinite(p) and p > 0:
+                prices[s.name] = p
         snapshot = snapshot[snapshot["symbol"].isin(prices)].copy()
         snapshot["price"] = snapshot["symbol"].map(prices)
         return snapshot
 
-    def select(self, datas) -> dict[str, float]:
-        snapshot = self._snapshot(datas)
+    def select(self, view) -> dict[str, float]:
+        snapshot = self._snapshot(view)
         if snapshot.empty:
             return {}
-        current_date = datas[0].datetime.date(0).isoformat()
-        snapshot = self._apply_v2_filters(
-            snapshot, pd.Timestamp(datas[0].datetime.date(0)).normalize()
-        )
+        current_ts = pd.Timestamp(view.current_date()).normalize()
+        current_date = view.current_date().isoformat()
+        snapshot = self._apply_v2_filters(snapshot, current_ts)
         if snapshot.empty:
             return {}
         if self.min_candidates is not None:
