@@ -1036,6 +1036,11 @@ class Config:
     agent_event_monitor_interval_minutes: int = 5  # Polling interval for event monitor background checks
     agent_event_alert_rules_json: str = ""  # JSON array of serialized EventMonitor rules
 
+    # === 市场监控（事件套利 + 转债打新，schedule 模式后台任务）===
+    event_arbitrage_monitor_enabled: bool = False  # 扫描要约收购/现金选择权/私有化/主动退市公告
+    bond_new_issue_monitor_enabled: bool = False  # 转债打新三段式提醒（申购/缴款/上市）
+    market_monitor_interval_minutes: int = 60  # 两个监控共用的轮询间隔（分钟）
+
     # === 通知配置（可同时配置多个，全部推送）===
     
     # 企业微信 Webhook
@@ -2064,6 +2069,20 @@ class Config:
                 minimum=1,
             ),
             agent_event_alert_rules_json=os.getenv('AGENT_EVENT_ALERT_RULES_JSON', ''),
+            event_arbitrage_monitor_enabled=parse_env_bool(
+                os.getenv('EVENT_ARBITRAGE_MONITOR_ENABLED'),
+                default=False,
+            ),
+            bond_new_issue_monitor_enabled=parse_env_bool(
+                os.getenv('BOND_NEW_ISSUE_MONITOR_ENABLED'),
+                default=False,
+            ),
+            market_monitor_interval_minutes=parse_env_int(
+                os.getenv('MARKET_MONITOR_INTERVAL_MINUTES'),
+                60,
+                field_name='MARKET_MONITOR_INTERVAL_MINUTES',
+                minimum=5,
+            ),
             wechat_webhook_url=os.getenv('WECHAT_WEBHOOK_URL'),
             feishu_webhook_url=os.getenv('FEISHU_WEBHOOK_URL'),
             feishu_webhook_secret=os.getenv('FEISHU_WEBHOOK_SECRET'),

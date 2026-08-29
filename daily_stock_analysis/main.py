@@ -1657,6 +1657,56 @@ def main() -> int:
                     "name": "agent_event_monitor",
                 })
 
+            # 市场监控：事件套利公告扫描（要约收购/现金选择权/私有化/主动退市）
+            if getattr(config, 'event_arbitrage_monitor_enabled', False):
+                from src.services.event_arbitrage_monitor import EventArbitrageMonitorService
+
+                monitor_interval_minutes = max(
+                    5, getattr(config, 'market_monitor_interval_minutes', 60)
+                )
+                event_arb_service = EventArbitrageMonitorService()
+
+                def event_arbitrage_task():
+                    stats = event_arb_service.run_once()
+                    if stats.get("notified", 0):
+                        logger.info(
+                            "[EventArbitrageMonitor] 本轮推送 %d 条事件（抑制重复 %d 条）",
+                            stats["notified"],
+                            stats.get("suppressed", 0),
+                        )
+
+                background_tasks.append({
+                    "task": event_arbitrage_task,
+                    "interval_seconds": monitor_interval_minutes * 60,
+                    "run_immediately": True,
+                    "name": "event_arbitrage_monitor",
+                })
+
+            # 市场监控：转债打新日历（申购/缴款/上市三段式提醒）
+            if getattr(config, 'bond_new_issue_monitor_enabled', False):
+                from src.services.bond_new_issue_calendar import BondNewIssueCalendarService
+
+                calendar_interval_minutes = max(
+                    5, getattr(config, 'market_monitor_interval_minutes', 60)
+                )
+                bond_calendar_service = BondNewIssueCalendarService()
+
+                def bond_new_issue_task():
+                    stats = bond_calendar_service.run_once()
+                    if stats.get("notified", 0):
+                        logger.info(
+                            "[BondNewIssueCalendar] 本轮推送 %d 条提醒（抑制重复 %d 条）",
+                            stats["notified"],
+                            stats.get("suppressed", 0),
+                        )
+
+                background_tasks.append({
+                    "task": bond_new_issue_task,
+                    "interval_seconds": calendar_interval_minutes * 60,
+                    "run_immediately": True,
+                    "name": "bond_new_issue_monitor",
+                })
+
             schedule_kwargs = {
                 "task": scheduled_task,
                 "schedule_time": config.schedule_time,

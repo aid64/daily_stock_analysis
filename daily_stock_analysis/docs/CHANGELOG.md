@@ -21,6 +21,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [chore] .gitignore 补充 apps/dsa-desktop/dist-v*/ 与 old-installers/ 忽略规则，避免历史打包产物入库。
 - [新功能] 新增独立量化研究子项目 quant_research/（P0 骨架）：配置层（Hydra + Pydantic）、数据层（Tushare/Baostock/AKShare 多源 fallback + Parquet 缓存 + 退市股 universe 还原）、下载脚本 download_data.py 与单元测试，与主项目解耦。
 - [chore] .gitignore 为 quant_research 子项目加例外：保留 data/ 目录结构入库，仅忽略 cache/ 与 raw/ 大文件缓存。
+- [改进] quant_research 转债 PIT 覆盖率 39.71%→100%：新增 scripts/backfill_cb_from_akshare.py（AKShare 退市券补采，41 只 iFinD 缺失券全部入库），PIT 重组为 59,609 行/68 只/0 脏行，双低回测幸存者偏差消除。
+- [新功能] quant_research 新增 scripts/build_feeds_snapshot.py：ETF 冻结快照构建工具（强制源选择、基线 diff、收益率断点扫描校验）；universe 由 13 只扩展至 17 只（中证2000/红利低波/黄金/货币停靠）。
+- [修复] quant_research 规避 tushare ETF 日线不处理份额分拆的数据缺陷（分拆日假跳变 ±50%~300%），快照构建统一走 AKShare 东财口径。
+- [修复] quant_research DataLoader ETF 数据链改为 akshare 优先，并清除被 tushare 假断点污染的 ETF hfq 行情缓存。
+- [改进] quant_research PIT schema 扩展至 8 列（新增 maturity_date/issue_size 静态字段，100% 覆盖）；转债 meta 的 list_date 修正为真实上市时间，backfill 脚本新增 --enrich-only 模式。
+- [改进] quant_research 固化月频基线配置 etf_mwu_cb_monthly.yaml；完整 universe（68 只）复核回测显示月频基线 -3.45%（幸存者偏差修复后），修正旧 +0.18% 的失真结论。
+- [新功能] quant_research 转债双低专家 v2 生命周期过滤（转股价值上限/临期排除/价格硬顶，默认关闭）；universe 扩至 854 只全量发行券（PIT 624,637 行/849 只/每日中位 362 只候选）。
+- [新功能] quant_research 新增候选并集预计算 scripts/precompute_cb_union.py 与 run_backtest --cb-symbols-file，全量池回测 feed 由 849 只压缩至 276 只。
+- [改进] quant_research 全量池+v2 过滤月频基线 -1.44%（68 只池 -3.45% → 净改善 2pp）；实证"过滤规则必须在足够大的池上运作"（68 只池上 v2 掏空候选致 -29.21%）。
+- [新功能] quant_research Walk-Forward 支持 etf_mwu_cb 策略（冻结三输入 + 三 SHA、网格键自动路由专家、测试指标按测试窗裁剪）；新增 CB 日线冻结快照脚本 build_cb_feeds_snapshot.py 与候选并集全参数化（网格超集原则）。
+- [chore] .gitignore 补 quant_research/data/pit/raw/ 忽略规则（原规则漏覆盖 914 个原始缓存目录）。
+- [测试] quant_research MWU+转债 8 折 Walk-Forward：4 组合 OOS 全负（-1.65%~-13.2%），训练/测试一致性仅 2-3/8，按预注册纪律不接入实盘；fold 8 巨亏根因为池萎缩集中风险（已诊断，候选缓解留待下轮）。
+- [新功能] quant_research 转债双低专家新增 min_candidates 池规模下限（候选不足时专家让位现金；过滤链抽取为单一来源 _filter_double_low_pool helper）。全局验证 4×8 折：OOS 全部改善、最大回撤 21.15%→9.89%、正常期干扰 |Δ|<1.8pp，规则采纳为新基线（阈值结构值 top_n×3，未网格扫）。
+- [文档] quant_research 最终战略方案定稿：全品类广域调研后确立三层小资金多策略体系（第 1 层事件套利监控+转债打新提醒 / 第 2 层被动底仓 / 第 3 层 WF 验证通过的进攻策略），数据源经实测验证（全市场公告关键词过滤命中真实要约收购案例）。详见 HANDOFF.md 第 4 节与架构研究文档 6.2.6 节。
+- [新功能] 新增市场监控后台任务（schedule 模式）：事件套利监控（扫描全市场公告中的要约收购/现金选择权/私有化/主动退市事件，附巴菲特四问核查表）与转债打新日历（申购/中签缴款/上市首日三段式提醒）。配置项 EVENT_ARBITRAGE_MONITOR_ENABLED / BOND_NEW_ISSUE_MONITOR_ENABLED / MARKET_MONITOR_INTERVAL_MINUTES，含持久化去重与网络失败兜底，17 项单元测试覆盖。
+- [改进] 转债打新日历新增 tushare 备源（cb_issue 申购日期 + cb_basic 上市日期/简称），AKShare 主源失败时自动降级；实测 1135 条发行记录与主源近期券申购/上市日期全部一致（YYYYMMDD/YYYY-MM-DD 双格式由 _parse_date 统一兼容）。
+- [改进] 事件套利监控关键词新增"吸收合并"（私有化/合并退市标准措辞），同时排除"吸收合并全资子公司"类母公司内部重组噪声，降低误报。
 - [新功能] quant_research P2 回测层：封装 Backtrader 引擎（BacktestEngine + BacktestResult），实现 A 股佣金/印花税/过户费/最低5元、T+1 限制、涨跌停过滤（主板10%/创业板科创板20%/北交所30%），内置 SMA 双均线示例策略与 run_backtest.py 脚本。
 - [修复] quant_research 回测佣金计算：CommInfoBase 缺少 percabs=True 导致 backtrader 将 commission 从绝对小数再乘 0.01，费率缩小 100 倍；同步修复 TradeAnalyzer 盈亏比提取（pnl.total 而非 pnl.net.total）。
 - [测试] quant_research 新增回测引擎测试 test_backtest.py（21 项）：覆盖佣金计算、T+1 限制、涨跌停过滤、涨跌停幅度判定、引擎完整流程与边界场景。
@@ -34,6 +51,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [修复] 修复 Web 设置页 API 测试面板在渲染期间调用 performance.now() 触发 react-hooks/purity lint 错误导致 web-gate 阻断的问题，总耗时改为已完成测试耗时求和。
 - [测试] test_pipeline_single_stock_notify 断言的报告文件名由硬编码日期改为动态当天日期，消除跨日运行失败。
 - [修复] history_service.py 在 TYPE_CHECKING 块中补充 RunFlowSnapshot 导入，修复 flake8 F821 未定义名称导致 backend-gate 阻断的问题。
+- [新功能] quant_research P1 ETF 动量轮动策略（ETFMomentum）：双动量（绝对+相对）+ 年线过滤 + 流动性过滤 + 周度调仓 + 100 份整手下单，策略参数与 universe 独立配置（config/strategy/etf_momentum.yaml），download_data.py / run_backtest.py 支持 --strategy-config。
+- [改进] BacktestEngine 支持多标的日期对齐（晚上市 ETF 早期 NaN 填充，由策略层过滤）与 commission_overrides 费率覆盖；ETF 回测免印花税与过户费。
+- [修复] AKShare ETF 数据新增新浪源兜底（fund_etf_hist_sina）：东财源在部分网络环境 TLS 失败时自动降级，并检测 ETF 份额折算跳变（拆分/合并，如 512480 单日 -50%）做前复权调整，消除动量/均线计算的致命失真。
+- [修复] Parquet 缓存 get_bars 增加区间覆盖校验（容差 10 天）：缓存起点晚于请求起点或终点早于请求终点时视为 miss 触发重新下载，消除"请求 2013、静默返回 2015 起切片"的截断问题。
+- [改进] run_backtest.py etf_momentum 数据加载起点自动前移预热期（最长窗口 ×1.7 日历日），回测起点不再因均线窗口数据不足而空转。
+- [测试] 新增 ETF 份额折算调整测试（5 项）与缓存覆盖校验测试（2 项），quant_research 测试全量 83 项通过；12 只 ETF 11.5 年真实数据端到端回测验证。
+- [新功能] quant_research P2 策略增强：ETFMomentum 支持多窗口动量、波动率调整排序、止损带与国债 ETF 防御资产轮动（含债券 ETF 10 张申报单位、买入手数 2% 现金缓冲）。
+- [新功能] 新增参数网格扫描脚本 run_grid.py：笛卡尔积组合 + 训练/测试分段（--split-date）+ 数据快照冻结（--snapshot）+ 组合预算上限防过拟合。
+- [修复] 回测引擎多标的对齐时对标的存续期内缺失交易日（数据洞）前向填充：此前 NaN 收盘价使持仓按 0 估值，产生单日 -95% 级伪回撤并全面扭曲参数扫描结论（含回归测试）。
+- [修复] run_grid.py 无 --split-date 时 full 段未按起止日期切片，训练段扫描实际包含测试期数据（未来函数泄漏）。
+- [测试] 同步 test_config 对 universe 13 只（含 511010 防御资产）的断言；quant_research 测试全量 89 项通过。
+- [文档] 架构文档新增 6.2.2 P2 参数优化验证记录：OFAT/组合扫描/一次性样本外验证均按纪律执行，调优参数在 2022-2026 测试段失效（年化 -15%），不予采纳，维持 P1 默认参数。
+- [新功能] quant_research P3 多策略融合（MWU，Multiplicative Weights Update）：三类专家（动量 / 均值回归 RSI2+MA200 / 国债防御）+ 乘性权重更新 + Fixed Share 回拉防权重锁死，策略配置 config/strategy/etf_mwu.yaml。
+- [新功能] quant_research P4 执行模块：AbstractBroker 统一券商抽象 + PaperBroker 模拟账户（T+1/手续费/滑点）+ TDXJKBroker 通达信交易 DLL（TJyaid.dll，9 个导出函数 ctypes 绑定）；离散整数手分配 sizer（债券 ETF 10 张/手，买入现金约束等比缩减）；执行引擎 Executor（先卖后买/5% 容忍/交易时段风控/拆单预留）；实盘 MWU 信号层 LiveMWU 复用回测专家。
+- [新功能] 新增实盘运行入口 scripts/run_live.py：paper 模拟（默认，全链路演练）/ tdxjk 实盘两种模式，单次或定时轮询调仓。
+- [修复] quant_research 执行层两处缺陷：同 bar 多买单按差额升序提交（先提交大额单会挤占现金导致连环 Margin 拒单，实测拒单率 ~1/3）；离散分配器卖出回笼必须遍历 current（被清仓的非目标标的也要计回笼，否则误判现金不足把新目标缩成 0）。
+- [测试] quant_research 新增执行模块测试 test_trade.py（17 项）与 test_mwu.py（18 项）：PaperBroker 撮合/费用、整数手分配、交易时段风控、先卖后买、LiveMWU 权重随胜负更新；全量 124 项通过。
+- [文档] 架构文档新增 6.2.3 P3/P4 验证记录：MWU 融合方法论（知乎执行模块文章 + 评论区修正）、执行模块架构、tdxjk 通达信接口调研结论、Paper 全链路实测（MWU 选出 3 只动量 + 国债防御，4 笔委托成交）。
+- [新功能] quant_research P5 可转债双低轮动策略：双低评分纯函数（价格+转股溢价率×100，含评级/溢价率上限/价格中位数/次新债过滤）、ConvertibleDoubleLow 回测策略（快照注入 + top_n 等权轮动 + 10 张/手申报单位 + 月频调仓）、可转债列表/日线数据通道（AKShare 当日快照 + Tushare cb_daily 日线）。
+- [修复] run_backtest.py 可转债双低分支把 yaml 中策略类不认识的参数（candidate_pool/exclude_force_redeem 等选债过滤项）直接传给 Backtrader 导致 TypeError；现按策略 params 白名单过滤后再传入。
+- [测试] quant_research 全量 137 项通过；可转债双低 2026-01~08 真实数据回测跑通（5 只持仓整 8 个月未轮出，0 笔平仓，-3.97%/回撤 7.72%），验证数据通道与策略执行链路正常。
+- [新功能] quant_research 新增 `etf_mwu_cb` 四专家组合回测入口，运行期合并 ETF 与可转债日线并注入双低快照，支持动量/均值回归/可转债双低/国债防御专家融合。
+- [修复] ETFMWU 按标的类型区分申报单位：可转债 10 张/手、国债 ETF 10 张/手、普通 ETF 100 份/手，避免混合组合把可转债按 ETF 手数下单。
+- [测试] `etf_mwu_cb` 真实回测（2026-01~08）跑通：最终资金 9,373.01 元、总收益 -6.27%、最大回撤 15.27%、0 笔已平仓 round-trip；quant_research 全量 145 项通过。TradeAnalyzer 缺失节点的 KeyError 已修复，订单数与换手统计仍需独立订单级分析器。
+- [修复] BacktestEngine 对 TradeAnalyzer 缺失 `closed/won/lost` 节点做安全读取，持仓到期末的回测不再触发交易统计提取异常。
+- [新功能] BacktestEngine 新增订单级分析器，统计已成交订单、买卖成交额、手续费、拒单/保证金不足/撤单和区间换手率，并在回测摘要中展示。
+- [新功能] 新增严格 PIT 可转债历史快照契约与 `PITConvertibleDoubleLowExpert`，`--pit-snapshots` 仅接受含 `as_of/symbol/price/premium_rate/rating/list_date` 的 csv/parquet/pkl 文件，缺少 PIT 数据时不回退到当日快照。
+- [测试] `etf_mwu_cb` 订单级复核得到 105 笔成交订单、78,282.17 元成交额和 7.87x 区间换手率；仓库当前没有完整 PIT 快照文件，长期 PIT 训练/测试回测暂不输出收益结论。
+- [新功能] quant_research 新增 iFinD 可转债 PIT 采集链路：`IFinDClient`（HTTP 直连 bond MCP，token 从 `IFIND_AUTH_TOKEN` 环境变量读取）+ `build_pit_snapshot.py`（按单券×单年分批，截断后下载全量 CSV；历史评级/上市日期按表头定位解析并前向映射；断点续跑、空 meta 不缓存）。
+- [新功能] 新增 `validate_pit_snapshot()`：硬性校验字段/空表/`as_of` 可解析/无未来数据泄漏，软性统计每日期标的数量、评级覆盖、未来上市行等，输出 coverage 报告。
+- [测试] 生成真实 PIT 快照 `data/pit/convertible_pit.parquet`（2021-01~2026-08，10,675 行、1,356 交易日、8 只转债、评级覆盖 100%、无未来数据）；`etf_mwu_cb` 真实 PIT 长期回测：测试段 2022-01~2026-08 总收益 -0.62%、最大回撤 26.38%、35 笔成交、换手 3.40x；长窗口 2021-06~2026-08 总收益 -7.09%、最大回撤 31.76%、115 笔成交、换手 9.04x。universe 偏小且有幸存者偏差，不构成盈利结论。
+- [测试] quant_research 全量 164 项通过（新增 iFinD 解析 / PIT 校验 15 项，覆盖 CSV/markdown 解析、评级列序不固定、未来泄漏拒绝）。
+- [新功能] build_pit_snapshot.py 支持 `--assemble-only`（仅从 raw 缓存重建 parquet，不发网络）；年份切块按上市日期裁剪；`parse_daily_csv` 对列宽不一致的坏 CSV 跳过坏行、缺列返回空表，采集循环对单只 try/except 隔离（已退市券不再导致整批崩溃）。
+- [测试] 扩容真实 PIT 池：universe 从本地 8 只扩到 2019-2021 上市现代券 27 只（日均候选 14.22 只、26,172 行、2018-2026 窗口、评级覆盖 100%）；实证 2007-2013 老券 iFinD 无转股溢价率、仅现代券可用；`etf_mwu_cb` 真实 PIT 回测：周频长窗 2020-2026 总收益 -38.52%/回撤 55.86%/换手 22.16x，**月频**长窗 +0.18%/回撤 25.89%/换手 12.13x、测试段 2022-2026 -0.67%/回撤 17.59%/换手 4.75x——调仓频率是 1 万本金下决定性成本变量。
+- [测试] quant_research 全量 165 项通过（新增坏行回归等，覆盖 `on_bad_lines` 与缺列空表行为）。
+- [改进] 可转债 PIT 覆盖率报告增加原始采集缺失分类和每只有效数据的首末观测日期，避免将数据缺口误判为退市或到期。
+- [新功能] 新增 ETF 动量滚动 Walk-Forward 验证入口：每折只用训练窗选参并锁定后运行测试窗，输出冻结快照 SHA-256 与逐折样本外指标。
+- [测试] quant_research 全量 170 项通过，覆盖 PIT 原始采集审计和滚动 Walk-Forward 参数锁定。
 
 ## [3.30.0] - 2026-08-09
 

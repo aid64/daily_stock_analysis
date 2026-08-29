@@ -4373,6 +4373,93 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         ],
         "warning_codes": [],
     },
+    "EVENT_ARBITRAGE_MONITOR_ENABLED": {
+        "title": "Event Arbitrage Monitor",
+        "description": (
+            "Scan market-wide announcements for tender offers / cash options / "
+            "privatization / voluntary delisting events and push alerts "
+            "(with Buffett four-question checklist)."
+        ),
+        "category": "agent",
+        "data_type": "boolean",
+        "ui_control": "switch",
+        "is_sensitive": False,
+        "is_required": False,
+        "is_editable": True,
+        "default_value": "false",
+        "options": [],
+        "validation": {},
+        "display_order": 72,
+        "help_key": "settings.agent.event_monitor",
+        "examples": [
+            "EVENT_ARBITRAGE_MONITOR_ENABLED=true",
+            "BOND_NEW_ISSUE_MONITOR_ENABLED=true",
+        ],
+        "docs": [
+            {
+                "label": "告警中心文档",
+                "href": "https://github.com/ZhuLinsen/daily_stock_analysis/blob/main/docs/alerts.md",
+            },
+        ],
+        "warning_codes": [],
+    },
+    "BOND_NEW_ISSUE_MONITOR_ENABLED": {
+        "title": "CB New Issue Calendar",
+        "description": (
+            "Convertible bond new issue reminders: subscribe day, payment "
+            "deadline, and listing-day sell hints."
+        ),
+        "category": "agent",
+        "data_type": "boolean",
+        "ui_control": "switch",
+        "is_sensitive": False,
+        "is_required": False,
+        "is_editable": True,
+        "default_value": "false",
+        "options": [],
+        "validation": {},
+        "display_order": 73,
+        "help_key": "settings.agent.event_monitor",
+        "examples": [
+            "BOND_NEW_ISSUE_MONITOR_ENABLED=true",
+        ],
+        "docs": [
+            {
+                "label": "告警中心文档",
+                "href": "https://github.com/ZhuLinsen/daily_stock_analysis/blob/main/docs/alerts.md",
+            },
+        ],
+        "warning_codes": [],
+    },
+    "MARKET_MONITOR_INTERVAL_MINUTES": {
+        "title": "Market Monitor Interval",
+        "description": (
+            "Polling interval, in minutes, shared by the event arbitrage "
+            "monitor and the CB new issue calendar background tasks."
+        ),
+        "category": "agent",
+        "data_type": "integer",
+        "ui_control": "number",
+        "is_sensitive": False,
+        "is_required": False,
+        "is_editable": True,
+        "default_value": "60",
+        "options": [],
+        "validation": {"min": 5, "max": 1440},
+        "display_order": 74,
+        "help_key": "settings.agent.event_monitor",
+        "examples": [
+            "MARKET_MONITOR_INTERVAL_MINUTES=60",
+            "MARKET_MONITOR_INTERVAL_MINUTES=30",
+        ],
+        "docs": [
+            {
+                "label": "告警中心文档",
+                "href": "https://github.com/ZhuLinsen/daily_stock_analysis/blob/main/docs/alerts.md",
+            },
+        ],
+        "warning_codes": [],
+    },
     "AGENT_EVENT_ALERT_RULES_JSON": {
         "title": "Event Alert Rules",
         "description": (
