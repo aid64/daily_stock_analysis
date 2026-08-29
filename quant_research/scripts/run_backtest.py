@@ -29,7 +29,8 @@ _PROJECT_ROOT = _HERE.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from quant_research.config import load_config, load_strategy_config, AppConfig, StrategyConfig
+from quant_research.config import load_config
+from quant_research.core.experiments import record_run, load_strategy_config, AppConfig, StrategyConfig
 from quant_research.data import DataLoader
 from quant_research.backtest import (
     BacktestEngine,
@@ -332,6 +333,27 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print()
         print(result.summary())
         print()
+
+        # R4 实验注册：每次回测可追溯（试验数 N 供 DSR 校正）
+        record_run(
+            params={
+                "strategy": args.strategy,
+                "start": args.start,
+                "end": end,
+                "symbols": symbols if args.strategy != "convertible_double_low" else "dynamic",
+                "strategy_config": args.strategy_config,
+                "params": {k: str(v) for k, v in engine_params.items() if k != "experts"},
+            },
+            metrics={
+                "total_return": round(result.total_return, 6),
+                "annual_return": round(result.annual_return, 6),
+                "max_drawdown": round(result.max_drawdown, 6),
+                "sharpe": round(result.sharpe, 6),
+                "total_trades": result.total_trades,
+                "turnover": round(result.turnover, 6),
+            },
+            tags={"kind": "backtest", "strategy": args.strategy},
+        )
         return 0
 
 

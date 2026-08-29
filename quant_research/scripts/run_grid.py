@@ -48,6 +48,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 from quant_research.config import load_config, load_strategy_config
 from quant_research.data import DataLoader
 from quant_research.backtest import BacktestEngine, ETFMomentum
+from quant_research.core.experiments import record_run
 from quant_research.runner import (
     ETF_COMMISSION,
     grid_combinations,
@@ -223,6 +224,25 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_df.to_csv(out_path, index=False, encoding="utf-8-sig")
+
+    # R4 实验注册：扫描即试验，N 由 index.jsonl 机器追溯
+    record_run(
+        params={
+            "grid": {k: [str(v) for v in vs] for k, vs in grid.items()},
+            "start": args.start,
+            "end": end,
+            "split_date": args.split_date,
+            "strategy_config": args.strategy_config,
+            "snapshot": str(snapshot_path) if snapshot_path else None,
+        },
+        metrics={
+            "n_combos": n_combos,
+            "n_segments": len(segments),
+            "n_valid_rows": len(rows),
+        },
+        artifacts={"grid_csv": str(out_path)},
+        tags={"kind": "grid", "strategy": "etf_momentum"},
+    )
 
     # 控制台摘要：train/test 并排（有分段时），否则全段表
     param_cols = list(grid.keys())

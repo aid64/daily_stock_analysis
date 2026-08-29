@@ -21,6 +21,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 from quant_research.backtest import BacktestEngine, ETFMomentum, ETFMWU
 from quant_research.backtest.convertible import load_pit_snapshot
 from quant_research.config import load_config, load_strategy_config
+from quant_research.core.experiments import record_run
 from quant_research.runner import (
     ETF_COMMISSION,
     folds as _folds,
@@ -248,6 +249,28 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         locked["pit_sha256"] = _sha256(Path(args.pit))
         locked["cb_feeds_sha256"] = _sha256(Path(args.cb_feeds))
     locked.to_csv(locked_path, index=False, encoding="utf-8-sig")
+
+    # R4 实验注册：WF 是一次正式试验（三输入 SHA 已在 locked 内）
+    record_run(
+        params={
+            "strategy": args.strategy,
+            "start": args.start,
+            "end": args.end,
+            "train_years": args.train_years,
+            "test_months": args.test_months,
+            "grid": {k: [str(v) for v in vs] for k, vs in grid.items()},
+            "snapshot": str(snapshot),
+        },
+        metrics={
+            "oos_cum_return": round(
+                float((1 + pd.Series([r["test_total_return"] for r in locked_rows])).prod() - 1), 6
+            ),
+            "n_folds": len(locked_rows),
+            "positive_folds": int(sum(1 for r in locked_rows if r["test_total_return"] > 0)),
+        },
+        artifacts={"wf_csv": str(output), "locked_csv": str(locked_path)},
+        tags={"kind": "walk_forward", "strategy": args.strategy},
+    )
     print(f"结果已保存: {output}")
     print(f"锁定参数与测试结果: {locked_path}")
     print(locked.to_string(index=False))
