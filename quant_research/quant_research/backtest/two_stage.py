@@ -47,6 +47,8 @@ def compute_cb_target_weights(
     min_maturity_days: Optional[int] = None,
     max_price: Optional[float] = None,
     min_candidates: Optional[int] = None,
+    dd_median_upper: Optional[float] = None,
+    dd_median_lower: Optional[float] = None,
 ) -> dict[str, dict[str, float]]:
     """第一段：PIT 矩阵逐调仓日选债 → {日期: {symbol: 目标权重}}
 
@@ -83,6 +85,8 @@ def compute_cb_target_weights(
             min_maturity_days=min_maturity_days,
             max_price=max_price,
             min_candidates=min_candidates,
+            dd_median_upper=dd_median_upper,
+            dd_median_lower=dd_median_lower,
         )
         if picks:
             target_weights[ts.date().isoformat()] = picks

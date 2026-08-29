@@ -48,6 +48,9 @@ PARAM_TYPES: dict[str, object] = {
     "min_maturity_days": int,
     "max_price": float,
     "exclude_new_days": int,
+    # etf_mwu_cb：温度计门控（P1-1，路由到 CB 专家）
+    "dd_median_upper": float,
+    "dd_median_lower": float,
     # etf_mwu_cb：MWU 顶层参数
     "eta": float,
     "loss_scale": float,

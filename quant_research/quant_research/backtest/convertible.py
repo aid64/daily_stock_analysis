@@ -419,6 +419,8 @@ class PITConvertibleDoubleLowExpert:
         min_maturity_days: Optional[int] = None,
         max_price: Optional[float] = None,
         min_candidates: Optional[int] = None,
+        dd_median_upper: Optional[float] = None,
+        dd_median_lower: Optional[float] = None,
         name: str = "convertible_double_low_pit",
     ):
         if pit_table is None or len(pit_table) == 0:
@@ -452,6 +454,11 @@ class PITConvertibleDoubleLowExpert:
         # （返回空 → MWU 按现金处理），防止存量缩水期的集中度暴露。
         # 阈值建议取结构值 top_n×3，不做网格扫描（避免对失败折拟合）。
         self.min_candidates = int(min_candidates) if min_candidates is not None else None
+        # 温度计门控（P1-1，2026-08-29）：全市场双低中位数 ≥ dd_median_upper
+        # → 专家让位现金；< dd_median_lower → 正常；中间 → 缩量。None = 关闭。
+        # 门槛值取社区公开规则（yyb凌波全清仓线 170 / 启用线 140），非网格扫描产物。
+        self.dd_median_upper = float(dd_median_upper) if dd_median_upper is not None else None
+        self.dd_median_lower = float(dd_median_lower) if dd_median_lower is not None else None
 
     def _apply_v2_filters(self, snapshot: pd.DataFrame, current_ts: pd.Timestamp) -> pd.DataFrame:
         """B1 行业标准过滤（在双低打分前应用）。
@@ -507,6 +514,8 @@ class PITConvertibleDoubleLowExpert:
             min_maturity_days=self.min_maturity_days,
             max_price=self.max_price,
             min_candidates=self.min_candidates,
+            dd_median_upper=self.dd_median_upper,
+            dd_median_lower=self.dd_median_lower,
         )
 
 
@@ -523,6 +532,8 @@ def pit_snapshot_picks(
     min_maturity_days: Optional[int] = None,
     max_price: Optional[float] = None,
     min_candidates: Optional[int] = None,
+    dd_median_upper: Optional[float] = None,
+    dd_median_lower: Optional[float] = None,
 ) -> dict[str, float]:
     """PIT 双低选债的唯一过滤链（重构 R5：PIT 专家与两段式回测共用）
 
@@ -531,10 +542,15 @@ def pit_snapshot_picks(
     模式来自 PIT 本身），非有限/非正价格行在此剔除。
 
     过滤顺序（与 2026-08-18 起的专家语义逐位一致）：
-    1. v2 生命周期过滤（max_conv_value 转股价值上限 / min_maturity_days
+    1. 温度计门控（P1-1，2026-08-29；None 关闭）：全市场双低中位数
+       （价格+溢价率，过滤前全部有效行）≥ dd_median_upper → 返回空
+       （让位现金，yyb凌波全清仓线 170 的社区一手依据）；<
+       dd_median_lower（140）→ 正常 top_n；中间带 → 缩量（top_n 减半）。
+       事后性声明：门槛值取自社区公开规则，非本仓库网格扫描产物。
+    2. v2 生命周期过滤（max_conv_value 转股价值上限 / min_maturity_days
        剩余期限下限 / max_price 价格硬顶；None 关闭）
-    2. min_candidates 池规模下限（完整过滤链后候选不足 → 返回空 = 让位现金）
-    3. 双低打分（评级/溢价率/中位数/新债过滤 + top_n 等权）
+    3. min_candidates 池规模下限（完整过滤链后候选不足 → 返回空 = 让位现金）
+    4. 双低打分（评级/溢价率/中位数/新债过滤 + top_n 等权）
     """
     if snapshot is None or snapshot.empty:
         return {}
@@ -545,7 +561,18 @@ def pit_snapshot_picks(
     if table.empty:
         return {}
 
-    # 1) v2 过滤（与 PITConvertibleDoubleLowExpert._apply_v2_filters 同序同义）
+    eff_top_n = int(top_n)
+    if dd_median_upper is not None or dd_median_lower is not None:
+        market_dl = (table["price"] + pd.to_numeric(table["premium_rate"], errors="coerce")).dropna()
+        if market_dl.empty:
+            return {}
+        median = float(market_dl.median())
+        if dd_median_upper is not None and median >= dd_median_upper:
+            return {}  # 全市场高估 → 让位现金
+        if dd_median_lower is not None and median >= dd_median_lower:
+            eff_top_n = max(1, int(top_n) // 2)  # 中间带缩量
+
+    # 2) v2 过滤（与 PITConvertibleDoubleLowExpert._apply_v2_filters 同序同义）
     if max_conv_value is not None:
         conv_value = table["price"] / (1.0 + table["premium_rate"] / 100.0)
         table = table[conv_value <= max_conv_value]
@@ -559,7 +586,7 @@ def pit_snapshot_picks(
         return {}
 
     as_of_str = current_ts.date().isoformat()
-    # 2) 池规模下限（完整过滤链口径，与实际选债一致）
+    # 3) 池规模下限（完整过滤链口径，与实际选债一致）
     if min_candidates is not None:
         pool = _filter_double_low_pool(
             table,
@@ -572,10 +599,10 @@ def pit_snapshot_picks(
         if len(pool) < min_candidates:
             return {}
 
-    # 3) 双低打分选债
+    # 4) 双低打分选债
     picks = compute_double_low_scores(
         table,
-        top_n=top_n,
+        top_n=eff_top_n,
         min_rating=min_rating,
         max_premium=max_premium,
         exclude_new_days=exclude_new_days,

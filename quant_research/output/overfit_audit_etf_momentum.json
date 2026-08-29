@@ -1,0 +1,16 @@
+{
+ "route": "etf_momentum",
+ "n_trials_honest": 44,
+ "n_configs_in_matrix": 18,
+ "n_periods": 3387,
+ "selected_config": "lookback=180|top_k=3|ma_filter=200",
+ "dsr": 0.6447,
+ "gate_dsr_pass": true,
+ "sr_variance_across_configs": 2.7884000272667525e-05,
+ "pbo_diagnostic": {
+  "pbo": 0.8425,
+  "n_combinations": 12870,
+  "note": "诊断参考：固定矩阵互补恒等式诅咒使有限样本 PBO 系统性偏高，不作为门槛"
+ },
+ "snapshot_sha256": "273c8153ec8c89228b65bf8068cd9faa4e5e2dfb4811202f6fe2311556f65161"
+}

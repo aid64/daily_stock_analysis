@@ -157,6 +157,61 @@ class TestComputeTargetWeights:
         assert (feeds["A.SH"]["open"] == feeds["A.SH"]["close"]).all()
 
 
+class TestThermometerGate:
+    """P1-1 温度计门控：全市场双低中位数 170/140 阈值（预注册）"""
+
+    def _pit_with_median(self, median_target: float, days: int = 40) -> pd.DataFrame:
+        """构造全市场双低中位数恒 ≈ median_target 的 PIT
+
+        价格围绕 100 有界振荡（非趋势），保证中位数不随时间漂移出
+        目标区间；溢价率 = median_target - 100（双低值 = 价格 + 溢价）。
+        """
+        dates = pd.bdate_range("2024-01-02", periods=days)
+        premium = median_target - 100.0
+        rows = []
+        for sym, phase in {"A.SH": 0.0, "B.SH": 1.0, "C.SH": 2.0,
+                           "D.SH": 3.0, "E.SH": 4.0, "F.SH": 5.0}.items():
+            price = 100.0 + 0.5 * np.sin(np.arange(days) / 3.0 + phase)
+            rows.append(pd.DataFrame({
+                "as_of": dates, "symbol": sym, "price": price,
+                "premium_rate": np.full(days, premium),
+                "rating": "AA", "list_date": dates[0],
+            }))
+        return pd.concat(rows, ignore_index=True)
+
+    def test_high_median_yields_to_cash(self):
+        """中位数 ≥170（高估区）→ 所有调仓日让位现金"""
+        pit = self._pit_with_median(175.0)
+        weights = compute_cb_target_weights(
+            pit, start="2024-01-01", end="2024-12-31",
+            min_rating="A", max_premium=100.0, exclude_new_days=0,
+            max_price_median=False,
+            dd_median_upper=170.0, dd_median_lower=140.0)
+        assert weights == {}
+
+    def test_normal_regime_full_topn(self):
+        """中位数 <140（正常区）→ 完整 top_n"""
+        pit = self._pit_with_median(130.0)
+        weights = compute_cb_target_weights(
+            pit, start="2024-01-01", end="2024-12-31",
+            min_rating="A", top_n=4, max_premium=100.0, exclude_new_days=0,
+            max_price_median=False,
+            dd_median_upper=170.0, dd_median_lower=140.0)
+        assert weights
+        assert all(len(p) == 4 for p in weights.values())
+
+    def test_middle_band_halves_topn(self):
+        """140 ≤ 中位数 < 170（中间带）→ top_n 减半"""
+        pit = self._pit_with_median(150.0)
+        weights = compute_cb_target_weights(
+            pit, start="2024-01-01", end="2024-12-31",
+            min_rating="A", top_n=4, max_premium=100.0, exclude_new_days=0,
+            max_price_median=False,
+            dd_median_upper=170.0, dd_median_lower=140.0)
+        assert weights
+        assert all(len(p) == 2 for p in weights.values())
+
+
 class TestWeightTargetStrategy:
     def test_full_exit_of_single_lot_position(self):
         """R5 修正回归：被剔除目标的 1 手持仓必须整仓卖出（旧超额取整逻辑下永远卖不掉）"""
