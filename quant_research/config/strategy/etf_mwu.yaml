@@ -1,0 +1,45 @@
+# ETF 多策略 MWU 融合配置（P3）
+# 方法论来源：知乎《谈量化交易中被严重低估的执行模块》+ 评论区修正：
+# - MWU 在线权重更新，regret bound 保证长期收敛于事后最优专家
+# - 学习率 η 是唯一超参，不做网格精调（P2 教训：训练段精调样本外全失效）
+# - 均值回归参数取社区共识默认值（RSI2 + MA200 过滤）
+#
+# 调仓节奏与 etf_momentum 对齐（周度），universe 共享 13 只 ETF。
+
+name: etf_mwu
+params:
+  eta: 0.1                    # MWU 学习率（保守起步，风格切换约需 10+ 期）
+  loss_scale: 0.05            # 专家单期亏损 5% → loss=1（权重乘 0.9）
+  stop_loss_pct: null         # 止损带留给 P3 扫描验证
+  defensive: 511010.SH
+  defensive_lot_size: 10
+  lot_size: 100
+rebalance_freq: W
+
+experts:
+  momentum:
+    lookback: 60
+    top_k: 3
+    ma_filter: 250
+  mean_reversion:
+    rsi_period: 2
+    rsi_buy: 30
+    ma_filter: 200
+    top_k: 3
+  defensive:
+    symbol: 511010.SH
+
+universe:                     # 与 etf_momentum.yaml 一致
+  - 510300.SH
+  - 510500.SH
+  - 159915.SZ
+  - 512100.SH
+  - 588000.SH
+  - 510050.SH
+  - 512880.SH
+  - 515790.SH
+  - 515030.SH
+  - 512480.SH
+  - 515170.SH
+  - 512010.SH
+  - 511010.SH

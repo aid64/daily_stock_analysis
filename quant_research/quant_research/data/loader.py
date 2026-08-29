@@ -217,6 +217,18 @@ class DataLoader:
             self._universe_builder = UniverseBuilder(basic, logger=self.logger)
         return self._universe_builder
 
+    def _etf_chain(self) -> list[AbstractDataClient]:
+        """ETF 专用数据源顺序
+
+        tushare 的 ETF 日线不处理份额分拆/折算（2026-08-18 实证：512480/
+        510500/512010/512100/512890 在分拆日产生 ±50%~300% 假跳变），
+        因此 AKShare 排第一：东财源带完整复权；东财断连时自动降级新浪源
+        （经 adjust_etf_share_split 修正分拆，仅缺现金分红/计息）。
+        Baostock 仅覆盖近期，兜底。顺序：akshare > tushare > baostock。
+        """
+        prio = {"akshare": 0, "tushare": 1, "baostock": 2}
+        return sorted(self.chain, key=lambda c: prio.get(c.name, 9))
+
     def get_etf_daily(
         self,
         symbol: str,
@@ -238,7 +250,7 @@ class DataLoader:
                 return cached
 
         last_err: Optional[Exception] = None
-        for client in self.chain:
+        for client in self._etf_chain():
             try:
                 df = client.get_etf_daily(symbol, start, end, adj)
                 if df is not None and len(df) > 0:
@@ -299,11 +311,25 @@ class DataLoader:
         return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume", "amount"])
 
     def get_convertible_bond_list(self) -> pd.DataFrame:
-        """获取可转债基础信息列表（含评级、强赎状态等）"""
-        for client in self.chain:
+        """获取可转债列表（双低策略用，需含价格/溢价率/评级）
+
+        可转债双低评分必须要有 price / premium_rate / rating，只有
+        AKShare bond_zh_cov 的当日快照提供完整字段；Tushare cb_basic
+        仅有基础字段（无价格/溢价率），因此这里固定优先 AKShare，
+        而不是默认 chain（tushare 优先会把完整快照遮蔽掉）。
+        """
+        prio = {"akshare": 0, "tushare": 1, "baostock": 2}
+        ordered = sorted(self.chain, key=lambda c: prio.get(c.name, 9))
+        for client in ordered:
             try:
                 df = client.get_convertible_bond_list()
                 if df is not None and len(df) > 0:
+                    # AKShare 快照缺必要字段时继续 fallback，不静默返回残缺表
+                    if client.name == "akshare" and not {
+                        "price", "premium_rate", "rating"
+                    }.issubset(df.columns):
+                        self.logger.warning("AKShare 可转债列表缺 price/溢价/评级，尝试下一源")
+                        continue
                     self.logger.info(f"[{client.name}] 可转债列表: {len(df)} 条")
                     return df
             except DataClientError as e:

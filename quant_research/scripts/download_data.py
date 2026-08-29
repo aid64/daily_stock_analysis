@@ -40,7 +40,7 @@ _PROJECT_ROOT = _HERE.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from quant_research.config import load_config, AppConfig
+from quant_research.config import load_config, load_strategy_config, AppConfig
 from quant_research.data import DataLoader
 
 
@@ -93,14 +93,24 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="下载指数日线，逗号分隔，如 000300.SH,000905.SH",
     )
+    p.add_argument(
+        "--strategy-config",
+        default=None,
+        help="策略配置 yaml 路径（读取 universe），如 config/strategy/etf_momentum.yaml",
+    )
+    p.add_argument(
+        "--etf",
+        action="store_true",
+        help="使用 ETF 专用数据接口下载（如 510300.SH）",
+    )
     return p
 
 
-def _resolve_symbols(cfg: AppConfig, symbols_arg: Optional[str]) -> list[str]:
+def _resolve_symbols(cfg: AppConfig, symbols_arg: Optional[str], strat_universe: Optional[list[str]]) -> list[str]:
     if symbols_arg:
         return [s.strip().upper() for s in symbols_arg.split(",") if s.strip()]
-    # 默认用策略配置中的 universe
-    universe = cfg.strategy.universe or []
+    # 优先级：策略 yaml universe > 主配置 universe
+    universe = strat_universe or cfg.strategy.universe or []
     if not universe:
         logger.warning("策略 universe 为空且未指定 --symbols，将仅下载沪深 300 作为示例")
         return ["000300.SH"]
@@ -168,18 +178,34 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     logger.error(f"下载指数 {idx_code} 失败: {e}")
 
         # 4. 个股 / ETF 日线
-        symbols = _resolve_symbols(cfg, args.symbols)
+        strat_universe: Optional[list[str]] = None
+        if args.strategy_config:
+            try:
+                strat_cfg = load_strategy_config(args.strategy_config)
+                strat_universe = strat_cfg.universe
+            except FileNotFoundError as e:
+                logger.error(f"策略配置不存在: {e}")
+                return 2
+
+        symbols = _resolve_symbols(cfg, args.symbols, strat_universe)
         logger.info(f"待下载标的数: {len(symbols)}")
 
         success = 0
         failed: list[tuple[str, str]] = []
         for i, sym in enumerate(symbols, 1):
             try:
-                df = loader.get_daily_bars(
-                    sym, start, end,
-                    adjust=args.adjust,
-                    use_cache=not args.no_cache,
-                )
+                if args.etf:
+                    df = loader.get_etf_daily(
+                        sym, start, end,
+                        adjust=args.adjust,
+                        use_cache=not args.no_cache,
+                    )
+                else:
+                    df = loader.get_daily_bars(
+                        sym, start, end,
+                        adjust=args.adjust,
+                        use_cache=not args.no_cache,
+                    )
                 if len(df) > 0:
                     logger.info(
                         f"[{i}/{len(symbols)}] {sym}: {len(df)} 行 "

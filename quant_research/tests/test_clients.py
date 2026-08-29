@@ -12,7 +12,7 @@ import pytest
 from quant_research.data.clients.base import AbstractDataClient, DataClientError
 from quant_research.data.clients.tushare_client import TushareClient, _to_ts_code
 from quant_research.data.clients.baostock_client import BaostockClient, _to_bs_code
-from quant_research.data.clients.akshare_client import AkshareClient, _parse_symbol
+from quant_research.data.clients.akshare_client import AkshareClient, _parse_symbol, adjust_etf_share_split
 
 
 class TestSymbolConverters:
@@ -92,6 +92,77 @@ class TestAkshareClient:
         with patch.dict("sys.modules", {"akshare": None}):
             with pytest.raises(DataClientError):
                 AkshareClient()
+
+
+class TestAdjustEtfShareSplit:
+    """ETF 份额折算跳变检测与前复权调整"""
+
+    @staticmethod
+    def _make_df(closes: list[float]) -> pd.DataFrame:
+        n = len(closes)
+        return pd.DataFrame(
+            {
+                "date": pd.date_range("2020-01-01", periods=n, freq="D"),
+                "open": closes,
+                "high": [c * 1.01 for c in closes],
+                "low": [c * 0.99 for c in closes],
+                "close": closes,
+                "volume": [1_000_000.0] * n,
+                "amount": [c * 1_000_000.0 for c in closes],
+            }
+        )
+
+    def test_no_split_unchanged(self):
+        """无跳变（含真实涨停 ±20%）时数据不变"""
+        closes = [1.0] * 5 + [1.2, 1.1, 0.9, 1.08, 1.0]
+        df = self._make_df(closes)
+        out = adjust_etf_share_split(df)
+        pd.testing.assert_frame_equal(out, df)
+
+    def test_split_adjusted(self):
+        """拆分跳变（约 -50%）触发前复权：折算前价格 ×ratio，volume ×1/ratio"""
+        closes = [2.0, 2.02, 1.98, 1.0, 1.02]  # 第 4 日约 -50% 跳变
+        df = self._make_df(closes)
+        out = adjust_etf_share_split(df)
+
+        ratio = 1.0 / 1.98  # 折算比例 = 跳变日收盘 / 前日收盘
+        assert list(out["close"]) == pytest.approx(
+            [2.0 * ratio, 2.02 * ratio, 1.98 * ratio, 1.0, 1.02]
+        )
+        assert list(out["volume"]) == pytest.approx(
+            [1_000_000.0 / ratio] * 3 + [1_000_000.0] * 2
+        )
+        # 收益率序列连续（无 |ret| > 30% 的跳变）
+        rets = out["close"].pct_change().dropna()
+        assert (rets.abs() < 0.3).all()
+
+    def test_merge_adjusted(self):
+        """合并跳变（约 +100%）：折算前价格 ×ratio，volume ×1/ratio"""
+        closes = [1.0, 1.01, 0.99, 2.0, 2.02]
+        df = self._make_df(closes)
+        out = adjust_etf_share_split(df)
+        ratio = 2.0 / 0.99
+        assert list(out["close"]) == pytest.approx(
+            [1.0 * ratio, 1.01 * ratio, 0.99 * ratio, 2.0, 2.02]
+        )
+
+    def test_two_splits_compound(self):
+        """两次折算：早段 ×r1×r2，中段 ×r2，末段不变"""
+        closes = [1.0, 1.0, 2.0, 2.0, 4.0, 4.0]  # 第 3 日 +100%，第 5 日 +100%
+        df = self._make_df(closes)
+        out = adjust_etf_share_split(df)
+        assert list(out["close"]) == [4.0, 4.0, 4.0, 4.0, 4.0, 4.0]
+
+    def test_open_high_low_volume_consistent(self):
+        """open/high/low 与 close 同步调整，amount 不变"""
+        closes = [1.0, 1.0, 2.0]
+        df = self._make_df(closes)
+        out = adjust_etf_share_split(df)
+        assert list(out["open"]) == [2.0, 2.0, 2.0]
+        assert list(out["high"]) == [2.02, 2.02, 2.02]
+        assert list(out["low"]) == [1.98, 1.98, 1.98]
+        # amount 保持原始值（真实成交额不因折算改变）
+        assert list(out["amount"]) == [1_000_000.0, 1_000_000.0, 2_000_000.0]
 
 
 class TestBaseClient:

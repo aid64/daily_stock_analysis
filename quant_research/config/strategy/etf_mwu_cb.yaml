@@ -1,0 +1,58 @@
+# ETF MWU + 可转债双低专家 组合配置（P5）
+# 四专家：动量 + 均值回归 + 可转债双低 + 国债防御
+#
+# 背景（P3/P5 结论）：纯 ETF 池上动量/均值回归专家纸面收益都跑不赢债券，
+# MWU 框架正常但缺正期望专家；可转债双低是社区共识的散户正期望策略族。
+# 本配置把可转债双低作为第四个专家接入 MWU：牛市抬动量、震荡抬双低、
+# 熊市抬防御，由 MWU 在线权重自动完成风格切换。
+#
+# 注意：
+# - convertible_double_low 的 bond_table 无法静态写入 yaml，需在 run 时
+#   从 AKShare 当日快照动态生成并注入（见 run_backtest.py 对应分支）。
+# - universe 为 ETF + 可转债候选的并集：ETF 静态配置，可转债由
+#   compute_double_low_scores 动态生成后合并。
+
+name: etf_mwu_cb
+params:
+  eta: 0.1                    # MWU 学习率
+  loss_scale: 0.05            # 专家单期亏损 5% → loss=1
+  stop_loss_pct: null
+  defensive: 511010.SH
+  defensive_lot_size: 10
+  lot_size: 100
+rebalance_freq: W
+
+experts:
+  momentum:
+    lookback: 60
+    top_k: 3
+    ma_filter: 250
+  mean_reversion:
+    rsi_period: 2
+    rsi_buy: 30
+    ma_filter: 200
+    top_k: 3
+  convertible_double_low:
+    candidate_pool: 15
+    top_n: 5                  # 可转债双低持仓数（1 万本金建议 ≤5）
+    min_rating: "AA-"
+    max_premium: 20.0
+    exclude_new_days: 30
+    # bond_table 运行期注入
+  defensive:
+    symbol: 511010.SH
+
+universe:                     # ETF 静态池（可转债候选运行期追加）
+  - 510300.SH
+  - 510500.SH
+  - 159915.SZ
+  - 512100.SH
+  - 588000.SH
+  - 510050.SH
+  - 512880.SH
+  - 515790.SH
+  - 515030.SH
+  - 512480.SH
+  - 515170.SH
+  - 512010.SH
+  - 511010.SH

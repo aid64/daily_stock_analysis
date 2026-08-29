@@ -1,14 +1,25 @@
 # 可转债双低轮动策略配置（改良版）
-# 双低 = 价格 + 溢价率 × 100，加信用 / 强赎 / 期限过滤
+# 双低 = 转债价格 + 转股溢价率，加信用 / 强赎 / 期限过滤
+# 方法论：知乎《三年翻倍：双低可转债策略》+ 评论区修正
+# - 20 只轮动（1 万本金建议压缩到 3-5 只，见 top_n）
+# - 排除溢价率 > 20%、价格高于当日中位数、评级 < 下限
+# - 可转债佣金极低（沪市万 0.05），是 1 万本金缓解佣金磨损的最佳品种
+#
+# 注意：免费源（AKShare bond_zh_cov）只有当日全市场快照，无历史 PIT
+# 溢价率。历史回测为"固定快照 universe + 动态价格"近似，存在幸存者
+# 偏差；实盘/纸面按当日快照实时选债则无此问题。
 
 name: convertible_double_low
 params:
-  top_n: 5                      # 持仓数（1 万本金约束，建议 ≤ 5）
-  min_rating: "AA-"             # 最低信用评级
-  exclude_force_redeem: true    # 剔除已发强赎提示
-  min_maturity_years: 0.5       # 剩余期限最低
-  min_volume: 1000000           # 流动性过滤：日成交额（元）
-rebalance_freq: W
+  candidate_pool: 15             # 双低候选池（从当日快照筛出，供下载日线）
+  top_n: 5                       # 持仓数（1 万本金约束，建议 ≤ 5）
+  min_rating: "AA-"              # 最低信用评级
+  exclude_force_redeem: true     # 剔除已发强赎提示（当前快照无该字段，预留）
+  min_maturity_years: 0.5        # 剩余期限最低（当前快照无该字段，预留）
+  min_volume: 1000000            # 流动性过滤：日成交额（元）
+  max_premium: 20.0              # 转股溢价率上限（%）
+  exclude_new_days: 30           # 剔除上市未满 N 天次新债
+rebalance_freq: M
 max_positions: 5
 # universe 动态生成（按日从可转债列表中筛），无需静态配置
 universe_source: dynamic

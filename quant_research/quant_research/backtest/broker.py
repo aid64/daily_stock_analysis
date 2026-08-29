@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from typing import Optional
 
 import backtrader as bt
@@ -52,6 +53,22 @@ class AShareCommission(CommInfoBase):
         transfer = amount * self.p.transfer_fee
 
         return comm + stamp + transfer
+
+    def getvaluesize(self, size, price):
+        """估值防御：零仓位或非有限价按 0 计，防止 0×NaN=NaN 污染组合估值
+
+        多标的 NaN 日期对齐（晚上市标的早期缺口）会产生 NaN 行情，
+        backtrader 默认 size*price 会把整个 broker.getvalue() 变成 NaN。
+        """
+        if size == 0 or not math.isfinite(price):
+            return 0.0
+        return super().getvaluesize(size, price)
+
+    def profitandloss(self, size, price, now):
+        """浮动盈亏防御：同 getvaluesize，NaN 行情不计盈亏"""
+        if size == 0 or not (math.isfinite(price) and math.isfinite(now)):
+            return 0.0
+        return super().profitandloss(size, price, now)
 
 
 class TPlus1Broker(BackBroker):

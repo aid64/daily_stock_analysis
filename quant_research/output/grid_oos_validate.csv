@@ -1,0 +1,5 @@
+﻿combo_id,segment,lookback,ma_filter,top_k,rebalance_freq,stop_loss_pct,vol_adjusted,annual_return,max_drawdown,sharpe,calmar,total_return,total_trades,final_value
+1,train,30,120,5,M,-0.08,True,0.1536,0.3717,0.704,0.413,2.3375,95,33375.22
+1,test,30,120,5,M,-0.08,True,-0.1569,0.5996,-1.024,0.262,-0.573,93,4270.39
+2,train,60,120,5,M,-0.08,True,0.1345,0.342,0.591,0.393,1.8988,67,28987.61
+2,test,60,120,5,M,-0.08,True,-0.1494,0.5732,-1.002,0.261,-0.5537,80,4463.02

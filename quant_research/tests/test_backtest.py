@@ -18,7 +18,7 @@ from quant_research.backtest.broker import (
     get_limit_pct,
 )
 from quant_research.backtest.engine import BacktestEngine, BacktestResult
-from quant_research.backtest.strategies import SMACross
+from quant_research.backtest.strategies import SMACross, ETFMomentum
 from quant_research.config.schema import (
     AppConfig,
     BacktestConfig,
@@ -211,6 +211,12 @@ class TestBacktestEngine:
         assert isinstance(result, BacktestResult)
         assert result.final_value > 0
         assert result.total_trades > 0  # 合成数据应产生交易
+        assert result.completed_orders > 0
+        assert result.buy_orders > 0
+        assert result.sell_orders > 0
+        assert result.traded_value > 0
+        assert result.commission_paid > 0
+        assert result.turnover > 0
         assert -1.0 <= result.total_return <= 10.0  # 合理范围
         assert result.max_drawdown >= 0
 
@@ -257,3 +263,330 @@ class TestBacktestEngine:
         })
         result = engine.run(SMACross, {"fast_period": 5, "slow_period": 20}, {"TEST.SH": df})
         assert result.total_trades == 0
+
+    def test_in_life_gap_forward_filled(self):
+        """生命周期内的数据洞应前向填充，不得产生 NaN 伪崩塌
+
+        场景：A.SH 缺失一个 B.SH 有的交易日（数据源缺口）。若不填充，
+        持仓在洞日按 NaN 定价，净值出现 -95% 级别的单日伪回撤。
+        """
+        import backtrader as bt
+
+        class BuyAndHoldFirst(bt.Strategy):
+            def next(self):
+                if self.getposition(self.datas[0]).size == 0:
+                    # 仓位需占组合绝对主导，否则洞日"持仓估值记 0"
+                    # 的伪回撤可能小于断言阈值（1% 仓位只造成 1% 回撤）
+                    self.buy(self.datas[0], size=9000)
+
+        dates = pd.bdate_range("2024-01-01", periods=10)
+        close = np.linspace(10.0, 10.5, 10)
+
+        def _bars(idx, closes):
+            return pd.DataFrame({
+                "date": idx,
+                "open": np.asarray(closes) * 0.99,
+                "high": np.asarray(closes) * 1.02,
+                "low": np.asarray(closes) * 0.98,
+                "close": closes,
+                "volume": 100000.0,
+                "amount": np.asarray(closes) * 100000,
+            })
+
+        a_gap = _bars(dates.delete(5), close[np.arange(10) != 5])  # 缺第 6 个交易日
+        b_full = _bars(dates, np.full(10, 20.0))
+
+        cfg = _make_config(initial_capital=100000.0)  # 资金充足避免保证金问题
+        engine = BacktestEngine(cfg)
+        result = engine.run(BuyAndHoldFirst, {}, {"A.SH": a_gap, "B.SH": b_full})
+
+        assert result.final_value > 90000  # 价格平稳，净值不应崩塌
+        assert result.max_drawdown < 0.10
+
+
+# ── ETF 动量轮动测试 ──────────────────────────
+
+
+def _make_trend_bars(
+    n: int,
+    daily_ret: float,
+    start_price: float = 1.0,
+    start: str = "2024-01-01",
+) -> pd.DataFrame:
+    """生成固定日收益率的 ETF 合成数据（含 amount 列）"""
+    dates = pd.bdate_range(start, periods=n)
+    close = start_price * (1.0 + daily_ret) ** np.arange(n)
+    return pd.DataFrame({
+        "date": dates,
+        "open": close,
+        "high": close * 1.01,
+        "low": close * 0.99,
+        "close": close,
+        "volume": np.full(n, 1_000_000.0),
+        "amount": close * 1_000_000.0,
+    })
+
+
+_SMALL_MOMENTUM = {
+    "lookback": 5,
+    "top_k": 1,
+    "ma_filter": 10,
+    "min_volume": 0.0,
+    "rebalance_freq": "W",
+}
+
+
+class _RebalanceSpy(ETFMomentum):
+    """记录调仓日期与买卖成交记录的探针策略"""
+
+    rebalance_dates: list = []
+    buy_fills: list = []   # (symbol, date)
+    sell_fills: list = []  # (symbol, date)
+
+    def _is_rebalance_day(self, dt):
+        fired = super()._is_rebalance_day(dt)
+        if fired:
+            self.rebalance_dates.append(dt)
+        return fired
+
+    def notify_order(self, order):
+        if order.status == order.Completed:
+            dt = self.datas[0].datetime.date(0)
+            if order.isbuy():
+                self.buy_fills.append((order.data._name, dt))
+            else:
+                self.sell_fills.append((order.data._name, dt))
+
+
+class TestETFMomentum:
+    def test_all_downtrend_holds_cash(self):
+        """全部标的下跌（无绝对动量）→ 空仓持币"""
+        cfg = _make_config()
+        engine = BacktestEngine(cfg, logger=logging.getLogger("test"))
+        feeds = {
+            "DOWN1.SH": _make_trend_bars(80, -0.002),
+            "DOWN2.SH": _make_trend_bars(80, -0.001),
+        }
+        result = engine.run(ETFMomentum, dict(_SMALL_MOMENTUM), feeds)
+        assert result.total_trades == 0
+        assert result.completed_orders == 0
+        assert result.traded_value == 0
+        assert result.turnover == 0
+        assert result.final_value == pytest.approx(cfg.backtest.initial_capital)
+
+    def test_buys_strongest_uptrend(self):
+        """强/弱上涨标的并存 → 买入最强者并获利"""
+        cfg = _make_config()
+        engine = BacktestEngine(cfg, logger=logging.getLogger("test"))
+        feeds = {
+            "STRONG.SH": _make_trend_bars(80, 0.005),
+            "WEAK.SH": _make_trend_bars(80, 0.001),
+        }
+        _RebalanceSpy.buy_fills = []
+        result = engine.run(_RebalanceSpy, dict(_SMALL_MOMENTUM), feeds)
+        # TradeAnalyzer 只统计已平仓交易，期末持仓未平 → 用成交记录断言
+        bought = {sym for sym, _ in _RebalanceSpy.buy_fills}
+        assert "STRONG.SH" in bought
+        assert result.final_value > cfg.backtest.initial_capital
+
+    def test_late_listing_excluded_until_real_data(self):
+        """晚上市标的 NaN 对齐后，真实数据前不得买入"""
+        cfg = _make_config()
+        engine = BacktestEngine(cfg, logger=logging.getLogger("test"))
+        early = _make_trend_bars(120, 0.004)  # 全程数据，持续上涨
+        # LATE 从 union 第 61 个交易日起才有真实数据（真正"晚上市"）
+        late_start = early["date"].iloc[60]
+        late = _make_trend_bars(60, 0.02, start=str(late_start.date()))
+
+        _RebalanceSpy.rebalance_dates = []
+        _RebalanceSpy.buy_fills = []
+        engine.run(_RebalanceSpy, dict(_SMALL_MOMENTUM), {"EARLY.SH": early, "LATE.SH": late})
+
+        late_buys = [d for sym, d in _RebalanceSpy.buy_fills if sym == "LATE.SH"]
+        for d in late_buys:
+            assert pd.Timestamp(d) >= pd.Timestamp(late_start), (
+                f"LATE.SH 在真实数据前被买入: {d} < {late_start}"
+            )
+
+    def test_rebalance_only_first_day_of_week(self):
+        """周度模式：调仓只发生在每周第一个交易日（周一）"""
+        cfg = _make_config()
+        engine = BacktestEngine(cfg, logger=logging.getLogger("test"))
+        feeds = {"UP.SH": _make_trend_bars(80, 0.003)}
+
+        _RebalanceSpy.rebalance_dates = []
+        _RebalanceSpy.buy_fills = []
+        engine.run(_RebalanceSpy, dict(_SMALL_MOMENTUM), feeds)
+
+        assert len(_RebalanceSpy.rebalance_dates) >= 8  # 80 交易日 ≈ 16 周
+        weeks = set()
+        for d in _RebalanceSpy.rebalance_dates:
+            assert d.weekday() == 0  # bdate 数据周一为每周首个交易日
+            iso = d.isocalendar()
+            weeks.add((iso[0], iso[1]))
+        assert len(weeks) == len(_RebalanceSpy.rebalance_dates)  # 每周仅一次
+
+
+# ── ETF 动量轮动 P2 增强测试 ──────────────────
+
+
+def _make_shaped_bars(daily_rets: list[float], start: str = "2024-01-01") -> pd.DataFrame:
+    """按逐日收益率序列生成合成数据（总长度 = len(daily_rets)）"""
+    n = len(daily_rets)
+    dates = pd.bdate_range(start, periods=n)
+    close = 1.0 * np.cumprod([1.0 + r for r in daily_rets])
+    return pd.DataFrame({
+        "date": dates,
+        "open": close,
+        "high": close * 1.01,
+        "low": close * 0.99,
+        "close": close,
+        "volume": np.full(n, 1_000_000.0),
+        "amount": close * 1_000_000.0,
+    })
+
+
+class TestETFMomentumP2:
+    """P2 新参数：多窗口动量 / 波动率调整 / 止损带 / 防御轮动"""
+
+    def test_multi_window_changes_ranking(self):
+        """多窗口动量：短窗口失效但长窗口仍强的标的应继续持有
+
+        A：前 65 日平盘 → 5 日 +1%/日 → 后 10 日平盘
+           期末（最后调仓日 bar76）5 日动量 = 0（绝对动量排除），
+           (5,10) 平均动量 ≈ +1.5%
+        B：前 70 日平盘 → 10 日 +0.1%/日
+           期末 5 日动量 ≈ +0.5%，(5,10) 平均 ≈ +0.55%
+        单窗口 lookback=5 → 期末卖出 A 换入 B；
+        多窗口 (5,10) → A 平均动量更高，继续持有 A。
+        断言以最后一次买入成交为准（两者上涨初期都会先买 A）。
+        """
+        flat = [0.0] * 65
+        a = _make_shaped_bars(flat + [0.01] * 5 + [0.0] * 10)
+        b = _make_shaped_bars([0.0] * 70 + [0.001] * 10)
+        cfg = _make_config(200000.0)  # 充足资金，避免 lots 取整+滑点导致买单被拒
+        engine = BacktestEngine(cfg, logger=logging.getLogger("test"))
+
+        def last_bought() -> str:
+            return max(_RebalanceSpy.buy_fills, key=lambda item: item[1])[0]
+
+        _RebalanceSpy.buy_fills = []
+        _RebalanceSpy.sell_fills = []
+        engine.run(_RebalanceSpy, dict(_SMALL_MOMENTUM), {"A.SH": a, "B.SH": b})
+        single = last_bought()
+
+        _RebalanceSpy.buy_fills = []
+        _RebalanceSpy.sell_fills = []
+        engine.run(
+            _RebalanceSpy,
+            dict(_SMALL_MOMENTUM, mom_windows=(5, 10)),
+            {"A.SH": a, "B.SH": b},
+        )
+        multi = last_bought()
+
+        assert single == "B.SH"   # 短动量归零 → 换仓到 B
+        assert multi == "A.SH"    # 多窗口平均仍强 → 保持 A
+
+    def test_vol_adjusted_prefers_low_vol(self):
+        """波动率调整排序：高动量高波动让位给低波动标的
+
+        HIGH：+2.4%/+0.4% 交替（均值 1.4%，日波动 ≈ 1.0%）
+        LOW： +0.45%/+0.35% 交替（均值 0.4%，日波动 ≈ 0.05%）
+        默认排序 HIGH 动量高入选；vol_adjusted 后 LOW 得分反超。
+        """
+        high = _make_shaped_bars([0.024, 0.004] * 40)
+        low = _make_shaped_bars([0.0045, 0.0035] * 40)
+        cfg = _make_config()
+        engine = BacktestEngine(cfg, logger=logging.getLogger("test"))
+
+        _RebalanceSpy.buy_fills = []
+        _RebalanceSpy.sell_fills = []
+        engine.run(_RebalanceSpy, dict(_SMALL_MOMENTUM), {"HIGH.SH": high, "LOW.SH": low})
+        plain = {sym for sym, _ in _RebalanceSpy.buy_fills}
+
+        _RebalanceSpy.buy_fills = []
+        _RebalanceSpy.sell_fills = []
+        engine.run(
+            _RebalanceSpy,
+            dict(_SMALL_MOMENTUM, vol_adjusted=True),
+            {"HIGH.SH": high, "LOW.SH": low},
+        )
+        adjusted = {sym for sym, _ in _RebalanceSpy.buy_fills}
+
+        assert plain == {"HIGH.SH"}
+        assert adjusted == {"LOW.SH"}
+
+    def test_stop_loss_exits_before_rebalance(self):
+        """止损带：暴跌日为周中，止损应在下周调仓日前离场
+
+        数据从周二起（bar1=周二），bar76=周二暴跌 -20%（较入场均价约 -12%）；
+        下一个调仓日（周一 bar81）在数据外。
+        无止损 → 持仓到期末，total_trades=0；
+        有止损(-8%) → 周三 bar77 开盘平仓，total_trades=1。
+        """
+        rets = [0.005] * 30 + [0.0005] * 45 + [-0.20] + [0.0005] * 3
+        bars = _make_shaped_bars(rets, start="2024-01-02")  # 2024-01-02 是周二
+        cfg = _make_config(200000.0)
+        engine = BacktestEngine(cfg, logger=logging.getLogger("test"))
+
+        result_plain = engine.run(ETFMomentum, dict(_SMALL_MOMENTUM), {"UP.SH": bars})
+        assert result_plain.total_trades == 0  # 一直持有未平仓
+
+        _RebalanceSpy.buy_fills = []
+        _RebalanceSpy.sell_fills = []
+        result_stop = engine.run(
+            _RebalanceSpy,
+            dict(_SMALL_MOMENTUM, stop_loss_pct=-0.08),
+            {"UP.SH": bars},
+        )
+        assert result_stop.total_trades == 1
+        sell_dates = [d for sym, d in _RebalanceSpy.sell_fills if sym == "UP.SH"]
+        crash_next = bars["date"].iloc[76]  # 暴跌次日（bar77）
+        for d in sell_dates:
+            assert pd.Timestamp(d) <= pd.Timestamp(crash_next)
+
+    def test_defensive_rotation_when_no_candidates(self):
+        """防御轮动：风险动量失效后全仓切换到防御资产
+
+        注：回测初期（动量窗口未满）候选为空也会先持防御，
+        断言聚焦轮动语义——风险清仓后防御再次被买入。
+        """
+        risk = _make_shaped_bars([0.005] * 60 + [-0.003] * 20)
+        defensive = _make_shaped_bars([0.0001] * 80)
+        cfg = _make_config(200000.0)
+        engine = BacktestEngine(cfg, logger=logging.getLogger("test"))
+
+        _RebalanceSpy.buy_fills = []
+        _RebalanceSpy.sell_fills = []
+        engine.run(
+            _RebalanceSpy,
+            dict(_SMALL_MOMENTUM, defensive="511010.SH"),
+            {"510300.SH": risk, "511010.SH": defensive},
+        )
+        bought = {sym for sym, _ in _RebalanceSpy.buy_fills}
+
+        assert "510300.SH" in bought   # 持有过风险资产
+        assert "511010.SH" in bought   # 持有过防御资产
+        # 轮动时序：最后一次防御买入晚于最后一次风险卖出（风险→防御切换）
+        last_def = max(d for sym, d in _RebalanceSpy.buy_fills if sym == "511010.SH")
+        risk_sells = [d for sym, d in _RebalanceSpy.sell_fills if sym == "510300.SH"]
+        assert risk_sells, "风险资产从未被卖出"
+        assert pd.Timestamp(last_def) > pd.Timestamp(max(risk_sells))
+
+    def test_defensive_excluded_from_momentum_ranking(self):
+        """防御资产不参与动量排序：即使动量弱也能被轮动持有"""
+        # 防御资产走平（动量 0，若参与排序会被绝对动量排除）
+        defensive = _make_shaped_bars([0.0] * 80)
+        risk = _make_shaped_bars([0.005] * 40 + [-0.004] * 40)
+        cfg = _make_config()
+        engine = BacktestEngine(cfg, logger=logging.getLogger("test"))
+
+        _RebalanceSpy.buy_fills = []
+        _RebalanceSpy.sell_fills = []
+        engine.run(
+            _RebalanceSpy,
+            dict(_SMALL_MOMENTUM, defensive="511010.SH"),
+            {"510300.SH": risk, "511010.SH": defensive},
+        )
+        bought = {sym for sym, _ in _RebalanceSpy.buy_fills}
+        assert "511010.SH" in bought

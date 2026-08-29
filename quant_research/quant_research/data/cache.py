@@ -67,6 +67,16 @@ class ParquetCache:
         df["date"] = pd.to_datetime(df["date"])
         start_dt = pd.Timestamp(start)
         end_dt = pd.Timestamp(end)
+
+        # 覆盖校验：缓存区间必须覆盖请求区间（容差 10 天，容纳春节等长假
+        # 与数据源延迟），否则视为 miss 让上层重新下载。避免"请求 2013、
+        # 返回 2015 起切片"的静默截断（预热期/增量更新场景）。
+        tolerance = pd.Timedelta(days=10)
+        if df["date"].iloc[0] > start_dt + tolerance:
+            return None
+        if df["date"].iloc[-1] < end_dt - tolerance:
+            return None
+
         sliced = df[(df["date"] >= start_dt) & (df["date"] <= end_dt)]
         return sliced.reset_index(drop=True) if len(sliced) > 0 else sliced
 

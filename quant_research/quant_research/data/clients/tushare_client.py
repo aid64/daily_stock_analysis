@@ -39,6 +39,20 @@ def _to_ts_code(symbol: str) -> str:
     return s
 
 
+def _detect_asset(symbol: str) -> str:
+    """按代码前缀检测资产类型（pro_bar 的 asset 参数）
+
+    ETF 默认 asset='E'（股票）查不到数据，必须传 'FD'（场内基金）：
+    51x/56x/58x.SH、15x.SZ 为场内基金代码段。
+    """
+    code = _to_ts_code(symbol).split(".", 1)[0]
+    if code.startswith(("51", "56", "58")) or (
+        len(code) == 6 and code.startswith("15")
+    ):
+        return "FD"
+    return "E"
+
+
 class TushareClient(AbstractDataClient):
     name = "tushare"
 
@@ -94,6 +108,7 @@ class TushareClient(AbstractDataClient):
                 start_date=start.replace("-", ""),
                 end_date=end.replace("-", ""),
                 adj=adj,
+                asset=_detect_asset(symbol),
             )
         except Exception as e:
             msg = str(e).lower()
@@ -113,6 +128,38 @@ class TushareClient(AbstractDataClient):
                 "vol": "volume",
                 # open/high/low/close/amount 已同名
             },
+        )
+
+    def get_convertible_bond_daily(
+        self,
+        symbol: str,
+        start: str,
+        end: str,
+    ) -> pd.DataFrame:
+        """可转债日线（Tushare cb_daily，需 5000+ 积分）"""
+        ts_code = _to_ts_code(symbol)
+        self._throttle()
+        try:
+            df = self._pro.cb_daily(
+                ts_code=ts_code,
+                start_date=start.replace("-", ""),
+                end_date=end.replace("-", ""),
+            )
+        except Exception as e:
+            msg = str(e).lower()
+            if "limit" in msg or "rate" in msg or "freq" in msg:
+                raise RateLimitError(f"Tushare 限流: {e}") from e
+            raise DataClientError(
+                f"Tushare cb_daily 失败 ({ts_code}): {e}"
+            ) from e
+
+        if df is None or len(df) == 0:
+            return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume", "amount"])
+
+        # cb_daily 列：ts_code/trade_date/pre_close/open/high/low/close/change/pct_chg/vol/amount
+        return normalize_ohlc(
+            df,
+            rename_map={"trade_date": "date", "vol": "volume"},
         )
 
     def get_stock_basic(self) -> pd.DataFrame:

@@ -41,13 +41,21 @@ class TestParquetCache:
         cache = ParquetCache(tmp_cache_dir)
         cache.put_bars("600519.SH", sample_bars_df, "hfq")
 
-        # 部分范围
+        # 部分范围（缓存完整覆盖请求区间）
         result = cache.get_bars("600519.SH", "2024-01-02", "2024-01-03", "hfq")
         assert len(result) == 2
 
-        # 范围外
+        # 请求终点超出缓存覆盖（增量更新场景）→ miss 触发重新下载
         result = cache.get_bars("600519.SH", "2024-02-01", "2024-02-28", "hfq")
-        assert len(result) == 0
+        assert result is None
+
+    def test_start_not_covered_returns_none(self, tmp_cache_dir: Path, sample_bars_df):
+        """请求起点早于缓存起点（预热期场景）→ miss，防止静默截断"""
+        cache = ParquetCache(tmp_cache_dir)
+        cache.put_bars("600519.SH", sample_bars_df, "hfq")
+
+        result = cache.get_bars("600519.SH", "2023-11-01", "2024-01-03", "hfq")
+        assert result is None
 
     def test_incremental_merge(self, tmp_cache_dir: Path, sample_bars_df):
         cache = ParquetCache(tmp_cache_dir)

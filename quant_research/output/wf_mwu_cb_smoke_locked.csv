@@ -1,0 +1,2 @@
+﻿fold,train_start,train_end,test_start,test_end,top_n,max_premium,train_score,train_annual_return,test_annual_return,test_max_drawdown,test_total_return,test_turnover,strategy,snapshot,snapshot_sha256,pit_sha256,cb_feeds_sha256
+1,2024-01-01,2024-12-31,2025-01-01,2025-06-30,5,20.0,0.005133,0.016172,0.001563,0.065316,0.000725,4.217945,etf_mwu_cb,output\feeds_snapshot_v2.pkl,7a8cd2da9145a9902186986914c81920cae75e16e9f9c3fa147dd6a257e2ee11,ed87b1103c89edc80a96f322d10e14e49bddcade8ef85e13a41d5714689e85fb,146d7155c3525c1d8a8b10f809750045d801608f743d925443e6bcfd6e7bf26d

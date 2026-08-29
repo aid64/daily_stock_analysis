@@ -21,7 +21,7 @@ from typing import Optional
 from omegaconf import OmegaConf
 from dotenv import load_dotenv
 
-from .schema import AppConfig
+from .schema import AppConfig, StrategyConfig
 
 
 def get_default_config_path() -> Path:
@@ -89,3 +89,38 @@ def _setup_logging(log_cfg) -> None:
         format=log_cfg.format,
         force=True,  # 覆盖之前的配置
     )
+
+
+def get_strategy_config_path(name: str) -> Path:
+    """按策略名返回 config/strategy/<name>.yaml 路径"""
+    here = Path(__file__).resolve().parent
+    project_root = here.parent.parent
+    return project_root / "config" / "strategy" / f"{name}.yaml"
+
+
+def load_strategy_config(
+    config_path: Optional[str | Path] = None,
+    name: Optional[str] = None,
+) -> StrategyConfig:
+    """加载策略配置（universe + 参数），Pydantic 校验失败立即抛出
+
+    Args:
+        config_path: 策略 yaml 路径；与 name 二选一
+        name: 策略名，解析为 config/strategy/<name>.yaml
+
+    Raises:
+        FileNotFoundError: 配置文件不存在
+        pydantic.ValidationError: 配置校验失败
+    """
+    if config_path is None:
+        if not name:
+            raise ValueError("config_path 与 name 必须提供其一")
+        config_path = get_strategy_config_path(name)
+
+    cfg_path = Path(config_path)
+    if not cfg_path.exists():
+        raise FileNotFoundError(f"策略配置文件不存在: {cfg_path}")
+
+    raw = OmegaConf.load(cfg_path)
+    raw_dict = OmegaConf.to_container(raw, resolve=True)
+    return StrategyConfig(**raw_dict)

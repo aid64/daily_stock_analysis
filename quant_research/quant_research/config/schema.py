@@ -93,6 +93,7 @@ class StrategyConfig(BaseModel):
     max_positions: int = Field(default=5, ge=1, le=50)
     universe: Optional[list[str]] = None
     universe_source: Optional[str] = None  # dynamic 表示动态生成
+    experts: Optional[dict] = None  # P3：MWU 融合的专家配置（etf_mwu 用）
 
 
 class BacktestConfig(BaseModel):

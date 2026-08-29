@@ -14,7 +14,42 @@ from quant_research.config.schema import (
     RiskConfig,
     AdjustMethod,
 )
-from quant_research.config.loader import load_config, get_default_config_path
+from quant_research.config.loader import (
+    load_config,
+    get_default_config_path,
+    load_strategy_config,
+    get_strategy_config_path,
+)
+
+
+class TestLoadStrategyConfig:
+    def test_load_etf_momentum_yaml(self):
+        """加载仓库自带 etf_momentum.yaml：universe 与参数校验"""
+        cfg = load_strategy_config(name="etf_momentum")
+        assert cfg.name == "etf_momentum"
+        assert len(cfg.universe or []) == 17  # 12 宽基/行业 + 4 风格/避险/停靠 + 511010 防御资产
+        assert cfg.params["defensive"] == "511010.SH"
+        assert cfg.params["lookback"] == 60
+        assert cfg.params["top_k"] == 3
+        assert cfg.params["ma_filter"] == 250
+        assert cfg.params["min_volume"] == 1_000_000
+        assert cfg.rebalance_freq == "W"
+        assert cfg.max_positions == 3
+
+    def test_load_by_explicit_path(self):
+        path = get_strategy_config_path("etf_momentum")
+        assert path.exists()
+        cfg = load_strategy_config(path)
+        assert cfg.name == "etf_momentum"
+
+    def test_missing_file_raises(self):
+        from pathlib import Path as _P
+        with pytest.raises(FileNotFoundError):
+            load_strategy_config(_P("config/strategy/__not_exist__.yaml"))
+
+    def test_name_and_path_both_missing_raises(self):
+        with pytest.raises(ValueError):
+            load_strategy_config()
 
 
 class TestSchema:

@@ -1,0 +1,55 @@
+# ETF MWU + 可转债双低专家 组合配置 —— 月频基线副本
+# 与 etf_mwu_cb.yaml 唯一差异：rebalance_freq: M
+# 依据 6.2.6 实证：1 万本金下周频换手 22x、6.6 年累计 -38.5%；
+# 月频换手 12x、长期打平（+0.18%）。小资金月频是基线。
+# 回测：py scripts/run_backtest.py --strategy etf_mwu_cb \
+#   --strategy-config config/strategy/etf_mwu_cb_monthly.yaml \
+#   --pit-snapshots data/pit/convertible_pit.parquet --start 2020-01-01
+
+name: etf_mwu_cb
+params:
+  eta: 0.1
+  loss_scale: 0.05
+  stop_loss_pct: null
+  defensive: 511010.SH
+  defensive_lot_size: 10
+  lot_size: 100
+rebalance_freq: M
+
+experts:
+  momentum:
+    lookback: 60
+    top_k: 3
+    ma_filter: 250
+  mean_reversion:
+    rsi_period: 2
+    rsi_buy: 30
+    ma_filter: 200
+    top_k: 3
+  convertible_double_low:
+    candidate_pool: 15
+    top_n: 5
+    min_rating: "AA-"
+    max_premium: 20.0
+    exclude_new_days: 30
+    # v2 生命周期/强赎风险过滤（B1，2026-08-18；仅 PIT 模式生效）
+    max_conv_value: 135.0        # 转股价值上限（=价格/(1+溢价率)，防强赎风险区）
+    min_maturity_days: 365       # 剩余期限下限（回避临期 1 年内）
+    min_candidates: 15           # 池规模下限（P2：top_n×3 结构值，池萎缩时专家让位现金）
+  defensive:
+    symbol: 511010.SH
+
+universe:
+  - 510300.SH
+  - 510500.SH
+  - 159915.SZ
+  - 512100.SH
+  - 588000.SH
+  - 510050.SH
+  - 512880.SH
+  - 515790.SH
+  - 515030.SH
+  - 512480.SH
+  - 515170.SH
+  - 512010.SH
+  - 511010.SH

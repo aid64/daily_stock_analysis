@@ -15,7 +15,7 @@ from .schema import (
     NotifyConfig,
     LoggingConfig,
 )
-from .loader import load_config, get_default_config_path
+from .loader import load_config, get_default_config_path, load_strategy_config, get_strategy_config_path
 
 __all__ = [
     "AppConfig",
@@ -28,4 +28,6 @@ __all__ = [
     "LoggingConfig",
     "load_config",
     "get_default_config_path",
+    "load_strategy_config",
+    "get_strategy_config_path",
 ]
