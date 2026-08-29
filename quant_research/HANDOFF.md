@@ -187,15 +187,18 @@
 - 执行通道结论：XTBroker（xtquant/miniQMT）设计与坑清单已固化于方案文档；官方 vnpy_xt 仅行情不下单；月频用"进程退出式"（调仓日拉起跑完即退）而非常驻执行引擎。
 - 反过度工程护栏：每步重构必须对应一个已核实痛点；重构期间不改策略行为，P 线（研究结论）与 R 线（工程可信度）分线推进。
 
-### 4.3 重构执行记录（2026-08-29，R1-R4 已完成，R5 待续）
+### 4.3 重构执行记录（2026-08-29，R1-R5 六层蓝图全部完成）
 
 - 工作树先以 4 个逻辑提交锚定基线（治理/主项目监控/quant_research 研究状态/调研产物），用户已授权提交。
 - **R1a（4cc0dc8a，行为保持）**：`core/` 包（MarketView 协议 + MWUCore 唯一融合实现），适配方向反转，专家不再消费 backtrader line；修复 `run_live.py` dict/tuple 解包崩溃 bug。等价性对拍：合成回测净值与 40 步实盘权重轨迹逐位一致（`.scratch/r1_equiv_*.json`）。
 - **R1b（ec9d9199，吸收 P0-1）**：loss 映射改为线性 ℓ=(1-ρ)/2，空选=现金 r=0（ℓ=0.5）；MWU+CB t5p20 8 折 OOS -0.89%→-0.50%（定性结论不变，不接实盘）；ETF 动量路线逐折 delta=0（不经 MWU 层）。
 - **R2（e3140b5d）**：`core/rules.py` RuleBook（品种×日期→费率/涨跌停/T+1，含印花税减半/创业板注册制/创业板科创板 ETF ±20%/转债 ±20% 历史口径）；TPlus1Broker 升级为提交路径强制闸（此前涨跌停/T+1 规则从未实际生效）；过户费修正 0.001%。闸影响：ETF WF 3/8 折不变、OOS +17.2%→+14.7%（不可能成交被剔除）；CB WF 7/8 折不变、OOS -0.50%→+1.94%。
 - **R3（05534b30）**：`quant_research/runner.py` 吸收两脚本的参数表/网格解析/warmup/切片/折切分/锁参准则/键路由（单一来源）；WF 重跑输出与重构前逐字节一致。
-- **R4（082cf2b8）**：`core/experiments.py` 实验注册（run_id 目录 + index.jsonl，试验数 N 机器可追溯，供 P0-2 DSR）；已接入 run_backtest/run_grid/run_walk_forward。
-- 测试 178→**223 项全过**。**R5 待续**：panel 截面接口 + 因子注册 + IC 评估 + 转债回测两段式（废除 precompute 候选并集）；完成后可开工 P0-2 PBO/DSR 与 P1-1 温度计门控（P1-1 其实不依赖 R5，随时可做）。
+- **R4（082cf2b8）**：`core/experiments.py` 实验注册（run_id 目录 + index.jsonl，试验数 N 机器可追溯，供 P0-2 DSR）；已接入 run_backtest/run_grid/run_walk_forward/run_cb_backtest。
+- **R5（c01a9836）**：`core/panel.py`（PIT→date×symbol 矩阵 + 静态字段广播 + forward_returns）、`core/factors.py`（装饰器注册因子 + RankIC/IC 评估）、`backtest/two_stage.py`（第一段 PIT 全量池矩阵选债 `compute_cb_target_weights` 与 PIT 专家共用 `pit_snapshot_picks` 单一过滤链；第二段 `WeightTargetStrategy` 只为被选券建 feed 执行模拟；**precompute_cb_union 废除**）；执行 mixin 自 ETFMWU 抽取（TargetWeightExecutionMixin）。过程中修复两个真 bug：①目标外 1 手持仓因超额取整永远无法卖出（改整仓退出）；②退市券 NaN 估值塌方（PIT 合成 feed 前向填充）。
+- **两段式新基线**（转债双低月频 v2，2020-2026，1 万本金，收盘价近似口径）：+15.28%/6.6 年（年化 +1.85%）、回撤 25.30%、190 笔、换手 52.12x——不可与旧 MWU 组合基线逐位对比，独立基线。
+- **因子 IC 报告**（`output/cb_factor_ic_report.csv`）：双低因子 RankIC -0.05~-0.06、|t| 12.8-16.6（远超 HLZ t>3）且周期越长越强——横截面预测力统计显著；单独 premium_rate 不显著。IC 显著 ≠ 成本后可交易（52x 换手已证明费用吞掉毛 alpha）。
+- 测试 178→**237 项全过**。**下一步**：P0-2 PBO/CSCV/DSR（R4 试验数 N 已就绪；对现有 WF 收益矩阵跑 CSCV S=16 枚举 + DSR + HLZ 门槛）；P1-1 温度计门控（不依赖重构，随时可做，PIT 面板可直接算双低中位数）。
 
 ## 5. 快速恢复（新环境/新会话）
 
