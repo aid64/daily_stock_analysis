@@ -68,8 +68,8 @@ class TestAShareCommission:
         fee = comm._getcommission(size=100, price=100.0, pseudoexec=False)
         # 佣金 = max(10000 * 0.0001, 5) = max(1, 5) = 5
         # 印花税 = 0（买入）
-        # 过户费 = 10000 * 0.00002 = 0.2
-        assert fee == pytest.approx(5 + 0.2, rel=0.001)
+        # 过户费 = 10000 * 0.00001 = 0.1（2022-07 降费后 0.001%）
+        assert fee == pytest.approx(5 + 0.1, rel=0.001)
 
     def test_sell_commission_with_stamp_duty(self):
         """卖出佣金 = 佣金 + 印花税 + 过户费"""
@@ -78,8 +78,8 @@ class TestAShareCommission:
         fee = comm._getcommission(size=-100, price=100.0, pseudoexec=False)
         # 佣金 = max(10000 * 0.0001, 5) = 5
         # 印花税 = 10000 * 0.0005 = 5
-        # 过户费 = 10000 * 0.00002 = 0.2
-        assert fee == pytest.approx(5 + 5 + 0.2, rel=0.001)
+        # 过户费 = 10000 * 0.00001 = 0.1
+        assert fee == pytest.approx(5 + 5 + 0.1, rel=0.001)
 
     def test_min_commission_applied(self):
         """小额交易触发最低佣金 5 元"""
@@ -87,8 +87,8 @@ class TestAShareCommission:
         # 买入 10 股 @ 10 元 = 100 元
         fee = comm._getcommission(size=10, price=10.0, pseudoexec=False)
         # 佣金 = max(100 * 0.0001, 5) = max(0.01, 5) = 5
-        # 过户费 = 100 * 0.00002 = 0.002
-        assert fee == pytest.approx(5 + 0.002, rel=0.001)
+        # 过户费 = 100 * 0.00001 = 0.001
+        assert fee == pytest.approx(5 + 0.001, rel=0.001)
 
     def test_large_trade_no_min_cap(self):
         """大额交易佣金按比例计算，不受最低佣金影响"""
@@ -96,8 +96,8 @@ class TestAShareCommission:
         # 买入 1000 股 @ 100 元 = 100000 元
         fee = comm._getcommission(size=1000, price=100.0, pseudoexec=False)
         # 佣金 = max(100000 * 0.0001, 5) = 10
-        # 过户费 = 100000 * 0.00002 = 2
-        assert fee == pytest.approx(10 + 2, rel=0.001)
+        # 过户费 = 100000 * 0.00001 = 1（2022-07 降费后 0.001%）
+        assert fee == pytest.approx(10 + 1, rel=0.001)
         assert fee > 5.0  # 超过最低佣金
 
     def test_custom_rates(self):
@@ -519,12 +519,14 @@ class TestETFMomentumP2:
     def test_stop_loss_exits_before_rebalance(self):
         """止损带：暴跌日为周中，止损应在下周调仓日前离场
 
-        数据从周二起（bar1=周二），bar76=周二暴跌 -20%（较入场均价约 -12%）；
-        下一个调仓日（周一 bar81）在数据外。
+        数据从周二起。bar75-76 连续两日 -9%（周二/周三，单日均未触及
+        主板 -10% 跌停——R2 broker 强制闸会拒单跌停日卖出，场景须保持
+        物理可行；累计约 -17% 使价格跌破入场均价 -8% 止损线，bar76
+        收盘触发）。调仓日均为周一，暴跌周内无调仓。
         无止损 → 持仓到期末，total_trades=0；
-        有止损(-8%) → 周三 bar77 开盘平仓，total_trades=1。
+        有止损(-8%) → bar77 开盘平仓，total_trades=1。
         """
-        rets = [0.005] * 30 + [0.0005] * 45 + [-0.20] + [0.0005] * 3
+        rets = [0.005] * 30 + [0.0005] * 45 + [-0.095, -0.095] + [0.0005] * 2
         bars = _make_shaped_bars(rets, start="2024-01-02")  # 2024-01-02 是周二
         cfg = _make_config(200000.0)
         engine = BacktestEngine(cfg, logger=logging.getLogger("test"))
@@ -541,7 +543,7 @@ class TestETFMomentumP2:
         )
         assert result_stop.total_trades == 1
         sell_dates = [d for sym, d in _RebalanceSpy.sell_fills if sym == "UP.SH"]
-        crash_next = bars["date"].iloc[76]  # 暴跌次日（bar77）
+        crash_next = bars["date"].iloc[77]  # 止损触发次日（bar77）
         for d in sell_dates:
             assert pd.Timestamp(d) <= pd.Timestamp(crash_next)
 

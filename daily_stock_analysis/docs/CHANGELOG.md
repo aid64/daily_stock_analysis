@@ -89,6 +89,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [改进] 可转债 PIT 覆盖率报告增加原始采集缺失分类和每只有效数据的首末观测日期，避免将数据缺口误判为退市或到期。
 - [新功能] 新增 ETF 动量滚动 Walk-Forward 验证入口：每折只用训练窗选参并锁定后运行测试窗，输出冻结快照 SHA-256 与逐折样本外指标。
 - [测试] quant_research 全量 170 项通过，覆盖 PIT 原始采集审计和滚动 Walk-Forward 参数锁定。
+- [文档] 2026-08-28 广域调研（知乎 API 12 组 + 论文 + GitHub + 社区实盘）：确认 MWU regret 界为相对保证、2025-2026 转债存量坍缩至 5578 亿/双低中位数 >170 高估（fold 8 失败为周期尾段 regime 现象）、PBO/CSCV/DSR 可从现有 WF 数据近零成本升级；产出改进计划 P0-P3（.scratch/quant-improvement-plan-20260828.md）。
+- [文档] 2026-08-29 架构调研与彻底重构方案：六框架深读（qlib/rqalpha/vnpy/vectorbt/LEAN/Nautilus）+ 平台 API 与 xtquant 实盘通道；定稿六层蓝图与 R1-R5 渐进迁移路径（.scratch/quant-refactor-plan-20260829.md）。
+- [新功能] quant_research 新增 core 包：MarketView/BarSeries 数据视图协议（适配方向反转，协议真源不再模仿 backtrader line）与 MWUCore 融合核（回测 ETFMWU 与实盘 LiveMWU 共用唯一权重更新实现）；合成数据等价性对拍逐位一致。
+- [新功能] quant_research 新增 RuleBook 交易规则表（core/rules.py）：品种 × 日期 → 费率/涨跌停/T+1 查表，含印花税 2023-08-28 减半、创业板 2020-08-24 注册制 10%→20%、创业板/科创板 ETF ±20%、转债 2022-08-01 起 ±20% 等历史口径。
+- [改进] TPlus1Broker 升级为执行路径强制闸：涨停不可买/跌停不可卖/T+1 品种当日买入不可卖出在 broker 提交路径拒单（此前为被动组件且无策略调用，规则实际未生效）；买入成交日期由 broker 自动记录。
+- [改进] MWU loss 映射修正为理论一致的线性映射（ρ=clip(r/scale,-1,1)，ℓ=(1-ρ)/2），空选专家按现金收益 r=0（ℓ=0.5）参与更新，消除"盈利冻结权重/空选豁免"的语义漏洞（P0-1）；MWU+CB 路线 t5p20 8 折 OOS 由 -0.89% 变为 -0.50%，定性结论不变（不接实盘）；ETF 动量路线不经过 MWU 层、逐折无影响。
+- [修复] run_live.py `_load_price_window` 返回 dict 与 LiveMWU.update 的 tuple 解包契约不匹配（paper 模式必崩），统一为 {symbol: (closes, amounts)}。
+- [改进] 过户费默认值修正为 2022-07 降费后口径 0.001%（原 0.002%）；止损测试场景改用物理可行的 -9.5%×2 连续暴跌（原 -20% 单日超出主板跌停，在强制闸下不成立）。
+- [测试] quant_research 全量 218 项通过（新增 MWUCore 算术/RuleBook 查表等 27 项，支撑后续 R3-R5 重构与 P1 策略实验）。
 
 ## [3.30.0] - 2026-08-09
 
