@@ -204,8 +204,8 @@ class ETFMWU(bt.Strategy):
 
     params = (
         ("experts", None),            # [Expert, ...]，至少 2 个
-        ("eta", 0.1),                 # MWU 学习率 η ∈ (0, 1)
-        ("loss_scale", 0.05),         # 专家单期亏损 5% → loss = 1
+        ("eta", 0.1),                 # MWU 学习率 η ∈ (0, 1]
+        ("loss_scale", 0.05),         # 满量程单期收益：±5% → loss 1/0（R1b 线性映射）
         ("share_alpha", 0.02),        # Fixed Share 回拉系数：每期向均匀
                                       # 分布回拉 α/N。标准 MWU 只惩罚不奖励，
                                       # 专家权重被长期熊市压到 0 后，即使后续

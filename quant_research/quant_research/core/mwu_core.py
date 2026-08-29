@@ -12,9 +12,17 @@ regret 界是相对保证（追平事后最优专家），融合层不创造 alp
 专家自身的样本外边际才是全部。
 
 更新规则（每调仓周期）：
-1. 乘性更新：专家上期建议组合的纸面收益 r_i，
-   l_i = clip(-r_i / loss_scale, 0, 1)；w_i ← w_i · (1 - η·l_i)
-   （R1b 将把该单边 loss 映射修正为理论一致的线性映射，见 git 历史）
+1. 乘性更新：专家上期建议组合的纸面收益 r_i 线性映射到 [0,1] 的 loss：
+   ρ = clip(r_i / loss_scale, -1, 1)，l_i = (1 - ρ) / 2；
+   w_i ← w_i · (1 - η·l_i)
+   （R1b，2026-08-29：原实现 clip(-r/scale, 0, 1) 把盈利截为 0，等价于
+   "只在亏损时学习、盈利时冻结权重"，且 comparator（最优专家）面对的是
+   未截断的真实收益——违反 Hedge/EG 理论对 loss 序列的假设
+   （PRIMARY_SOURCE_RESEARCH.md 第 3 节）。线性映射后盈利降低 loss、
+   亏损抬高 loss，learner 与 comparator 面对同一 loss 序列，与理论可比。
+   loss_scale 语义相应变为"满量程单期收益"：±loss_scale → loss 0/1，
+   0 收益 → loss 0.5。注意：修改后 η 的有效强度与旧版不同，历史参数
+   （eta=0.1/loss_scale=0.05）在新映射下含义见配置注释。）
 2. Fixed Share 回拉（Herbster & Warmuth 1998）：w_i ← (1-α)·ŵ_i + α/N，
    ŵ 为权重下限截断后的归一化。标准 MWU 只惩罚不奖励，专家权重被
    长期熊市压到 0 后即使后续表现最优也无法恢复（A 股 2015 股灾 →
@@ -51,7 +59,13 @@ class MWUCore:
         self._weights: dict[str, float] = {name: 1.0 / n for name in names}
         self._eta = float(eta)
         self._loss_scale = float(loss_scale)
+        if self._loss_scale <= 0:
+            raise ValueError(f"loss_scale 必须为正，得到 {loss_scale}")
+        if not (0.0 < self._eta <= 1.0):
+            raise ValueError(f"eta 必须在 (0, 1]，得到 {eta}")
         self._share_mass = float(share_alpha) / n
+        if not (0.0 <= float(share_alpha) < 1.0):
+            raise ValueError(f"share_alpha 必须在 [0, 1)，得到 {share_alpha}")
         # 上期各专家建议 {expert_name: {symbol: 选取时价格}}
         self._last_picks: dict[str, dict[str, float]] = {}
 
@@ -73,25 +87,31 @@ class MWUCore:
         """用当前价格结算上期建议的纸面收益，执行乘性更新 + Fixed Share 回拉
 
         prices = {symbol: 当前价}。非有限/非正价格或缺失标的的收益项
-        跳过；某专家全部收益项无效时按现金收益 0 处理。
+        跳过；有建议但全部收益项无效、以及无建议（空选）的专家一律按
+        现金收益 r=0（ℓ=0.5 中性）处理——所有专家每期都参与同一
+        [0,1] loss 序列，"建议空仓"不构成特权无损失状态（R1b）。
         """
         eta = self._eta
         scale = self._loss_scale
         for name in self._names:
             prev = self._last_picks.get(name)
-            if not prev:
-                continue
             rets = []
-            for sym, base in prev.items():
-                price = prices.get(sym)
-                if price is None or base <= 0:
-                    continue
-                price = float(price)
-                if not np.isfinite(price) or price <= 0:
-                    continue
-                rets.append(price / base - 1.0)
+            if prev:
+                for sym, base in prev.items():
+                    price = prices.get(sym)
+                    if price is None or base <= 0:
+                        continue
+                    price = float(price)
+                    if not np.isfinite(price) or price <= 0:
+                        continue
+                    rets.append(price / base - 1.0)
+            # 无建议（空选）= 现金收益 r=0（R1b：与 ETFMWU 文档历史声明一致，
+            # 也消除"建议空仓"成为特权无损失状态的语义漏洞——线性映射下
+            # 所有专家每期都面对同一 [0,1] loss 序列，comparator 论证才成立）
             r = float(np.mean(rets)) if rets else 0.0
-            loss = min(max(-r / scale, 0.0), 1.0)
+            # 线性映射（R1b）：ρ=clip(r/scale,-1,1)，ℓ=(1-ρ)/2 ∈ [0,1]
+            rho = min(max(r / scale, -1.0), 1.0)
+            loss = (1.0 - rho) / 2.0
             self._weights[name] = self._weights[name] * (1.0 - eta * loss)
 
         self._fixed_share_pullback()

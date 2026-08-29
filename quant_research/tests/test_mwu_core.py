@@ -31,45 +31,57 @@ class TestProtocol:
 
 
 class TestUpdateWeights:
-    def test_losing_expert_shrinks_no_share_alpha(self):
+    def test_losing_expert_shrinks_relative_to_cash_expert(self):
+        """亏损专家 ℓ=1；空选专家=现金 r=0 → ℓ=0.5 → 亏损者相对权重下降"""
         core = _core(eta=0.3, loss_scale=0.05, share_alpha=0.0)
-        # 专家 a 上期建议价格 100 的标的，当前跌到 95 → r=-5% → loss=1
+        # 专家 a 上期建议价格 100 的标的，当前跌到 95 → r=-5% → ρ=-1 → ℓ=1
         core.record_picks({"a": {"X": 100.0}, "b": {}}, {"X": 100.0})
         core.update_weights({"X": 95.0})
-        expected_a = 0.5 * (1.0 - 0.3 * 1.0)
-        assert core.weights["a"] == pytest.approx(expected_a / (expected_a + 0.5))
-        # 权重和恒为 1（Fixed Share α=0 时归一化保持）
+        w_a = 0.5 * (1.0 - 0.3 * 1.0)     # 0.35
+        w_b = 0.5 * (1.0 - 0.3 * 0.5)     # 0.425（现金中性）
+        assert core.weights["a"] == pytest.approx(w_a / (w_a + w_b))
         assert sum(core.weights.values()) == pytest.approx(1.0)
 
-    def test_gain_does_not_shrink_under_single_sided_mapping(self):
-        """当前 clip 映射：盈利（r>0）loss=0，权重不被惩罚（R1b 将修正）"""
+    def test_gain_relatively_rewards_expert(self):
+        """线性映射：盈利专家 ℓ<0.5，相对零收益专家权重上升（R1b 修正的核心行为）"""
         core = _core(eta=0.3, loss_scale=0.05, share_alpha=0.0)
-        core.record_picks({"a": {"X": 100.0}, "b": {}}, {"X": 100.0})
-        core.update_weights({"X": 105.0})
-        assert core.weights["a"] == pytest.approx(0.5)
+        # 两位专家都有建议：a 盈利 +5%（ℓ=0），b 零收益（ℓ=0.5）
+        core.record_picks({"a": {"X": 100.0}, "b": {"Y": 100.0}}, {"X": 100.0, "Y": 100.0})
+        core.update_weights({"X": 105.0, "Y": 100.0})
+        w_a = 0.5                          # ℓ=0，不缩
+        w_b = 0.5 * (1.0 - 0.3 * 0.5)      # 0.425
+        assert core.weights["a"] == pytest.approx(w_a / (w_a + w_b))
+        assert core.weights["a"] > 0.5
 
-    def test_missing_price_treated_as_cash_return(self):
-        """标的缺失 → 收益项跳过；全空 → r=0 → loss=0 → 权重不变（α=0）"""
+    def test_loss_mapping_boundaries(self):
+        """±超界收益截断到 ℓ=0/1；权重下限截断防归零"""
+        core = _core(eta=1.0, loss_scale=0.05, share_alpha=0.0)
+        core.record_picks({"a": {"X": 100.0}, "b": {"Y": 100.0}}, {"X": 100.0, "Y": 100.0})
+        core.update_weights({"X": 130.0, "Y": 50.0})  # a 暴赚 ℓ=0；b 暴亏 ℓ=1
+        assert core.weights["a"] == pytest.approx(1.0, abs=1e-5)
+        assert core.weights["b"] == pytest.approx(0.0, abs=1e-5)
+
+    def test_picking_expert_with_all_invalid_returns_is_neutral(self):
+        """收益项全部无效（缺失/NaN/非正）与空选同待遇：r=0 → ℓ=0.5，两专家同缩"""
         core = _core(share_alpha=0.0)
         core.record_picks({"a": {"MISSING": 100.0}, "b": {}}, {"MISSING": 100.0})
         core.update_weights({})
-        assert core.weights == {"a": pytest.approx(0.5), "b": pytest.approx(0.5)}
+        assert core.weights["a"] == pytest.approx(0.5)
+        assert core.weights["b"] == pytest.approx(0.5)
 
     def test_nan_and_nonpositive_prices_skipped(self):
         core = _core(share_alpha=0.0)
         core.record_picks({"a": {"X": 100.0, "Y": 100.0}, "b": {}}, {"X": 100.0, "Y": 100.0})
-        # X 暴跌有效收益项；Y 为 NaN/0 → 跳过
+        # X 暴跌有效收益项；Y 为 NaN → 跳过
         core.update_weights({"X": 80.0, "Y": float("nan")})
-        # r = mean([-0.2]) = -0.2 → loss = min(0.2/0.05, 1) = 1
-        expected_a = 0.5 * (1.0 - 0.3)
-        assert core.weights["a"] == pytest.approx(expected_a / (expected_a + 0.5))
+        w_a = 0.5 * (1.0 - 0.3 * 1.0)      # r=-0.2 → ρ 截断 -1 → ℓ=1
+        w_b = 0.5 * (1.0 - 0.3 * 0.5)      # 空选 → 现金中性
+        assert core.weights["a"] == pytest.approx(w_a / (w_a + w_b))
+        # 非正价格 → 收益项跳过 → 与空选同为 r=0 → 两专家同缩 → 份额不变
+        share_before = core.weights["a"]
         core.record_picks({"a": {"X": 100.0}, "b": {}}, {"X": 100.0})
-        core.update_weights({"X": 0.0})  # 非正价格 → 跳过 → r=0
-        assert core.weights["a"] == pytest.approx(
-            (expected_a / (expected_a + 0.5)) * 1.0 / (
-                (expected_a / (expected_a + 0.5)) + (0.5 / (expected_a + 0.5))
-            )
-        )
+        core.update_weights({"X": 0.0})
+        assert core.weights["a"] == pytest.approx(share_before)
 
     def test_fixed_share_pullback_keeps_weights_alive(self):
         """α>0：被压死的专家每期仍获得 share_mass=α/N 的回拉质量，不锁死到 0"""

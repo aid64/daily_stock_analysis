@@ -275,9 +275,14 @@ _SMALL_EXPERTS = {
 
 
 class _MWUSpy(ETFMWU):
-    """期末权重记录探针"""
+    """权重轨迹探针：每根 bar 记录专家权重，期末归档"""
 
+    weight_history: list = []
     final_weights: dict = {}
+
+    def next(self):
+        super().next()
+        _MWUSpy.weight_history.append(dict(self._weights))
 
     def stop(self):
         _MWUSpy.final_weights = dict(self._weights)
@@ -298,7 +303,14 @@ class TestETFMWU:
         assert strategy._lot_of("510300.SH") == 100
 
     def test_momentum_loses_weight_in_crash(self):
-        """动量专家选中后暴跌 → 纸面亏损 → 权重被乘性压缩，防御相对上升"""
+        """选中暴跌标的的专家付出权重代价：期末权重低于其上涨期峰值
+
+        R1b 线性映射语义：动量在上涨周 ℓ=0（盈利降低 loss），选中崩盘
+        资产的周 ℓ=1（满惩罚），退出信号后按现金 ℓ=0.5 中性。动量的
+        净权重变化 = 上涨周收益 - 崩盘选中惩罚；本断言验证惩罚真实发生
+        （期末 < 上涨期峰值），而非旧映射下"盈利免疫/空选豁免"的
+        不对称行为。
+        """
         cfg = _make_config()
         engine = BacktestEngine(cfg, logger=logging.getLogger("test"))
         # 先涨 25 日诱多，再跌 45 日：动量专家选中 RISK 后持续纸面亏损
@@ -317,6 +329,7 @@ class TestETFMWU:
             "defensive": "DEF.SH",
             "defensive_lot_size": 10,
         }
+        _MWUSpy.weight_history = []
         result = engine.run(
             _MWUSpy,
             params,
@@ -324,9 +337,10 @@ class TestETFMWU:
         )
 
         w = _MWUSpy.final_weights
-        assert w["momentum"] < w["defensive"], (
-            f"暴跌市中动量权重应低于防御: momentum={w['momentum']:.4f} "
-            f"defensive={w['defensive']:.4f}"
+        peak_mom = max(h["momentum"] for h in _MWUSpy.weight_history)
+        assert w["momentum"] < peak_mom, (
+            f"选中崩盘资产后动量权重应低于其峰值: final={w['momentum']:.4f} "
+            f"peak={peak_mom:.4f}"
         )
         assert sum(w.values()) == pytest.approx(1.0)
         assert result.final_value > 0
