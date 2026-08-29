@@ -1,0 +1,1204 @@
+[
+ {
+  "query": "量化 回测框架 架构设计 自研",
+  "count": 6,
+  "items": [
+   {
+    "Title": "整合qlib的模型到我们的“积木式”回测框架 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "-3175598882463882638",
+    "AuthorSignature": "-3175598882463882638",
+    "ContentText": "原创文章第186篇，专注“个人成长与财富自由、世界运作的逻辑，AI量化投资\"。\n今天回归到qlib。\n我们的架构从backtrader，到自研；从传统多因子到AI quant机器学习驱动，一直在学习与进化。\n传统规则型的量化与机器学习不同。\n传统规则型就是onbar，每天去执行规则即可，所以我们有了“算子”积木式的搭建策略。\n机器学习型，需要划分训练集、测试集。在训练集在生成模型——类比就是传统里的规则，然后在测试集上回测（qlib是分了三段：train, valid, test，个人觉得，金融数据本来就少，两段就够了）。\n按qlib的架构，我们也封装dataset。dataloader加载并生成了所有因子数据。dataset对数据进行相应的标准化，预处理等，然后最主要的一个工作是划分数据集（train, test）。\n模型训练其实在回测体系之外的。我们假定模型已经训练完成。\n我同样可以整合到我们原有的“积木式”架构中。select_topK_by_ML，机器模型为当天的bar生成pred_score，按pred_score取topK进入调仓。至于仓位多少，是等权还是风险平价，与规则型的类似。\n所以，我们的model生成统一的predict界面就好，输入是day_bar的因子数据，输出是每支标的的打分pred_score即可。\nmodel从本地加载，若不存在，触发训练，使用dataset里的数据划分情况，这个时间与回测没有强关联。\nqlib使用pytorch实现了大部分前沿的模型，这里值得我们翻一翻源码。\n到底是因子重要，还是模型重要呢？",
+    "Url": "https://zhuanlan.zhihu.com/p/603582643?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 4,
+    "AuthorName": "AGI量化实验室",
+    "AuthorAvatar": "https://pica.zhimg.com/50/v2-0c40d93a5d920b1b7948104bc38fdb7f_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1675559718,
+    "AuthorityLevel": "4",
+    "RankingScore": 1.4242647
+   },
+   {
+    "Title": "重磅开源!pyrust-bt:打造一套兼顾研发效率与极致性能的开源回测框架 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "-4588908197834882257",
+    "AuthorSignature": "-4588908197834882257",
+    "ContentText": "通过 PyO3 和 maturin，我们将 Rust 核心编译成 Python 的本地扩展模块，实现了两者之间的无缝调用。对 Python 用户而言，调用 Rust 函数就像调用一个普通的 Python 包一样简单，几乎感受不到语言边界的存在。\n架构解析：一个分层解耦的现代化设计\npyrust-bt 采用分层、松耦合的设计，确保各模块职责清晰，易于维护和扩展。\n・前端 (Streamlit): 提供了一个简洁的 Web UI，用于提交回测任务、监控运行状态，并对结果（如净值曲线、核心指标）进行可视化展示。\n・API 层 (FastAPI): 作为前后端交互的桥梁，提供了一套标准的 RESTful 接口，用于管理回测任务的生命周期（创建、查询、获取结果）。\n・Python API 层: 为策略开发者提供了丰富的工具集，包括策略基类、数据加载器、多维度分析器和参数优化器（如网格搜索）。\n・Rust 引擎 (PyO3 扩展): 整个框架的“心脏”，负责执行回测的核心逻辑，包括但不限于时间序列推进、订单撮合、成本模型计算、向量化技术指标以及核心统计指标的生成。\n数据流示意:\n[数据源: CSV/Parquet] -> [Python 数据加载器] -> [Rust 回测引擎] -> [回测结果] -> [Python 分析器] -> [前端/API]\n核心功能一览：从基础到进阶，满足实战所需\npyrust-bt 不仅仅是一个简单的回测循环，它内置了大量面向实战的功能模块。\n・精细的订单与撮合模型:\n・支持市价单和限价单（简化模型：在同一根 bar 内即时撮合）。\n・内置成本模型，可配置手续费率 (commission_rate) 和滑点 (slippage_bps)。\n・实时跟踪持仓成本、已实现和未实现盈亏。\n・提供 on_order 和 on_trade 事件回调，供策略订阅和响应。\n・灵活的策略编程模型:\n・清晰的生命周期函数：on_start, next(bar), on_stop。\n・支持多种下单格式，既兼容简单的字符串命令 (\"BUY\", \"SELL\")，也支持更精细的结构化字典，以满足复杂订单需求。\n・多维度的分析器 (Analyzers):\n・收益与风险: 计算总收益、年化收益、波动率、夏普比率、Sortino 比率、Calmar 比率、5% VaR 等关键指标。\n・回撤分析: 详细剖析所有回撤段落，包括最大回撤、回撤持续时间、恢复时间等。\n・交易分析: 自动配对买卖操作，生成详细的回合交易列表，统计胜率、盈亏比、平均持仓周期等。\n・因子分析: 内置简单的因子测试工具，支持按因子值进行分位数分组，计算各组的未来收益、IC 值和单调性。\n・参数优化与前端交互:\n・内置简单的网格搜索功能，可自定义优化目标。\n・配套的 Streamlit 前端，让回测任务的管理和结果可视化变得简单直观。",
+    "Url": "https://zhuanlan.zhihu.com/p/1937213561094014008?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 1,
+    "VoteUpCount": 21,
+    "AuthorName": "QuantML",
+    "AuthorAvatar": "https://pica.zhimg.com/50/v2-519d4219ff3c7e39490c9e32b5ed83ae_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1754647740,
+    "CommentInfoList": [
+     {
+      "Content": "3个月没更新了，团队咋了"
+     }
+    ],
+    "AuthorityLevel": "4",
+    "RankingScore": 1.3826389
+   },
+   {
+    "Title": "智谱炸群了:GLM-5.1直接上线,开源第一换人 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "4608640310509644494",
+    "AuthorSignature": "4608640310509644494",
+    "ContentText": "MIT Technology Review把这条指数曲线称为”AI领域最重要的一张图”。Sequoia Capital据此在2026年初宣告”这就是AGI”，并断言：2023-2024年的AI是对话者（talker），2026-2027年的AI将成为执行者（doer）。\nGLM-5.1就是这句话最好的注脚。\n它是全球第一个在真实工程任务中验证了8小时持续工作能力的开源模型。\n官方demo有多猛：\n・• 从”写一段代码”到”交付一套系统”：8小时从零构建了一套包含窗口管理器、文件系统、网络驱动的Linux桌面操作系统，共执行1700多步，产出4.8MB配套文件，相当于一个4人团队一周的工作量。\n・• 从”跑一次测试”到”自主迭代至收敛”：178轮自主优化向量数据库，每一轮主动跑benchmark、定位瓶颈、调整策略，最终将性能提升到初始版本的1.5倍。\n・• 从”优化一行代码”到”持续突破性能极限”：14小时CUDA Kernel优化，加速比从2.6×推至35.7×，过程中自主判断放弃高层框架、转向底层C++——这个决策本身需要资深工程师级别的判断力。\n・• 甚至能参加CTF竞赛：在一个经典CTF题库（PicoCTF）里面做题，一晚上拿了个第4名。\n这些场景的共同特征：模型成为具备”实验→分析→优化”完整闭环的自主工作者。碰壁时自己换方向，出错后自己修复，甚至给自己写回归测试。\n光说官方demo不够，我自己也跑了3个任务，全部零介入完成。\n3个实测任务，全部零介入\n为了验证GLM-5.1的真实水平，我设计了3个完全不同领域的任务。\nCase 1：量化回测系统（金融工程）\n需求：”基于美股历史数据，从零搭一个量化策略回测系统。包括数据获取、多因子策略、回测引擎、风险分析、可视化报告。”\n这是个典型的长程任务。数据清洗、因子计算、回测框架、性能优化，正常情况两三天的工作量。\nGLM-5.1的表现：\n第一步不是写代码，而是先花2分钟输出架构方案——数据层用yfinance+Pandas，因子引擎用向量化计算，回测引擎用事件驱动，性能优化用NumPy数组。它在思考，不是盲目动手。\n然后逐模块推进：DataLoader、FactorEngine、MultiFactorStrategy、BacktestEngine、RiskAnalyzer、ReportGenerator，六个类依次构建。\n中间遇到交易成本计算的bug，它自己加调试输出，对比理论持仓和实际持仓，定位问题，自行修复。",
+    "Url": "https://zhuanlan.zhihu.com/p/2025314304002368957?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 9,
+    "AuthorName": "大模型爱好者社区",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-7562bc71f2ce974a5c90665841c73cbd_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1775693606,
+    "AuthorityLevel": "4",
+    "RankingScore": 1.35574
+   },
+   {
+    "Title": "Quant工具箱:量化开发之向量化回测框架 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "7384168947166551358",
+    "AuthorSignature": "7384168947166551358",
+    "ContentText": "基于Scikit-learn的向量化回测框架\n回测是个老掉牙的问题了，开源社区也有不少优秀的回测框架，如zipline、backtrader等，那我们为什么要放弃他们而选择造轮子再设计一套呢？\n其实我们并非放弃这些框架，只是在某些场合下，我们需要回测速度更快、数据处理能力更强的一个框架。我们将用后者快速验证因子或策略逻辑的有效性，然后再用前者进行精细化的回测。简而言之，前者“快”而后者“细”，优势互补，提高研究的效率。\n那么为了实现“快”，我们需要做些什么呢？\n很简单，感谢Python强大的生态圈，你需要做的最主要的事，是读文档、调包和组合。\n文章将分为3个部分，逐一讲解向量化回测的设计原则、架构与实现\n一、设计原则\n架构设计方面，有两个原则。\n（1）充分利用现有开源库，不造轮子\n・业务优先，不过度设计\n・主流库历经验证，坑少、也有社区的支持\n （2）以sklearn的接口为标准，可将策略视为算法对象\n・强大的社区支持，Google资助\n・合理的接口设计，丰富的家族库成员，紧贴Python生态，从 sklearn-contrib 中就可见一斑\n・可并行与集群训练，尤其适合数据量要求高的策略\n・便于部署，统一线上、线下程序框架\n对了，打个预防针先吧：其实你可以认为，我在鼓励你成为一个调包侠，因为这篇文章的后半部分，基本都是在调用各类主流库的接口。但引用前人的话来说：\n从人的客观认识规律来讲，你应该先成为一名调包侠。它有助于你抛开细节的枷锁，清晰地为一个现实目标搭建框架。你可以腾出更多的精力集中于解决方案的设计，而不是在基建设施上停滞不前。这些现成的程序包，能够为你快速地搭建起可以提供反馈的实验模型，让你通过实践来启发更多的思路。\n“顺风而呼，声非加疾也，而闻者彰”，人的强大所在，就是在于善于利用工具、组合工具。\n二、架构\n流程方面，我们遵循机器学习监督式算法的开发流程，将策略视为自变量X和因变量y之间函数映射关系，f(X;\\lambda) 。\n这里f代表映射函数，\\lambda 代表映射函数中的参数，而监督式学习的任务就是找到恰当的函数f和参数\\lambda ，使得该映射尽量符合以下要求\ny = f(X;\\lambda) \n在实践中，为了实现这一目标，基本流程包括以下几个步骤\n1.明确业务问题: 定下策略的核心逻辑\n2.明确特征集: 搜集特征集、目标集数据，即 X, y\n3.基本计量分析: 对于每个特征标签，均进行统计分析，确认数据质量、了解其数据分布及特点\n4.制作最小价值模型: 做一个简易的可行模型，例如建立线性回归模型,作为对复杂模型的效果对比",
+    "Url": "https://zhuanlan.zhihu.com/p/55302594?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 24,
+    "VoteUpCount": 330,
+    "AuthorName": "Jesse",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-305b8cd8caa77b8f1ab348f7738b3e73_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1704554413,
+    "CommentInfoList": [
+     {
+      "Content": "感谢作者，我也改了向量化测试的出来了。不过样本外肥佬的挺多的。"
+     },
+     {
+      "Content": "最近重构了这个框架，将pandas完全使用xarray代替，回测速率提升一个数量级，内存占用也更少，可以容纳更大数据集的策略回测"
+     },
+     {
+      "Content": "Talk is cheap. Show me the code"
+     }
+    ],
+    "AuthorityLevel": "4",
+    "RankingScore": 1.3489957
+   },
+   {
+    "Title": "用AI做量化!我独立开发了基于miniQMT的量化交易回测系统,后续将免费开源 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "1584266571146716379",
+    "AuthorSignature": "1584266571146716379",
+    "ContentText": "目前基于miniQMT的回测和模拟平台尚属蓝海领域，我愿率先探索，为大家提供新选择。然而，独立开发面临两大挑战：一是如何稳定合规地获取行情数据与交易接口，这是量化交易的核心。个人开发者直接对接交易所既不现实，成本也过高。寻找稳定低成本的解决方案是项目启动的前提。二是庞大的工作量，完整量化系统包含图形界面、回测引擎、数据处理、风险控制和策略分析报告等模块，每个环节都需要大量代码编写，这对个人开发者是极大的时间和精力考验。\n我是如何应对这些挑战的？关键在于找到了两件得力工具。\n面对海量代码，我的开发搭档是AI编程助手Cursor。它极大地提升了我的开发效率，将重复繁琐的工作自动化，使我能够更专注于核心逻辑的设计与实现。\n解决数据和接口这一关键难题的核心在于miniQMT。作为券商提供的轻量级量化交易解决方案，miniQMT通过官方API接口实现了实时行情数据获取和交易指令执行，有效保障了数据源和交易通道的稳定性和合规性。\n在数据获取方面，系统采用双模式设计：\n1. 数据补充模式：专为回测系统服务，将数据以高效二进制格式存储于miniQMT内部数据库，显著提升回测引擎的数据读取速度；\n2. 数据下载模式：以通用CSV格式保存至用户指定目录，便于使用Excel或Pandas进行外部数据分析。\nCacheCone框架采用模块化架构设计，主要包含以下核心组件：\n1. 主交易框架：作为系统中枢，统一处理回测、模拟和实盘三种模式的逻辑差异，协调系统初始化、数据订阅和策略触发等流程；\n2. 策略模块：提供标准化开发接口，开发者可专注于买卖时机等策略逻辑，底层交互由框架自动处理；\n3. 交易模块：负责交易执行相关操作，回测时运行高精度虚拟撮合引擎；\n4. 算法库：包含各类策略开发工具函数，涵盖数据处理和技术指标计算等；\n",
+    "Url": "https://zhuanlan.zhihu.com/p/1935355612629305242?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 1,
+    "AuthorName": "石头科技视频博客",
+    "AuthorAvatar": "https://pic1.zhimg.com/50/v2-e1b6192aa0d8dcf140ba189dea518a4c_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1754204848,
+    "AuthorityLevel": "3",
+    "RankingScore": 1.2862712
+   },
+   {
+    "Title": "Hermes Agent × Qlib × Ssquant:一句话驱动的量化交易全流程搭建指南(落地干货) - 知乎",
+    "ContentType": "Article",
+    "ContentID": "-3328417921113226418",
+    "AuthorSignature": "-3328417921113226418",
+    "ContentText": "0. 三个工具分别干什么\n传统量化工作流有三个断层：\n・• 研究断层：懂模型的人不懂交易接口，懂交易的人不会训练模型\n・• 工程断层：环境配置、依赖冲突、数据清洗消耗 80% 精力\n・• 落地断层：回测曲线再好看，接不上 CTP 实盘就是白搭\n三个工具各管一块：\n🧠 Hermes Agent（智能监工 / 调度中枢）\n・• 简介：由 Nous Research 开源的 CLI 原生 AI 智能体。具备代码执行、文件管理、终端交互、技能记忆与自动化编排能力。\n・• 解决什么问题：“不会写代码 / 不想配环境 / 怕报错”。你只需说自然语言，它负责拆解任务、自动创建虚拟环境、安装依赖、编写脚本、捕获异常并实时反馈。它是整个工作流的指挥官，让你从“写代码”升级为“下指令”。\n🤖 Qlib（AI 量化引擎 / 数据大脑）\n・• 简介：微软亚洲研究院开源的 AI 量化投资平台。内置 Alpha158/360 因子库、严谨的数据对齐管道，以及 LightGBM、LSTM、Transformer 等前沿机器学习模型。\n・• 解决什么问题：“因子靠猜 / 逻辑主观 / 缺乏严谨验证”。它能自动化计算数十种技术指标，用 AI 模型客观评估因子 IC/IR，找出人类肉眼看不见的市场规律。它是策略的研发引擎，用数据代替直觉。\n🛠️ SSQuant（CTP 交易执行框架 / 实盘手脚）\n・• 简介：专为国内期货市场设计的专业量化交易框架，支持回测、SIMNOW 仿真与实盘 CTP 全链路。内置自动移仓、保证金计算、滑点模拟、订单流管理与断线重连。\n・• 解决什么问题：“回测与实盘割裂 / CTP 接口开发门槛极高”。Qlib 能给出买卖信号，但不知道如何下单。SSQuant 完美承接 AI 信号，处理所有交易底层细节（合约换月、风控、滑点、订单路由），打通从研究到实盘的最后一公里。\n三者串起来的逻辑：\nHermes (理解指令、调度执行) → Qlib (因子挖掘、模型训练) → SSQuant (策略回测、实盘交易)\nHermes 在实际使用中给出的架构设计是这样的（5 层）：\n层级\t模块\t职责\t工具\n数据层\tData Converter\t将 SSQuant/Akshare 数据转换为 Qlib 标准格式 (bin/csv)\tscripts/data_converter.py\n研究层\tQlib Engine\t因子计算、模型训练 (ML/DL)、信号预测\tQlib workflow_by_config\n",
+    "Url": "https://zhuanlan.zhihu.com/p/2027682773045983053?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 1,
+    "VoteUpCount": 33,
+    "AuthorName": "松鼠Quant",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-75fb1de00799bb9c046dac8cc7e2e6ed_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1776220774,
+    "CommentInfoList": [
+     {
+      "Content": "拿来吧，到我的收藏夹。"
+     }
+    ],
+    "AuthorityLevel": "4",
+    "RankingScore": 1.2787821
+   }
+  ]
+ },
+ {
+  "query": "向量化回测 事件驱动 回测 对比 优缺点",
+  "count": 6,
+  "items": [
+   {
+    "Title": "第5章 量化回测入门:手把手搭建一套完整的量化回测系统 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "2182323397843162806",
+    "AuthorSignature": "2182323397843162806",
+    "ContentText": "向量化是”上帝视角”，一眼看完所有历史。事件驱动是”第一人称视角”，只能看到当前这一根K线。\n实盘交易，你永远只能是第一人称。所以，事件驱动虽然慢，但它更接近真实。\n我建议你：先用向量化快速验证想法，确认策略有正期望值后，再用事件驱动做精细回测。\n5.5 回测结果可视化：权益曲线与回撤阴影\n为什么可视化这么重要？\n数字是冰冷的，图形是直观的。\n一个策略好不好，你看一眼权益曲线就知道了。曲线平滑向上，回撤小，那是好策略。曲线像过山车，回撤深不见底，那再高的年化收益也是骗人的。\n专业的回测报告，至少要有这四张图：\n1.权益曲线（叠加回撤阴影）\n2.回撤曲线\n3.每日收益率分布\n4.月度收益热力图\n代码实现\n下面这段可视化代码，我尽量做得专业又好看。\n看图有几个要点：\n1.看回撤恢复时间。如果一个策略回撤后，花了半年才恢复，那它的心理成本太高了，你大概率拿不住。\n2.看收益率分布。正态分布是理想的。如果左尾很长，说明有极端亏损，要警惕。\n3.看月度热力图。如果某个月突然暴赚或暴亏，去查查发生了什么。是策略有效，还是运气？\n可视化不是为了好看，是为了发现问题。一张好图，胜过千言万语。\n写在最后\n这一章，我们从零开始，搭了一个向量化回测框架，又手搓了一个事件驱动引擎。\n核心要点回顾\n1.回测的本质是用历史数据模拟策略执行，其价值在于提供可量化的绩效证据，但必须警惕前视偏差、幸存者偏差、过拟合等常见陷阱。\n2.向量化回测用Pandas的向量运算一次性完成信号→持仓→收益计算，代码简洁高效，适用于信号逻辑简单的策略。\n3.真实市场的摩擦成本（佣金、滑点、印花税）会显著侵蚀策略收益。交易频率越高，成本影响越大。\n4.事件驱动回测引擎通过逐Bar循环处理策略逻辑、订单撮合和账户更新，可以灵活应对复杂的仓位管理和止盈止损需求。\n5.专业的回测报告应包含权益曲线、回撤曲线、收益率分布和月度收益热力图，帮助从多维度审视策略的稳定性和风险特征。\n回测是一门艺术，也是一门科学。它需要你既有程序员的严谨，又有交易员的直觉。\n本文是我知乎专栏《新手小白量化入门：从数据工程到实盘策略》的第5章。后续章节陆续更新中。\n本专栏的目的是帮助新人快速入门量化，跨过新手的迷茫区。本专栏目标读者要求“有Python基础、懂基本交易常识”。\n专栏总体框架\n1. 理念与工具准备（第1章） 快速建立量化交易的整体认知，配好环境，熟悉量化专用库栈，让读者能立刻跑起来。",
+    "Url": "https://zhuanlan.zhihu.com/p/2072282404983682617?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 32,
+    "AuthorName": "Wayz",
+    "AuthorAvatar": "https://pica.zhimg.com/50/v2-4790d4b47f75d4b462d441425ee2f7f8_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1786851505,
+    "AuthorityLevel": "4",
+    "RankingScore": 2.1751807
+   },
+   {
+    "Title": "第6章 专业回测框架实战:不再徒手造轮子,Backtrader才是正规军 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "3624441752170032538",
+    "AuthorSignature": "3624441752170032538",
+    "ContentText": "多时间周期策略也叫“区间套”——用大周期判断方向，用小周期寻找入场点。\n经验教训：在多时间周期策略中，next() 方法会以最小时间周期的频率被调用！也就是说，如果你加了日线和小时线，next会每小时触发一次。很多新手在这里踩坑，导致大周期指标被重复计算或者逻辑错乱。\n复权处理（使用前复权数据是回测的最佳实践）\n如果你用未复权的数据跑回测，遇到股票拆股（比如1拆4），价格瞬间暴跌75%，你的均线系统会疯狂发出死叉卖出信号，回测结果直接废掉，其他策略也会遇到相似的问题。使用前复权数据是回测的最佳实践。\n6.5 其他框架简介：Zipline、VNPY与实盘接口\nBacktrader并非唯一的选择。根据你的具体需求，以下框架各有所长。\n主流回测框架对比\n框架\t开发方\t优势\t劣势\t适合场景\nBacktrader\t社区开源\t功能全面，文档丰富，可视化好\t大规模回测速度较慢\t个人量化，研究到实盘过渡\nZipline\t原Quantopian\t设计优雅，Pipeline API强大\t已停止维护，安装复杂\t学习量化概念，历史策略迁移\nVNPY\t国内社区\t完整的期货/股票实盘交易接口\t学习曲线陡峭，配置复杂\t国内实盘交易，生产环境\nVectorBT\t个人开发\t极快的向量化回测，超参数优化\t灵活性不如事件驱动\t快速原型验证，大规模参数搜索\n框架选择建议\n・Backtrader：事件驱动回测老牌王者，next() 按根 K 线推进，逻辑直观、中文资料多、A股教学友好；但官方自 2023–2024 起基本停更，纯 Python 循环，速度中等偏慢，实盘要自己接 broker。\n・Zipline：Quantopian 遗产，事件驱动 + Pipeline 因子研究很强，原版 2020 就死了；现在只能用社区分支 zipline-reloaded，且默认美股体系，A股要自己写 bundle，安装依赖地狱。新项目不建议从它起步。\n・VNPY：国内最主流的全栈交易平台（不只是回测），CTP/恒生/券商接口开箱即用，A股/T+1/涨跌停/期货风控都能贴近实盘；回测模块相对朴素，但实盘落地能力这四个里最强。\n・VectorBT：NumPy/Numba/Rust 向量化，参数扫描比 Backtrader 快 10–100 倍，多资产×多参数一次矩阵运算出结果；不适合强路径依赖复杂策略，学习曲线陡，实盘弱，免费版 License 有 Commons Clause 限制。",
+    "Url": "https://zhuanlan.zhihu.com/p/2073019419249452420?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 2,
+    "VoteUpCount": 14,
+    "AuthorName": "Wayz",
+    "AuthorAvatar": "https://pic1.zhimg.com/50/v2-4790d4b47f75d4b462d441425ee2f7f8_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1787026681,
+    "CommentInfoList": [
+     {
+      "Content": "感谢分享"
+     },
+     {
+      "Content": "bt慢啊，我记得有pyrustbt"
+     }
+    ],
+    "AuthorityLevel": "4",
+    "RankingScore": 1.6805712
+   },
+   {
+    "Title": "AI量化交易探索:NautilusTrader - 知乎",
+    "ContentType": "Article",
+    "ContentID": "1901189108589077666",
+    "AuthorSignature": "1901189108589077666",
+    "ContentText": "2.精细验证用 NautilusTrader——对幸存者做订单级的诚实模拟\n3.实盘继续用 NautilusTrader——同一份代码直接上\nBacktrader 的位置比较尴尬：它仍是最好的教学工具（文档友好、社区大、例子多），但原作者已多年不活跃更新。把它当通往实盘的桥梁，越来越像在维护一辆老爷车。\n五、上手体验与劝退清单\n安装只要一条命令（pip 一行装完），策略代码的骨架也很直白：行情事件来了，你的函数被调用，你决定下不下单。仅此而已——而且这份代码在回测和实盘里都能跑。\n但在你心动之前，先看劝退清单。NautilusTrader 不适合所有人：\n 它按机构级系统的标准设计，概念多（数据引擎、执行引擎、消息总线），文档假设你懂交易系统的基本构造。好消息是 AI 时代这条被部分抵消——把文档丢给 AI 让它教你，体验好很多。但它依然不是三天能上手的东西。\n\n 框架不含免费历史数据。高质量的逐笔数据要么自己从交易所拉，要么找 Databento 这类付费数据商。数据成本很可能超过软件成本——毕竟软件是免费开源的。\n\n 如果你只想验证\"月线定投\"这种粗颗粒想法，轻量工具甚至 Excel 就够了，订单级精度在这里纯属浪费。\n\n编者注：工具选型的第一原则不是\"哪个最强\"，而是\"我的问题配得上哪个\"。给月线定投上纳秒级引擎，就像用电子显微镜看世界地图。\n一句话：它是给\"认真打算把策略跑到真实市场上\"的人准备的。 还在随便玩玩的阶段，先用轻量工具；等你的策略值得被认真对待了，再搬进来。\n六、AI 时代的位置：为什么现在值得认识它\n回到开头的判断：AI 把\"写策略\"的门槛砍没了，\"验证策略\"就成了新的瓶颈——也是新的护城河。\n一个正在成形的分工，值得每个对量化好奇的人知道：\n•AI 负责生成：把交易想法用自然语言说给 AI，它产出策略代码\n•NautilusTrader 负责审判：在诚实的模拟环境里，用历史数据逐笔检验\n•你负责决策：看着回测报告，决定这个想法进垃圾桶还是进实盘\n注意人类在这个分工里的位置：不写代码，也不用装懂市场微观结构，只做最后的判断。\nAI 时代的量化不是\"人人都能赚钱\"，而是\"人人都能便宜地知道自己的想法值不值钱\"——试错成本从几个月的开发，降到了几段对话加一次回测。\n编者注：这句话反过来读更扎心：以前你可以把\"没时间写代码\"当成不验证想法的借口，现在这个借口没了。\n想法不值钱这件事，再也藏不住了。",
+    "Url": "https://zhuanlan.zhihu.com/p/2066478720882317179?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 1,
+    "AuthorName": "HeyJo",
+    "AuthorAvatar": "https://pica.zhimg.com/50/ff0015885_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1785466921,
+    "AuthorityLevel": "4",
+    "RankingScore": 1.4941038
+   },
+   {
+    "Title": "量化投资5款必备工具:Python、数据库、回测框架、交易接口、监控面板 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "-1907015818320455643",
+    "AuthorSignature": "-1907015818320455643",
+    "ContentText": "・行情原始数据（Tick、分钟线）：存到时序数据库里。InfluxDB上手简单，写查询语句像写诗；ClickHouse查询性能更猛，适合海量历史回测。这俩都针对“按时间范围和标的ID取数”做了索引优化，查询毫秒级返回。\n・因子值、基本面数据：存在PostgreSQL中。它支持事务和复杂关联查询，每天算好的因子扔进去，回测时用SQL按日期切片，干净利落。\n・本地调试或小样本：DuckDB是个新利器，嵌入式的列式数据库，直接读Parquet文件，速度比Pandas快一个量级，还不用单独搭服务。\n关键习惯：时间字段和股票代码字段必须建联合索引；每天定时备份，冷热数据分开（近3个月的热数据放SSD，历史冷数据放机械盘）。数据是量化投资的原油，漏油或污染都是大事故。\n3. 回测框架：向量化快筛 + 事件驱动精测，别混为一谈\n新手容易犯的错是手写for循环逐日回测，不仅慢，还极易出现“未来函数”（不小心用到了当天收盘后的数据）。成熟的回测框架能自动处理滑点、手续费、分红除权，但选哪个，取决于你处于策略开发哪个阶段。\n建议分成两阶段用两套工具：\n・初筛阶段（因子挖掘、参数寻优）：用VectorBT。它基于向量化计算，一次回测几秒钟出结果，适合在几千组参数组合里快速“海选”出有潜力的方向。缺点是模拟撮合较粗糙，所以只用作过滤。\n・精细阶段（策略终稿、绩效评估）：用Backtrader（事件驱动型）。它按时间顺序逐条处理bar，能精细模拟盘口成交、停牌、涨跌停。虽然运行慢一点，但结果更接近实盘。国内期货/股票场景下，vn.py自带的回测引擎也值得考虑，它对CTP接口的对价撮合做了专门优化。\n回测里最致命的不是收益低，而是看似漂亮的曲线背后藏着陷阱：一定要开启成交量过滤（防止策略吃掉整根K线的流动性），并剔除上市不满半年的次新股（避免生存者偏差）。回测的核心任务不是找“圣杯”，而是反复验证策略在极端行情（如2024年春节前后微盘股流动性枯竭）下的抗压表现。\n4. 交易接口：下单通道，讲究稳定大于速度\n策略信号算得再准，最后那一哆嗦下不去单，全是白费。交易接口就是连接策略与市场的“管道”，这里需要区分品种和频率来选择。\n・国内股票：多数券商提供官方量化API（如华泰MATIC、中金IMS），但一般需要单独申请开通“量化交易权限”，并签署合规承诺。日常中低频（分钟/日线）交易，用这些HTTP接口足够。\n・国内期货/期权：CTP API（上期技术出品）是行业标准，各家期货公司基本都支持。但CTP原生是C++接口，对Python开发者不太友好，建议用vn.py或WonderTrader封装好的Python SDK，把交易、查询、风控函数都封装成了简洁的调用方式。\n・加密货币/全球市场：CCXT库是福音，一套代码对接币安、OKX、Kraken等几十个交易所，统一了下单、撤单、查余额的接口格式，省去挨个阅读各家签名算法的痛苦。",
+    "Url": "https://zhuanlan.zhihu.com/p/2054671652026323613?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 4,
+    "AuthorName": "黄简单",
+    "AuthorAvatar": "https://pic1.zhimg.com/50/v2-69b0b1f960da9e61381901b6a283d571_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1782651989,
+    "AuthorityLevel": "4",
+    "RankingScore": 1.4398333
+   },
+   {
+    "Title": "半年 10+ 平台扎堆上线,AI 量化终于从\"极客玩具\"变成了\"大众工具\" - 知乎",
+    "ContentType": "Article",
+    "ContentID": "5811536632954837603",
+    "AuthorSignature": "5811536632954837603",
+    "ContentText": "把它放在上半年的大背景下看：4 月 28 日，DSPAI 发布\"下一代智能投资平台\"；5 月 15 日，BulkQuant 推出 AI Trading Bot；6 月，VeighNa 发布 4.0，首次引入 AI 量化策略模块。与此同时，微软 Qlib 星数突破 4.3 万，NautilusTrader 以 Rust 原生架构拿下 2.3 万星，首个金融 K 线基座模型 Kronos 被 AAAI 2026 接收。\n2026 年之前，AI 量化是少数极客的玩具。2026 年之后，它正在变成多数人的工具。\n二、平台全景图：三条路线，三种定位\n我把它分成三类：开源框架、AI 原生平台、商业闭环产品。\n2.1 开源框架：基础设施\n这派的逻辑是：量化交易的本质是工程问题，AI 只是工具。\n项目\tGitHub 星数\t回测范式\t核心特色\t链接\nMicrosoft Qlib\t43.8k\t向量化\tAI 导向量化投研，集成 RD-Agent\thttps://github.com/microsoft/qlib \nQuantConnect/LEAN\t24.7k\t事件驱动\t券商无关，Python/C# 双语\thttps://github.com/QuantConnect/Lean \nNautilusTrader\t23.7k\t事件驱动\tRust 原生，确定性架构\thttps://github.com/nautechsystems/nautilus_trader \nVeighNa (vn.py)\t22k+\t事件驱动\t国内主流，4.0 AI 模块\thttps://github.com/vnpy/vnpy \nFinRL\t15.1k\tRL 环境\t强化学习金融交易\thttps://github.com/AI4Finance-Foundation/FinRL \nFreqtrade\t29k+\t事件驱动\t加密货币量化，FreqAI 模块\thttps://github.com/freqtrade/freqtrade \nabu\t11k+\t向量化\t入门友好，全品类\thttps://github.com/bbfamily/abu \n向量化 vs 事件驱动——这是选框架的第一道选择题。\n向量化回测（Qlib、abu）：用 numpy/pandas 批量计算，速度快，适合因子研究。缺点是精度低——无法模拟真实订单执行。\n事件驱动回测（LEAN、NautilusTrader、VeighNa）：模拟每个时间点的行情触发，精度高，接近实盘。",
+    "Url": "https://zhuanlan.zhihu.com/p/2053893290060166901?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 3,
+    "AuthorName": "赖根",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-abed1a8c04700ba7d72b45195223e0ff_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1782466417,
+    "AuthorityLevel": "4",
+    "RankingScore": 1.432735
+   },
+   {
+    "Title": "NautilusTrader:Rust驱动的量化交易引擎深度解析 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "5927646303832260507",
+    "AuthorSignature": "5927646303832260507",
+    "ContentText": "19 个适配器覆盖：Binance、Bybit、OKX、Coinbase、Kraken、BitMEX、Deribit、dYdX、Hyperliquid、Interactive Brokers、Polymarket、Betfair、Databento、Tardis、Lighter、Derive、 http://http://Blockchain.comhttp://http://Blockchain.com、Architect AX 等。\n中文生态：富途/moomoo 适配器\nloadstarCN 在 GitHub 上发布的 nautilus-futu（MIT 协议）是独立于主仓库的富途 OpenD 适配器。Rust-first 架构 + PyO3 绑定：\n・TCP 协议层：44 字节包头、AES-ECB 加密、Tokio codec\n・连接管理：InitConnect 握手、心跳保活、消息分发\n・行情模块：订阅、快照、历史 K 线\n・交易模块：账户、下单、持仓、资金查询\n・通过配置切换模拟/真实环境，支持港股（trd_market=1）和美股（trd_market=2）\n安装后只需在 TradingNode 中注册 Futu 数据客户端和执行客户端工厂即可接入富途生态。这对港股/美股量化策略的本地化落地是直接的实用价值。\n竞争定位\n框架\t引擎\t速度\t回测真实性\t实盘路径\t许可证\nNautilusTrader\tRust 事件驱动\t快\t优秀（成交/延迟/费率建模）\t一等公民\tLGPL 3.0\nBacktrader\tPython 事件驱动\t慢\t尚可\t老化（项目 2023 年停更）\tGPL 3.0\nVectorBT\tNumPy 向量化\t极快\t有限（简化成交）\t需自建\tGPL / Pro $499\nQuantConnect LEAN\tC# 事件驱动\t快\t优秀\t一等公民\tApache 2.0\nZipline-Reloaded\tPython 事件驱动\t慢\t尚可\t有限\tApache 2.0\nbullalert.ai 在 2026 年对比测试中量化了一个关键数据：Backtrader 跑一小时的回测，NautilusTrader 不到五分钟完成。 对小盘动量策略——滑点和成交真实性决定策略是盈利还是破产——这个差距是决定性的。\n各自的正确打开方式\n・快速验证想法（「这个思路有没有搞头？」）→ VectorBT，向量化参数网格秒出\n・零售交易系统 → Backtrader 仍可用，但要接受它在 2023 年已进入长期维护模式\n・从研究到实盘无翻译成本 → NautilusTrader，零代码切换\n・执行细节决定盈亏的策略（做市、执行算法、高频行为）→ NautilusTrader，成交模拟是它的一等设计目标\n・需要云端免费数据和策略模板 → QuantConnect LEAN",
+    "Url": "https://zhuanlan.zhihu.com/p/2069379269550158455?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 3,
+    "VoteUpCount": 23,
+    "AuthorName": "feisan",
+    "AuthorAvatar": "https://pica.zhimg.com/50/v2-037664f0b878265d8be5b4f231184ffc_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1786158576,
+    "CommentInfoList": [
+     {
+      "Content": "单线程？"
+     },
+     {
+      "Content": "最近半年来第一次有人写nautilus trader,中文环境还是不太友好，没有内置支持国内的资本市场，我从今年4月份偶然看见nautilus,之后就被其严谨专业的风格吸引了，每天都要刷commit/issues...在开源界真是一个非常不错的项目。"
+     },
+     {
+      "Content": "rust印度人一直宣扬厉害"
+     }
+    ],
+    "AuthorityLevel": "4",
+    "RankingScore": 1.3326257
+   }
+  ]
+ },
+ {
+  "query": "qlib 架构 数据层 因子表达式",
+  "count": 5,
+  "items": [
+   {
+    "Title": "Qlib库简介与案例分析 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "1654748620322993594",
+    "AuthorSignature": "1654748620322993594",
+    "ContentText": "二、Qlib 的优点与革新点？\n其实，Qlib的底层数据处理方式并没有什么革新的点，绝大部分算法，都是市面上的常见算法，我们自己也可以造出类似的轮子。相反，在数据处理、读取层面的改进，qlib给我们带来了新的方案。\n1.统一的数据管理层（最大的改进）：\n・方法：Qlib设计了独有的面向金融时序数据的二进制存储格式。所有数据（价量、基本面等）都被转换成统一的二进制格式（bin），并辅以日历和标的索引文件。\n・优势：提供了类似数据库的查询接口（如D.features(D.instruments(market='all'), ['$close', '$volume'])），但底层是高性能的二进制文件，兼顾了查询便利性和读取速度。\n1.一体化的Python框架：\n・方法：整个研究流程都在Qlib的Python框架内完成。通过定义Task、Dataset、Model、Strategy等配置对象，以“工作流（Workflow）”的方式串联起来。\n1.高性能底层架构（核心创新）：\n・a. 数据存储方案：\n ・方法：采用“日期索引 + 列式存储”的二进制格式。每个因子的数据按日期组织，存储为紧凑的二进制文件。读取时，可以快速定位到特定日期范围的所有股票数据，或特定股票的所有历史数据。\n ・代码体现：通过scripts/dump_bin.py脚本将CSV原始数据转换为Qlib格式。\n ・效果：华泰报告引用微软论文的测试数据表明，Qlib在数据读取和因子计算任务上，性能远超MySQL、MongoDB、InfluxDB和HDF5。\n ・b. 表达式引擎：\n  ・方法：因子可以通过字符串表达式直接定义，如 (Mean($close, 5) - $close) / Mean($close, 5)。Qlib的引擎会解析并高效执行这些表达式。\n  ・优势：极大简化了因子编写难度，代码可读性高，且引擎底层做了优化。\n  ・代码体现：在自定义因子时，直接返回表达式字符串列表。\n fields += [\"Mean($close, %d)/$close\" % d for d in windows]\n ・c. 缓存系统：\n  ・方法：构建了内存+磁盘的二级缓存。对于表达式计算中的中间结果（如Mean($close, 5)）进行缓存，避免重复计算。\n  ・优势：在复杂的因子计算中能显著提升速度。\n三、代码实战：以港股LightGBM选股策略为例",
+    "Url": "https://zhuanlan.zhihu.com/p/1969380607990667099?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 2,
+    "VoteUpCount": 14,
+    "AuthorName": "随率而动因子工厂",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-5c3e49c13b11761ac941f26e8d628907_l.jpg?source=bbf6831d",
+    "AuthorBadge": "https://picx.zhimg.com/v2-2ddc5cc683982648f6f123616fb4ec09_l.png?source=32738c0c",
+    "AuthorBadgeText": "苏州大学 计算数学硕士",
+    "EditTime": 1762317227,
+    "CommentInfoList": [
+     {
+      "Content": "代码看了，但有些真是看不懂"
+     },
+     {
+      "Content": "都截面标准化了，为什么还会有未来信息[捂脸]"
+     }
+    ],
+    "AuthorityLevel": "4",
+    "RankingScore": 1.4094484
+   },
+   {
+    "Title": "量化交易|LLM 因子挖掘框架代码拆解(Qlib) - 知乎",
+    "ContentType": "Article",
+    "ContentID": "-1744690251796029330",
+    "AuthorSignature": "-1744690251796029330",
+    "ContentText": "产出指标与正文编号一一对应：P1 IC / P3 ICIR / P2 Rank IC / P4 Rank ICIR（因子层）+T3 年化超额 / T4 IR / T7 MDD（组合层），外加calmar_ratio = 年化收益 / |最大回撤|。\nC.2 Qlib 的四类能力分工\nC.3 标准评估七步流水线\n因子库表达式 → QlibDataLoader 算因子+label → DataHandlerLP 预处理 → DatasetH 切分\n→ LGBModel.fit(train+valid 早停) → model.predict(test) → SignalRecord\n→ SigAnaRecord ⇒ ic.pkl / ric.pkl（P1–P4）\n→ backtest + TopkDropoutStrategy ⇒ 超额收益序列 → risk_analysis（T3/T4/T7）\n\n1.初始化 qlib：provider_uri优先级为QLIB_DATA_DIR环境变量 →QLIB_PROVIDER_URI→ 配置data.provider_uri。\n2.数据预检查：检查data/train/valid/test/backtest五段是否都有日历与成分；任一为空提前报错（避免DatasetH抛出含糊的Empty data from dataset），通过后写preflight_qlib_data.json。\n3.加载因子库：alpha158*经FactorLoader取 qlib 表达式；alpha360用Alpha360DL。\n4.构造 Dataset：feature=(表达式, 名称)、label=([label_expr],[\"LABEL0\"])交给QlibDataLoader，再包DataHandlerLP/DatasetH。\n5.训练：LGBModel(**params).fit(dataset)，train 拟合、valid 早停。\n6.信号与 IC：predict→SignalRecord→SigAnaRecord(ana_long_short=False, ann_scaler=252)生成sig_analysis/ic.pkl、ric.pkl。\n7.回测：SimulatorExecutor+TopkDropoutStrategy(topk=50, n_drop=5)，得组合/基准/成本后算超额收益并risk_analysis。",
+    "Url": "https://zhuanlan.zhihu.com/p/2053928079467231064?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 1,
+    "AuthorName": "Ryan",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-6cd7f1859bbc0dd3966ba9447132d397_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1782474615,
+    "AuthorityLevel": "4",
+    "RankingScore": 1.3996221
+   },
+   {
+    "Title": "Qlib智能因子挖掘系统从零入门(二):轻松掌握四大核心概念 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "8366798127751603295",
+    "AuthorSignature": "8366798127751603295",
+    "ContentText": "Label = f(Factor)\n我们的所有工作，本质上就是为了解出这个神奇的函数 f，也就是找到那个能指挥你的武器库，在市场上打胜仗的**\"指挥官\"**。\n听起来概念不难，但要把这个公式落地成实际可运行的系统，工程量可不小。数据从哪来？数据怎么处理？用什么模型来求解 f？怎么回测和评估？……别担心，Qlib 已经为我们准备好了一套完整的解决方案，也就是它最核心的四大支柱。\n深入Qlib的心脏：四大核心支柱\n1. 数据层 (Data) - 粮草库与炊事班\n兵马未动，粮草先行。Qlib 的数据层就是整个研究体系的**\"粮草库\"**。它主要由 DataLoader 和 DataHandler 两个核心组件构成。\nDataLoader 负责从外部加载数据，而 DataHandler 则是数据的**\"大管家\"，负责处理、组织和调用数据。你可以把 DataHandler 想象成一个精密的数据库，它内部通过\"时间\"和\"股票代码\"**两个维度建立索引，让我们能随时精准地提取到任何时间点、任何股票的数据。\n在 DataHandler 中，数据被清晰地分为两类：Feature（因子） 和 Label（标签）。\n说到 Feature，就必须聊聊 Qlib 另一个强大的设计——表达式引擎 (Feature Engineer)。在做研究时，我们常常需要对原始数据进行各种计算，创造出新的因子，比如用收盘价计算均线 MA(close, 5)。Qlib 的表达式引擎让这个过程变得异常简单和高效。\nfrom qlib.data.dataset.loader import QlibDataLoader\n# 一行代码定义复杂的MACD因子\nMACD_EXP = '(EMA($close, 12) - EMA($close, 26))/$close - EMA((EMA($close, 12) - EMA($close, 26))/$close, 9)/$close'\nfields = [MACD_EXP] # MACD\n如果你熟悉通达信等软件的公式编辑器，看到这里是不是有种会心一笑的感觉？没错，它们的设计哲学是相通的！此外，Qlib也支持我们加载自己的数据，灵活性非常高。\n2. 模型 (Model) - 智慧的指挥官\n现在，想象一下你手里有几百个因子（武器），眼睛都看花了。\n到底哪个因子在什么时候更重要？\n应该如何把它们捏合在一起，形成一个**\"做多\"或\"做空\"**的最终决策？",
+    "Url": "https://zhuanlan.zhihu.com/p/1920142729410746178?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 1,
+    "VoteUpCount": 25,
+    "AuthorName": "听雨量化",
+    "AuthorAvatar": "https://picx.zhimg.com/50/580c5a017876deff34991036cc7d7a0a_l.jpg?source=bbf6831d",
+    "AuthorBadge": "https://picx.zhimg.com/v2-2ddc5cc683982648f6f123616fb4ec09_l.png?source=32738c0c",
+    "AuthorBadgeText": "基金从业资格证持证人",
+    "EditTime": 1750577847,
+    "CommentInfoList": [
+     {
+      "Content": "我可能有点主观，一直觉得这东西就是一个过拟合制造机，并没有把防止过拟合放到一等公民位置上[捂脸]"
+     }
+    ],
+    "AuthorityLevel": "4",
+    "RankingScore": 1.3470694
+   },
+   {
+    "Title": "2026年了,是时候认真聊聊Qlib这个AI量化框架了 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "3082329527323029377",
+    "AuthorSignature": "3082329527323029377",
+    "ContentText": "做量化这行这么多了，各种框架、平台我都折腾过。从最早的Wind、聚宽，到后来的vnpy、backtrader，再到现在市面上五花八门的量化工具，该踩的坑我基本都踩了个遍。但要说让我眼前一亮的，Qlib要算一个。\n你可能要问了，市面上量化框架那么多，凭啥单独聊Qlib？这事儿得从2020年说起，那时候微软亚洲研究院把这玩意儿开源了，当时我还挺不以为然的——又是一个大厂的KPI项目吧，热闹一阵子就凉了。结果呢，人家不声不响地迭代了好几年，现在社区越来越活跃，论文也是一篇接一篇往外蹦。\n最让我服气的是，Qlib真的是从AI量化的角度去设计的，而不是把机器学习当成一个可有可无的插件。这个设计理念的差别，用过的人都懂。很多框架你要想用上深度学习模型，得自己写一堆胶水代码，而Qlib从数据处理到模型训练到回测执行，整个流程是打通的。\nQlib是个什么东西\n先来个正经的介绍。Qlib的全称是Quantitative Investment Library，直译过来就是\"量化投资库\"。这是微软亚洲研究院（MSRA）开发并开源的一个AI量化投资平台，代码托管在GitHub上，用的是MIT开源协议，商用也没问题。\n要理解Qlib的厉害之处，得先看看它的整体架构。我画了个图，你们感受一下：\n从图里能看出来，Qlib把量化投资的整个链条都给串起来了。数据怎么处理、因子怎么算、模型怎么训、策略怎么跑、回测怎么做，人家都给你安排得明明白白。\nQlib的几个核心组件\n说几个最重要的模块，这些是你用Qlib绑定会天天打交道的：\n1. Data层：这是Qlib的地基。它自己定义了一套高效的数据存储格式，叫做Qlib Format。原始的CSV数据导进去之后，会被转成二进制格式，读取速度能快好几十倍。而且它的因子表达式引擎特别好用，你想算个20日均线，直接写 Mean($close, 20) 就完事了，不用自己去撸pandas代码。\n2. Model层：这里面内置了一堆模型，从最基础的LightGBM、XGBoost，到LSTM、Transformer，还有专门为量化设计的一些网络结构比如GATs（Graph Attention Networks）。你要是自己有想法，也可以很方便地接入自定义模型。\n3. Strategy层：模型输出的是预测信号，怎么把信号变成实际的交易指令，这就是Strategy层干的事。\n比如说TopK策略，就是每天选预测得分最高的K只股票买入。",
+    "Url": "https://zhuanlan.zhihu.com/p/1987917006545110706?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 3,
+    "VoteUpCount": 49,
+    "AuthorName": "原力量化",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-2e0eee451aafa99884d4049bb71f1a35_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1766736435,
+    "CommentInfoList": [
+     {
+      "Content": "需要多大的算力？"
+     },
+     {
+      "Content": "现在qlib有24年的数据了？之前只有到20年的数据"
+     },
+     {
+      "Content": "本人在用QLib做日频Alpha投研，已经完成数据层封装+滚动训练流水线，希望加入纯工程交流群，不伸手，只交换代码模板。"
+     }
+    ],
+    "AuthorityLevel": "4",
+    "RankingScore": 1.2790703
+   },
+   {
+    "Title": "因子表达式完美重构 | Qlib Alpha158因子库复现 (代码+数据) - 知乎",
+    "ContentType": "Article",
+    "ContentID": "-606596505381584095",
+    "AuthorSignature": "-606596505381584095",
+    "ContentText": "1、（因子表达式优化）Alpha158以及world quant101部分因子实现。\n2、基于lightgbm的因子筛选。 \n3、优秀因子的单因子分析。 \n4、deepalphagen和gplearn部分代码优化。\n或者可以这么说，当前主流私募基金的做法就是因子挖掘。——手工挖，遗传算法，机器学习等。然后合成因子。\n因为因子到策略，还有很多人工可以干预的环节。\n完全所谓端到端，哪怕就是现在最强的GPT-5也做不到。当下大模型可以真正落地的场景，还是Agent生态，通过多环节的串联+工具来实现预期的目标。\n投资也如此。\n最多到端对端挖掘因子，然后把因子拿出来做策略。\n因子表达式重构\n两个包装器，一个按symbol来groupby，另一个按date来groupby\n目前，需要使用截面排序rank，需要截面排序。\n这样做的好处，就是所有的计算子函数都不需要变更了，加上这个包装器即可：\n这样csv_dataloader加载数据，因子计算速度也快了很多，最重要的是，我们解决了rank，ts_rank嵌套的问题。\nAlpha158因子库\n代码完全移植过来了，qlib的158因子，大家感兴趣可以把alpha360也迁移过来。\n代码在如下位置：\n吾日三省吾身\n“若无闲事在心头，便是人间好时节”。\n这里的闲事，就是短期内，没有确定deadline要做的事情。",
+    "Url": "https://zhuanlan.zhihu.com/p/679186652?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 21,
+    "AuthorName": "AGI量化实验室",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-0c40d93a5d920b1b7948104bc38fdb7f_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1705912383,
+    "AuthorityLevel": "4",
+    "RankingScore": 1.1913892
+   }
+  ]
+ },
+ {
+  "query": "vnpy 架构 事件引擎 gateway",
+  "count": 5,
+  "items": [
+   {
+    "Title": "vnpy:国内最受欢迎的开源量化交易平台深度解析 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "6572201832922814663",
+    "AuthorSignature": "6572201832922814663",
+    "ContentText": "适用人群：\n・量化投资者、私募基金、券商资管、金融科技开发团队\n・追求全流程可控、可扩展、可定制的量化交易系统用户\n二、源码深入解析\n1. 架构总览与主目录结构\nvn.py采用高度模块化、插件化设计，核心目录如下：\n・vnpy/：核心源码目录\n・event/：事件驱动引擎，实现系统异步解耦\n・trader/：主引擎、网关接口、应用模块、桌面端UI\n・alpha/：AI量化与数据研究模块\n・chart/：行情与图表相关组件\n・examples/：实用Demo与策略脚本，便于快速上手和二次开发\n・docs/：官方文档与社区教程，涵盖安装、开发、策略、API等全流程\n・README.md、pyproject.toml 等：项目说明与依赖配置\n模块化设计优势：每个功能模块均可独立开发、测试和维护，支持插件式热插拔，极大提升了系统的灵活性和可扩展性。\n2. 核心源码模块解读\n（1）事件驱动引擎（event/engine.py）\n・采用生产者-消费者模型，所有模块通过事件队列解耦通信，支持定时事件、异步消息推送。\n・关键类：class Event:    def __init__(self, type: str, data: Any = None): ...class EventEngine:    def start(self): ...    def put(self, event: Event): ...    def register(self, type: str, handler: HandlerType): ...    def unregister(self, type: str, handler: HandlerType): ...\n・典型流程：各模块put事件→事件引擎分发→handler处理→可链式put新事件。\n（2）主引擎与插件化机制（trader/engine.py）\n・统一管理网关、功能引擎、应用模块，解耦各层逻辑，支持动态加载/卸载插件。\n・关键类：class MainEngine:    def add_gateway(self, gateway_class, gateway_name=\"\"): ...    def add_app(self, app_class): ...    def connect(self, setting, gateway_name): ...    def send_order(self, req, gateway_name): ...",
+    "Url": "https://zhuanlan.zhihu.com/p/1934373021193343584?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 18,
+    "AuthorName": "",
+    "AuthorAvatar": "https://pic1.zhimg.com/50/da8e974dc_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1754007791,
+    "AuthorityLevel": "4",
+    "RankingScore": 1.5753628
+   },
+   {
+    "Title": "VNPY框架—— 框架解析完结,更新大模型量化策略开发 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "7149288921552703509",
+    "AuthorSignature": "7149288921552703509",
+    "ContentText": "本专栏内容仅供学习测试使用，不构成任何投资建议。\n预告，紧跟实势，尝试用大模型开发策略的可能性。\n 如何用大模型做一个量化交易策略？\n0 写在前面\n0 写在前面\nvnpy因为商标的问题改了名字了，现在叫VeighNa，不过不重要啦，和我们用户无关。\n・开源版：定位于开放式的量化开发框架，采用开源软件的形式覆盖尽可能广泛的量化交易场景（包括各类金融市场以及各类量化策略），同时基于社区反馈快速迭代；\n・Elite版：定位于标准化的量化交易终端，结合对核心交易场景的功能性能优化和稳定的支持服务，帮助专业交易员更好地专注于交易本身，无需再担心IT相关问题；\n・定制版：定位于定制化的量化解决方案，针对机构交易团队在量化业务中的各种协同作战需求，提供包括系统开发和技术咨询在内的整体化服务，通常需要专业IT人员参与。\n0.1 选什么版本？\n对于个人来讲能用的就是社区版和Elite版啦，其中Elite还真的做了很多改进，将不少应用做了封装，比如回测、数据库速度比起社区版真的是快了不少，建议如果可能还是尽量用elite版的，不过因为不支持Mac OSX，我这边还是继续使用社区版。\n0.2 UI or no_UI?\n本质上其实没有区别，个人还是更喜欢在Jupyter notebook下，我的主要诉求是回测，实盘的话还是要各显神通，毕竟交易接口都不一样，不去深究了，所以我主要是针对社区版的no_UI方案学习魔改，在这里做个记录。\n0.3 对于量化的看法\n量化其实本质是个信仰，前提是相信市场是有规律的，未来和过去都有可重复的模式，人类是可以挖掘到里面的规律，但如果认为价格是随机游走的，就不要纠结这些了。\n量化不是万能的，它本质还是反映了交易者对市场的理解，所以要提高对于市场的理解，而不是单纯的依赖数据分析。\n1 VNPY架构：解析VNPY代码架构，分析VNPY内部数据映射关系（完结）\n IT熊猫：VNPY3.0解析——整体框架(1)\n IT熊猫：VNPY3.0解析——整体框架(2)\n2 引擎和Gateway：从事件引擎开始逐一解析不同引擎的调用关系（完结）",
+    "Url": "https://zhuanlan.zhihu.com/p/645346392?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 10,
+    "VoteUpCount": 66,
+    "AuthorName": "",
+    "AuthorAvatar": "https://picx.zhimg.com/50/da8e974dc_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1742516045,
+    "AuthorityLevel": "4",
+    "RankingScore": 1.5736747
+   },
+   {
+    "Title": "量化框架调研 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "-1364643421474223495",
+    "AuthorSignature": "-1364643421474223495",
+    "ContentText": "结论：没有框架实现真正的 FIFO Lot 账本。 CyTrade V1 的 FIFO Lot 设计已经领先，V2 将其改为可卖量实时推导会更进一步。NautilusTrader 的事件溯源模式值得参考——保留完整成交事件链，可随时重算任何成本口径。\n3.5 回测-实盘一致性\n框架\t一致性级别\t方式\nLean\t最高\tDI 切换组件，完全同一代码路径\nNautilusTrader\t高\t同一事件系统，切换 DataClient / ExecutionClient\nWonderTrader\t高\t同一策略 API，切换引擎后端\nvnpy\t中\t策略代码相同，但回测/实盘是不同引擎实现\nJesse\t中\t策略代码相同，Exchange Driver 切换\nBacktrader\t中\t可对接 IB，但实盘支持有限\nHikyuu\t低\t主要是回测工具\nZipline\t低\t无实盘\nQLib\t低\t无实盘\n四、与 CyTrade V2 规划的关联分析\n4.1 值得借鉴的设计\nV2 规划点\t最佳参考\t借鉴要点\nEventBus 事件总线\tNautilusTrader MessageBus\t类型化事件、topic 路由、严格顺序、异步运行时\nBrokerAdapter 适配层\tLean 6 层抽象 + vnpy BaseGateway\tLean 的关注点分离（连接/规则/费用/成交/保证金/结算独立），vnpy 的接口简洁性\n策略框架简化\tJesse should_long/go_long + Hikyuu 组件化\tJesse 的信号/执行语义分离；Hikyuu 的风控组件可独立插拔\n信号/执行分离\tWonderTrader\t策略只产出信号，执行模块独立处理。V2 的 SignalEvent → OrderService 链路与此一致\n回测复用实盘链路\tLean DI 模式\t通过适配器切换实现，BacktestAdapter 替换 XtQuantAdapter\n进程分离 + CPU 绑定\tWonderTrader DataKit\tDataKit 独立进程的思路值得参考，但 V2 的 Worker 调度模型更进一步\nLot 持仓账本\tNautilusTrader 事件溯源\t保留完整成交事件链，可卖量从 Lot 实时推导\n多引擎/多频率\tWonderTrader 4 引擎\tV2 的 Meta.latency_level + Worker 分级思路类似，但用进程级隔离实现而非引擎级",
+    "Url": "https://zhuanlan.zhihu.com/p/2027908448981918886?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 1,
+    "VoteUpCount": 10,
+    "AuthorName": "",
+    "AuthorAvatar": "https://picx.zhimg.com/50/da8e974dc_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1776272684,
+    "CommentInfoList": [
+     {
+      "Content": "楼主怎么入群学习？"
+     }
+    ],
+    "AuthorityLevel": "4",
+    "RankingScore": 1.5426965
+   },
+   {
+    "Title": "VNPY3.0解析——整体框架(1) - 知乎",
+    "ContentType": "Article",
+    "ContentID": "5495813444324412058",
+    "AuthorSignature": "5495813444324412058",
+    "ContentText": "\"\"\"\nGlobal setting of the trading platform.\n\"\"\"\n\nfrom logging import CRITICAL\nfrom typing import Dict, Any\nfrom tzlocal import get_localzone_name\n\nfrom .utility import load_json\n\nSETTINGS: Dict[str, Any] = {\n    \"font.family\": \"微软雅黑\",\n    \"font.size\": 12,\n\n    \"log.active\": True,\n    \"log.level\": CRITICAL,\n    \"log.console\": True,\n    \"log.file\": True,\n\n    \"email.server\": \"smtp.qq.com\",\n    \"email.port\": 465,\n    \"email.username\": \"\",\n    \"email.password\": \"\",\n    \"email.sender\": \"\",\n    \"email.receiver\": \"\",\n\n    \"datafeed.name\": \"\",\n    \"datafeed.username\": \"\",\n    \"datafeed.password\": \"\",\n\n    \"database.timezone\": get_localzone_name(),\n    \"database.name\": \"sqlite\",\n    \"database.database\": \"database.db\",\n    \"database.host\": \"\",\n    \"database.port\": 0,\n    \"database.user\": \"\",\n    \"database.password\": \"\"\n}\n\n# Load global setting from json file.\nSETTING_FILENAME: str = \"vt_setting.json\"\nSETTINGS.update(load_json(SETTING_FILENAME))\n\n",
+    "Url": "https://zhuanlan.zhihu.com/p/646667944?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 2,
+    "VoteUpCount": 23,
+    "AuthorName": "",
+    "AuthorAvatar": "https://pica.zhimg.com/50/da8e974dc_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1728369096,
+    "CommentInfoList": [
+     {
+      "Content": "方便的话欢迎分享到VeighNa社区论坛：www.vnpy.com/forum的【经验分享】专区[赞同]"
+     }
+    ],
+    "AuthorityLevel": "4",
+    "RankingScore": 1.5173633
+   },
+   {
+    "Title": "量化研究QRI-开源量化交易系统评测系列之VNPY开箱评测 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "-112498490073717350",
+    "AuthorSignature": "-112498490073717350",
+    "ContentText": "说到vnpy我想大部分quanter都非常熟悉，从2015年至今短短6年时间，不论是社区，还是代码更新量都是无与伦比的庞大。我第一次接触量化使用的也是vnpy，后来辗转反侧入到了C++的坑。\n1. 技术解析：\na、运行环境：Windows7以上版本、Ubuntu、Linux\nb、开发语言：python3.7\nc、依赖库：pyqt、talib、websocket等\nd、系统层次：\ne、人工配置：\n通过 .json 文件配置相关账户参数\nVNPY整体结构采用的微服务结构，设计思路是数据驱动，引擎牵引，应用挂靠。  从业务出发，所有的交易都是基于行情的反应，有了行情才有信号，才有委托，才有持仓和风控。 从技术角度看，数据来源于API（CTP，LTS，币圈接口）等，可以说数据驱动了一切。  \nVNPY的引擎包括：主引擎，事件引擎，数据引擎和应用引擎。 引擎的作用有点类似电脑的主板，所有的东西都往上插，这也是微服务设计的主要特点。如果需要资源，就向引擎要。 VNPY主引擎驱动Gateway（延伸到各行情交易CTP），使用了消息引擎（EventEngine）把所有Gateway发过来的数据分发到各个内部的外部的引用。\n内部的应用包括数据引擎，主界面等，外部应用包括风控管理，CTA策略，算法交易等各应用。 在应用里面，VNPY又设计了应用引擎来带动各策略组，给策略组提供服务。 同时VNPY主引擎提供了，订阅，委托，撤单，数据库操作等接口给各个内部的，外部的APP。\n数据服务作为多个独立应用程序，来实现数据的下载，整理，保存。 供策略回测使用。从性能的角度来说Python性能会极大的牵制了回测部分的功能。\n软件启动流程：\n数据以及行情订阅流程：\n整体设计的核心在于中心化引擎模块，他就像个粘合剂，将上层应用和中间service和底层的数据做了粘合。基于事件驱动的框架，本身vnpy也定义了很多事件类型。\n基本每一次数据交互都是一次事件响应的过程。\n这里需要强调的是，vnpy的核心之一就是数据订阅。订阅的目的就是和交易所服务器建立通讯联系。时间驱动很多时候都是被动驱动的模式，有了数据交互和被动推送之后才会有对应的事件行为。比如交易所推了一个tick，驱动了ontick事件，触发对应的事件引擎，驱动事件发生。\n2、使用难度\nvnpy主打的就是开箱即用的思路，但是从测试来看，除了CTP的行情接入和交易最方便也最好用以外，数字货币交易可能需要花点事件来做调试。",
+    "Url": "https://zhuanlan.zhihu.com/p/346986974?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 1,
+    "VoteUpCount": 6,
+    "AuthorName": "",
+    "AuthorAvatar": "https://pic1.zhimg.com/50/da8e974dc_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1611585929,
+    "CommentInfoList": [
+     {
+      "Content": "很好"
+     }
+    ],
+    "AuthorityLevel": "4",
+    "RankingScore": 1.3938495
+   }
+  ]
+ },
+ {
+  "query": "因子库 设计 因子管理 量化 平台",
+  "count": 6,
+  "items": [
+   {
+    "Title": "量化因子库资源大全 & 分类手册【详细版】 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "5121302865204343659",
+    "AuthorSignature": "5121302865204343659",
+    "ContentText": "・核心特点：国内领先，社区活跃，文档和教程丰富，内置海量因子和数据，支持高度自定义。\n・内置因子详解：聚宽内置了400+个经过清洗和处理的因子，覆盖多个维度：\n ・技术面因子：均线、MACD、RSI、布林带等经典指标，以及动量、波动率、成交量相关因子。\n ・基本面因子：完整的财务报表因子（市盈率PE、市净率PB、净资产收益率ROE、毛利率等）、估值因子、成长因子、质量因子。\n ・大数据因子：基于网络舆情、新闻热度等另类数据构建的因子。\n ・智能因子：使用机器学习方法生成的因子。\n・访问方式：在线平台 / API\n・适用场景：国内用户入门和主力研究的首选。从学习到实盘的全生命周期覆盖。\n2、平台名称：米筐 (RiceQuant)\n・核心特点：功能与聚宽类似，提供专业级的投研工具和数据。\n・内置因子详解：米筐同样提供了数百个预计算因子，并具有良好的分类和文档：\n ・风格因子：明确区分规模、价值、成长、动量、波动率、流动性等常见风险因子。\n ・基本面因子：提供深度财务指标因子，支持多期计算（如TTM）。\n ・技术因子：包含常用技术指标因子。\n ・特色因子：提供如特质波动率、崩盘风险等学术研究常用因子。\n・访问方式：在线平台 / API\n・适用场景：聚宽的主要竞争对手，同样是国内专业用户的优秀选择。\n3、平台名称：QuantConnect\n・核心特点：国际主流平台，支持多市场（美、港、A股等）、多资产，开源引擎（LEAN）。\n・内置因子详解：其因子库更侧重于通用性和可组合性：\n ・通用因子：提供如价格动量、波动率、相关性等基础因子。\n ・Alpha模型：内置了多种流行的多因子模型框架，方便用户快速构建组合因子。\n ・数据驱动：由于其支持丰富的数据源（包括自定义数据），用户可以基于这些数据灵活构建因子，平台提供相应的计算框架。\n・访问方式：在线平台 / 本地部署\n・适用场景：面向全球市场交易者，代码开源透明，社区国际化。\n4、平台名称：Qlib\n・核心特点：微软开源，AI驱动，侧重于用机器学习模型进行因子挖掘和自动建模。\n・内置因子详解：Qlib的核心理念不是提供固定的因子库，而是提供一个因子生产和管理的框架：\n ・基础算子：提供了大量基础计算算子（如过去几天的收益率、标准差、分位数排名等），用户可以像搭积木一样快速组合成复杂因子。\n ・表达式引擎：支持通过字符串表达式（如 \"($high / $delay(close, 10)) - 1\")快速定义因子，极大提升了因子原型开发效率。\n ・自动因子生成：其强大的AI框架可以自动从原始数据中学习和生成有效的因子。\n・访问方式：pip install pyqlib\n・适用场景：面向对AI量化感兴趣的中高级研究者，自动化程度高。",
+    "Url": "https://zhuanlan.zhihu.com/p/1954659175352218706?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 9,
+    "AuthorName": "黄简单",
+    "AuthorAvatar": "https://pic1.zhimg.com/50/v2-69b0b1f960da9e61381901b6a283d571_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1758807557,
+    "AuthorityLevel": "4",
+    "RankingScore": 1.6337329
+   },
+   {
+    "Title": "别再用天价平台做量化因子研究了:2026最新开源机构级因子分析库AlphaPurify - 知乎",
+    "ContentType": "Article",
+    "ContentID": "-5919760864019855441",
+    "AuthorSignature": "-5919760864019855441",
+    "ContentText": "\n核心模块1：AlphaPurifier——40+种预处理方法，筑牢因子基础\n因子质量决定策略上限，而预处理是提升因子质量的关键。AlphaPurifier作为因子预处理的核心工具，内置40+种去极值、中和、标准化方法，涵盖ridge回归、lasso回归、PCA分解、Huber估计、RANSAC鲁棒方法等多种主流及进阶算法，适配不同场景下的因子清洗需求。\n无论是应对因子极值异常、多重共线性等常见问题，还是需要进行滚动去极值、波动率缩放标准化，AlphaPurifier都能轻松实现。更重要的是，其采用向量化+多进程架构，计算速度远超传统工具，即便面对大规模高频数据（微秒至年频均可支持），也能快速完成预处理，无需漫长等待。\n\n核心模块2：FactorAnalyzer——全维度因子回测，快速验证价值\n因子的价值的最终需要通过回测验证，AlphaPurifier内置的FactorAnalyzer模块，原生支持IC/Rank IC测试、多头/空头/多空分层回测，无需额外搭建回测框架，一键就能完成因子有效性验证。\n不同于Alphalens仅支持基础IC分析，FactorAnalyzer可直接输出分层回测的收益率、最大回撤、夏普比率等核心指标，同时支持多频率bar数据，无论是日频、分钟频还是微秒频数据，都能精准适配，让研究员快速判断因子的实战价值，避免“回测优异、实盘失效”的陷阱。\n\n核心模块3：PureExposures——精准归因分析，把控策略风险\n量化策略的长期稳定，离不开精准的风险归因。PureExposures模块专注于因子相关性分析和收益率归因，可清晰拆解因子收益的来源，量化各暴露因子对组合收益的贡献，同时实时监控因子暴露度，帮助研究员识别因子共线性、因子拥挤等风险，优化策略结构。\n通过该模块，研究员可生成多维度可视化图表，包括因子暴露度时序图、累计收益归因图、因子相关性热力图等，直观呈现因子表现及风险特征，让策略优化更有方向，有效破解因子衰减、过拟合等量化开发中的常见困境。\n核心模块4：Database——高效数据管理，简化因子构建\n数据是量化分析的基础，AlphaPurifier的Database模块支持Parquet+DuckDB数据存储，可实现金融数据的快速聚合、因子构建及因子入库，无需额外依赖复杂的数据库架构。无论是导入外部数据，还是自主构建因子，都能轻松操作，大幅降低数据管理的门槛，让研究员将更多精力投入到因子挖掘和策略优化中。\n",
+    "Url": "https://zhuanlan.zhihu.com/p/2023474910501061781?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 26,
+    "VoteUpCount": 80,
+    "AuthorName": "Jacky聊量化",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-5708717282b8069c1c8a364583982dcd_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1775215993,
+    "AuthorityLevel": "4",
+    "RankingScore": 1.5792873
+   },
+   {
+    "Title": "FactorHub :开源的A股全流程因子分析平台 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "8952078667775204505",
+    "AuthorSignature": "8952078667775204505",
+    "ContentText": "FactorHub 一个开源的A股全流程因子分析平台\n从因子定义到策略回测，一个人就能跑全流程\nGitHub  https://http://github.com/zkqian1990/FactorHubhttps://http://github.com/zkqian1990/FactorHub\n做量化的朋友大概都有过这样的体验，想验证一个因子，得先写数据拉取脚本，再写因子计算逻辑，然后跑IC分析，最后搭回测框架，一套下来，代码写了几千行，因子还没验证完。更别提那些因子之间的组合优化、遗传挖掘了，每一步都是体力活。\n最近奇哥发现了一个叫 FactorHub 的开源项目，把因子研究的全流程都做进了一个Web平台里，从因子定义、IC/IR分析，到遗传算法挖掘、组合优化、策略回测，点点鼠标就能跑。今天就来聊聊这个东西。\n一、FactorHub 是什么\nFactorHub 是一个专为中国A股市场设计的开源量化因子分析平台。名字很好理解，Factor（因子）+ Hub（中心），把因子研究相关的所有环节集中到一起。\n核心定位可以用一句话概括，一个集因子管理、分析、挖掘、组合优化和策略回测于一体的全栈量化投研系统。开源协议是AGPL-3.0，个人免费使用，商用需要联系作者授权。\n二、五大核心功能\n先说重点，FactorHub 是专门针对A股市场做的，不是拿一个海外量化框架改改就上的。因子语法用的通达信麦语言，数据源走的akshare，前复权逻辑、行业分类、润滑处理这些都是围绕A股的实际情况来的。如果你做的是美股或者期货，这个平台目前不适用。\nFactorHub 把因子研究的完整生命周期拆成了五个模块，基本覆盖了一个因子从想法到上策略的全过程。\n2.1 因子管理 通达信语法直接写\n这是整个平台的入口。你可以用通达信（麦语言）语法定义因子，比如写一个简单的MA5，CLOSE/MA(CLOSE,5)。系统内置了TALib的函数桥接，RSI、MACD、布林带这些常用指标都能直接调。\n比较好用的是公式实时验证，写完公式后可以即时看到计算结果，不用反复跑脚本。另外还有版本管理，因子改了之后可以回滚，这在因子迭代频繁的场景下挺实用。\n预置因子库目前有9个大类、50多个因子，涵盖了动量、波动率、成交量、技术形态等常见维度，开箱即用。\n2.2 因子分析 IC/IR + SHAP 双视角\n因子分析是FactorHub的核心模块，功能比较扎实",
+    "Url": "https://zhuanlan.zhihu.com/p/2032475175254501044?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 22,
+    "AuthorName": "奇哥玩AI",
+    "AuthorAvatar": "https://pic1.zhimg.com/50/v2-db227afdccafe715138f1534aad47ce7_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1777359987,
+    "AuthorityLevel": "4",
+    "RankingScore": 1.5544564
+   },
+   {
+    "Title": "量化基石:全面盘点国内外主流商业化因子库 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "7311489731588068692",
+    "AuthorSignature": "7311489731588068692",
+    "ContentText": "4. 另类数据平台商\n・Jacobi\n ・定位：专注于另类数据平台。\n ・特点：作为一个“数据应用商店”，聚合了数百家另类数据提供商（如卫星图像、信用卡交易等），机构可以在此平台上购买数据并加工成自己的独家因子。\n四、范式转移：AI驱动的因子研究框架\n这类框架虽不直接出售因子，但它们正在重塑因子生产和研究的方式，是未来因子库技术栈的核心。\n・QLib（微软亚洲研究院）\n ・定位：一个面向AI的量化投资平台开源框架。\n ・核心价值：它是一个强大的因子生产与研究的“基础设施”。提供了从数据处理、因子计算、AI模型训练到回测分析的全链路工具。\n ・特点：\n  ・AI导向：原生支持机器学习模型进行因子挖掘。\n  ・自动化：强调“AI+量化”的自动建模流程。\n  ・开源：降低了机构自建量化研究平台的门槛。\n ・影响：代表了新一代的因子研究范式——基于AI的自动化因子挖掘。\n・TuringQ（及同类平台的AI模块）\n ・定位：国内平台在AI因子挖掘方面的探索。\n ・核心价值：提供AI因子生成、自动机器学习（AutoML）等功能，以云端服务的形式集成在现有平台中，降低了使用AI技术的门槛。\n五、核心维度对比与分析\n类别\t代表\t核心价值\t目标用户\n量化平台商\tJoinQuant, RiceQuant\t因子+研究+回测+交易的一站式平台，体验友好\t量化爱好者、初创及中小型私募\n传统数据巨头\tWind, Bloomberg, Refinitiv\t数据全面，集成于终端，是金融数据基础设施\t所有金融机构，尤其是传统买方和卖方\n风险模型与因子权威\tMSCI (Barra), Qontigo (Axioma)\t提供因子分析和风险管理的行业标准与方法论\t大型资管、保险、养老金等\n因子生产先驱\tWorldQuant\t将因子作为可交易的原子单位，开创众包研究模式\t自身的研究员网络，以及以其为标杆的整个行业\n另类数据专家\t数库科技, Jacabi\t从非传统数据源中提取独特信号\t寻求差异化阿尔法的机构\nAI因子框架/基础设施\tQLib, 各平台的AI模块\t提供自动化、AI驱动的因子挖掘工具链\t有自主研发能力，希望构建私有因子库的机构\n顶级私募私有库\t幻方、明汯等\t极致的算力、数据和AI技术融合产生的独家因子\t自有资金，构成其核心壁垒\n六、发展趋势与未来展望\n1.从“标准化”到“定制化”：机构更需要平台提供工具和底层数据，以快速构建和回测自己的独家因子。\n2.AI因子成为新前沿：利用机器学习、深度学习直接从海量原始数据中挖掘非线性、高维度的“AI因子”，已成为顶级玩家的核心壁垒和商业化平台的发力方向。\n3.另类数据因子化：将非传统数据有效、稳定地转化为可投资的信号因子，是提升阿尔法的重要手段。\n4.研究范式的迁移：基于QLib等框架的自动化、AI驱动的因子研究流程，正在成为先进量化团队的“新基建”。\n5.集成化与平台化：因子库作为“数据-研究-回测-模拟-交易-风控”一体化量化平台的核心模块，其价值在无缝的工作流中得以最大化。",
+    "Url": "https://zhuanlan.zhihu.com/p/1967166060789757347?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 5,
+    "AuthorName": "黄简单",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-69b0b1f960da9e61381901b6a283d571_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1761789700,
+    "AuthorityLevel": "4",
+    "RankingScore": 1.4576826
+   },
+   {
+    "Title": "量化大神在新手期是如何构建因子库的? - 知乎",
+    "ContentType": "Article",
+    "ContentID": "-1938364210505861523",
+    "AuthorSignature": "-1938364210505861523",
+    "ContentText": "除了国君金工研报外，基本上每家券商金工团队都会出各种因子系列的研报，这里给大家列举一些，其中华泰系的金工因子系列研报非常不错，除了分门别类测试做得好之外，同时兼具股票股票和期货因子，非常值得量化萌新借鉴学习。\n四、量化网站\n书籍主要是用来建立因子认知基础，论文和研报主要用来收集和筛选因子，量化网站除了能实现前面这些功能外，还能实现那些因子，很多因子不需要自己用代码复现，直接就可以获取数据，进而构建量化策略。\n现在各大量化平台上也都有专门的因子版块，这里拿JoinQuant平台为例，其他平台类似。JQ上已经实现前文说的Alpha 101和Alpha 191因子，直接通过API接口就可以获取因子数据，除此之外还有常用的技术指标因子和JQ自己的因子库（其中包含有Barra因子），还有个更便捷的【因子看板】功能，能非常方便地查看每个因子在不同场景下的绩效。\nAlpha 101：\n https://www.http://joinquant.com/help/api/help#name:Alpha101https://www.http://joinquant.com/help/api/help#name:Alpha101\n\nAlpha 191：\n https://www.http://joinquant.com/help/api/help#name:Alpha191https://www.http://joinquant.com/help/api/help#name:Alpha191\n\n因子看板：\n\n https://www.http://joinquant.com/view/factorlib/listhttps://www.http://joinquant.com/view/factorlib/list\n除了量化平台外，再给大伙儿墙裂推荐50个国外量化网站，除了寻找新因子思路外，还会有因子处理和组合的技巧，关键是很多都配有实现代码，其中重点推荐Quantocracy、Quantinsti、Quantpedia、Quantstart、Medium这5个网站，之前对前面两个做过详细拆解，感兴趣的可以翻翻历史文章。\nQuantocracy：\n https://http://quantocracy.comhttps://http://quantocracy.com\n\nQuantinsti：\n https://www.http://quantinsti.com/https://www.http://quantinsti.com/\n\n",
+    "Url": "https://zhuanlan.zhihu.com/p/8617219254?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 4,
+    "VoteUpCount": 676,
+    "AuthorName": "quantkoala",
+    "AuthorAvatar": "https://pica.zhimg.com/50/v2-57ccdf4fc22e35f1f5ed8430be5a18f1_l.jpg?source=bbf6831d",
+    "AuthorBadge": "https://pic1.zhimg.com/v2-4a07bc69c4bb04444721f35b32125c75_l.png?source=32738c0c",
+    "AuthorBadgeText": "新知答主",
+    "EditTime": 1732357160,
+    "CommentInfoList": [
+     {
+      "Content": "这样找到的因子回测效果还是有保障的"
+     },
+     {
+      "Content": "前人归纳，后人演绎[爱]"
+     },
+     {
+      "Content": "会不会和相亲一样，要求越多(因子越多)，越找不到?[捂脸]"
+     }
+    ],
+    "AuthorityLevel": "4",
+    "RankingScore": 1.439183
+   },
+   {
+    "Title": "量化因子库下应该去哪里寻找? - 知乎",
+    "ContentType": "Answer",
+    "ContentID": "-1986250900549694353",
+    "AuthorSignature": "-1986250900549694353",
+    "ContentText": "作者｜数量技术宅\n日期｜2026-06-21\n环境｜vibe-trading-ai >= 0.1.9 · Python 3.11 · 沪深 300 · 回测区间 2018-01 至 2025-04\n1. 背景：Vibe-Trading 是什么？\n Vibe-Trading 是香港大学数据科学实验室（HKUDS）开源的 AI 驱动量化工作台，核心理念是：用自然语言描述交易假设，AI Agent 自动完成策略生成、因子评估、回测验证到报告导出的全流程。\n截至 2026 年 6 月，Vibe-Trading 已获 12,000+ GitHub Star，其 Alpha Zoo 内置 452 个预构建量化因子，横跨四大因子库：\nZoo 名称\t数量\t来源\nqlib158\t158\tMicrosoft Qlib Alpha158 特征，Apache-2.0\nalpha101\t101\tKakushadze《101 Formulaic Alphas》arXiv:1601.00991\ngtja191\t191\t国泰君安证券 2014 年短周期交易型 Alpha 研报\nacademic\t6\tFama-French 5 因子 + Carhart 动量\n本文聚焦 GTJA191 因子库，在沪深 300 标的池上做多因子组合策略的完整复现，涵盖因子挖掘、IC/IR 评估、分层回测和组合构建。\n2. 环境安装与初始化\n# 安装（推荐在独立 conda 环境中）\npip install -U vibe-trading-ai\n\n# 初始化配置（选择 LLM Provider，推荐 DeepSeek V3 / Claude Sonnet）\nvibe-trading init\n\n# 验证安装\nvibe-trading --version\n\n# 浏览 GTJA191 因子库（动量类，前 10 个）\nvibe-trading alpha list --zoo gtja191 --theme momentum --limit 10\n\n# 查看具体因子公式（以 Alpha#006 为例）\nvibe-trading alpha show gtja191_006\n配置文件 .env 关键字段：\n# LLM Provider（以 DeepSeek 为例）\nLANGCHAIN_PROVIDER=deepseek\nDEEPSEEK_API_KEY=sk-xxxxxx\n",
+    "Url": "https://www.zhihu.com/question/68093183/answer/2052474345847625163?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 17,
+    "AuthorName": "量化观察",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-f483a6377566a5b6b7e7d3a4389cb010_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1782128017,
+    "AuthorityLevel": "4",
+    "RankingScore": 1.4233663
+   }
+  ]
+ },
+ {
+  "query": "量化 数据层 parquet duckdb 存储",
+  "count": 5,
+  "items": [
+   {
+    "Title": "DuckDB 一个人就能跑量化全栈 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "5609070485145720575",
+    "AuthorSignature": "5609070485145720575",
+    "ContentText": "DuckDB 在量化里能做什么\n先看一组来自三个独立基准测试的数字：在 100 万行 × 1000 万行的数据生成与连接任务上，DuckDB 3.84 秒跑完，Polars 5.77 秒，Pandas 19.57 秒——5 倍差距。在 H2O.ai 的数据库操作基准中，5GB 数据集上 DuckDB 和 Polars 约 2 秒出结果，Pandas 约 45 秒，内存占用是 4GB vs 25GB。\n但量化场景不只是比谁快。DuckDB 有三个对量化特别关键的能力：\nASOF 连接。金融里最常见的操作是把交易信号对齐到当时的价格：某时刻发出了买入信号，当时市价是多少？普通 SQL 只能等于连接，你要写一堆子查询模拟”最接近但不晚于”的逻辑。DuckDB 原生支持 ASOF JOIN，一条 SQL，毫秒级。这是 Pandas 的 merge_asof 搬到数据库引擎里，而且更快。\n窗口函数。移动平均、滚动波动率、VWAP、排名——这些是因子计算的基本构件。DuckDB 的窗口函数配合列式存储的性能，比 Pandas 的 rolling 快一个数量级。Ryan Hamilton 在 DuckCon 上展示的 OHLC 蜡烛图计算，用 DuckDB 的窗口函数一行 SQL 就完成了。\n直接查文件，不导入。这是 DuckDB 最被低估的特性。你的数据以 Parquet 或 CSV 存在硬盘上，不需要先创建表、建索引、写 ETL 脚本导入——DuckDB 直接查询文件。SELECT * FROM '2024/*.parquet' WHERE ts_code='000001.SZ' 就能跑。这意味着数据管道变简单了：数据从 Tushare/Wind 拉下来，写 Parquet 文件，按日期分区，DuckDB 直接查。没有中间步骤，没有数据重复存储。\n一个真实案例：zer0share\n2026 年 4 月，一个叫 zer0coldai 的个人开发者在 GitHub 上开源了 zer0share——一套 A 股、ETF、期货、期权的本地数据管道。架构很简洁：Tushare Pro 拉数据 → Parquet 分区存储 → DuckDB 本地查询。到 7 月，135 个 star，42 个 fork。\n这个项目的设计动机写在 README 第一段：「直接调 Tushare Pro 做研究有两个痛点：每次查询消耗积分，批量回测时 API 限速拖慢迭代。zer0share 把数据落到本地，查询走 DuckDB，既省积分又快。」",
+    "Url": "https://zhuanlan.zhihu.com/p/2062467062535135844?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 9,
+    "VoteUpCount": 88,
+    "AuthorName": "feisan",
+    "AuthorAvatar": "https://pic1.zhimg.com/50/v2-037664f0b878265d8be5b4f231184ffc_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1784510585,
+    "CommentInfoList": [
+     {
+      "Content": "单并发写不是问题，但不支持多并发读那就不能忍了...而且一个正经量化系统，哪儿才50GB数据啊....我的系统每一天的增量都差不多1G...duckdb目前还只是个玩具，正经项目还是玩不转"
+     },
+     {
+      "Content": "duckdb 比sqlite强在哪？"
+     },
+     {
+      "Content": "DuckDB做本地量化数据分析确实方便，配合Python生态能省不少事。最近在尝试把数据清洗、因子计算、回测报告这些步骤串成自动化工作流，发现多Agent协作模式很适合这种多环节任务，各有分工还能互相校验。感兴趣的朋友可以一起探讨。"
+     }
+    ],
+    "AuthorityLevel": "4",
+    "RankingScore": 1.9391025
+   },
+   {
+    "Title": "量化系统00:个人量化系统全景 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "3564189535572245018",
+    "AuthorSignature": "3564189535572245018",
+    "ContentText": "Q2：资金量很小（< 10 万），有必要搭系统吗？ 更有必要。小资金试错成本低，系统的价值是让决策可检验，打破”赚了归自己、亏了怪市场”的循环。\nQ3：量化系统 vs 手动交易？ 不是替代关系——量化提供纪律和可验证性，人工应对非结构化信息。推荐：系统出信号，人工做最终确认，并记录每次否决的理由以便复盘。\nQ4：开源框架从哪个开始？ 从问题开始，不从框架开始。Phase 1 只需 Tushare + pandas + 50 行 VEC；跑通后再按瓶颈引库（详见上文开源项目表）。\nQ5：学完需要多久？ Phase 1 约 2-4 周，Phase 2 再加 2-4 周，Phase 3 长期迭代。建议每周 8-10 小时，边学边做。\n行动清单\n读完本篇后，建议按以下顺序执行：\n1.确认你的标的池：选 8-12 只行业 ETF 作为起步（覆盖消费、科技、金融、周期、防御五大类），不要一开始就做全市场选股\n2.注册 Tushare Pro 并拉取数据：获取标的池的日线行情（至少 5 年），存为 Parquet 文件或 DuckDB 表，验证数据完整性（参考第 02 篇）\n3.计算一个因子并评价：用 20 日动量因子，计算 IC 时间序列和 ICIR，确认因子有正预测力（参考第 05 篇）\n4.跑通一次向量化回测：用上面的 ETF 例子代码骨架，看到收益曲线和基本指标（Sharpe、最大回撤），确认管道能跑（参考第 03 篇）\n5.加一层波动率门控：用沪深 300 波动率做大盘风控，对比加风控前后的最大回撤变化\n6.建立你的项目目录结构：\n完成以上 6 步，你就有了一个可运行的 Phase 1 最小系统。\n系列后续篇目预告\n篇\t标题\t聚焦的模块\n02\t数据工程——一切的地基\t① 数据层\n03\t回测与评测框架——先造质检线\t④ 回测验证层（IC/分组/VEC/BT/过拟合检测）\n04\t回测引擎设计——向量化 vs 事件驱动\t④ 回测验证层（引擎）\n05\t因子开发 SOP——从灵感到生产\t② 因子层\n06\t因子评价与筛选——因子动物园清洗\t② 因子层（深度评价）\n07\t过拟合防御——回测可信度工程\t④ 回测验证层（高级）\n08\t投资组合构建——从 Top-N 到风险预算\t③ 信号层 + ⑤ 风控层\n09\t风控体系——让你活到下一轮\t⑤ 风控层\n10\t执行层与系统集成——从信号到成交\t⑥ 执行层\n11\t策略诊断与迭代——持续进化\t⑥⑦ 执行+监控\n12\t前端与可视化——人机交互设计\t⑦ 监控前端\n13\tLLM + 量化——因子挖掘、智能体决策与混合架构\t②③ 因子层+信号层（AI 增强）\n14\t工具链、论文与学习路径\t资源汇总",
+    "Url": "https://zhuanlan.zhihu.com/p/2074815888981809038?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 11,
+    "AuthorName": "冰锐97",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-fbe6da1268801886d3e54b492e71c1aa_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1787454745,
+    "AuthorityLevel": "4",
+    "RankingScore": 1.9282652
+   },
+   {
+    "Title": "Parquet 存、DuckDB 查、Polars 转:数据处理的三道工序 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "4237815728073122381",
+    "AuthorSignature": "4237815728073122381",
+    "ContentText": "上个月我接了个活儿。一个电商客户手里有几年的用户行为日志——浏览、下单、退款、点广告，全堆在 JSONL 文件里。\n客户想做用户分层模型。我兴冲冲把日志往模型里一塞，模型直接翻脸。\n原因很简单：模型要的是”这个用户买了几次、花了多少钱、活跃了几天”这种用户级特征。原始日志是”谁在哪一秒干了啥”的零散事件。两者中间差着一层。\n那一刻我明白了：原始事件到模型特征之间，缺的不是模型，是一条管道。\n我花了 5 天，用 DuckDB + Polars + Parquet 把这条管道搭了起来。今天先讲最底层的认知：三个工具各管一摊，谁也替代不了谁。\n一、三个工具，三个角色\n先给一句话定义：\n・Parquet：负责存的。一种面向分析场景的列式存储格式。\n・DuckDB：负责查的。一个嵌入式 SQL 引擎，不用起服务，对着文件就能查。\n・Polars：负责转的。一个高性能 DataFrame 工具，干清洗、转换、特征工程。\n类比钉死：它们仨就像一家小饭馆的仓库、点单台、后厨。仓库管存货（Parquet），点单台管你要什么菜（SQL 查询），后厨管把食材做成能上桌的菜（Polars 清洗转换）。饭馆不是一个角色在扛，管道也一样。\nParquet 为什么不能用 CSV 凑合\nCSV 是按行存：一行一条记录，读的时候整行搬进来。Parquet 是按列存：user_id 一列、amount 一列、timestamp 一列。\n好处直接看表：\n对比项\tCSV（行式）\tParquet（列式）\n读取方式\t整行读\t只读需要的列\n压缩\t一般\t更好\n类型\t全是字符串\t保留真实类型\n分析查询\t慢\t快\n重复解析\t每次都要解析字符串\t不用\n如果模型只要 user_id、amount、country 三列，CSV 也得把 email、phone、browser 整行搬进来。Parquet 直接跳过这些列，拎你要的走。\n这就是列式存储的价值：用多少，读多少。\nDuckDB：不用开机的 SQL\n传统数据库要先起服务、建连接、建表。",
+    "Url": "https://zhuanlan.zhihu.com/p/2075248090999800387?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 0,
+    "AuthorName": "Dong Shaoyang",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-bdc4d01a8904dc9584d1f2f316aa7aaf_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1787557782,
+    "AuthorityLevel": "4",
+    "RankingScore": 1.5919659
+   },
+   {
+    "Title": "从 QuantDash 到 DuckDB:A 股量化数据批量写入 Parquet,年月分区到底是不是最佳实践? - 知乎",
+    "ContentType": "Article",
+    "ContentID": "6344443117908277035",
+    "AuthorSignature": "6344443117908277035",
+    "ContentText": "📌 摘要 / 快速解答 (Direct Answer)\n针对“使用 DuckDB 作为本地存储时，批量写入 Parquet 文件的最佳分区键是什么？”如果目标是搭建 A 股量化数据本地仓库，推荐先采用 year/month 作为物理分区，再让 symbol + trade_date 成为查询和数据组织维度。\n 这套方案尤其适合 QuantDash → Pandas/Polars → DuckDB → Parquet 的研究数据管线：QuantDash 负责标准化行情接入，DuckDB 负责 SQL 分析，Parquet 负责长期存储。真正需要避免的是把高基数 symbol 直接作为 partition，从而制造海量小文件。DuckDB 官方也明确提醒了这一点。\n一、行业背景与工程痛点分析\n量化开发中，一个常见的演进路径是：\n第一阶段：直接调用 API\n第二阶段：保存 CSV\n第三阶段：Parquet\n到了第三阶段，开发者才真正开始遇到数据湖设计问题。\n尤其是全市场股票数据：\n如果按照股票代码拆：\n目录数量会快速增长。\n如果再按照交易日：\n文件数量更加夸张。\n这时候最重要的设计原则就是：\n不要让 partition key 承担所有查询维度。\nPartition 是物理存储优化手段，不是数据库主键。\n二、解决方案对比 (QuantDash vs 传统方案)\n对比维度\t传统/竞品方案（Yahoo/Tushare/AkShare/自建爬虫）\tQuantDash 解决方案\n数据稳定性\t不同数据源需要自行适配\t统一量化数据 API\n代码复杂度\t数据抓取和清洗逻辑容易侵入策略层\tPython SDK 直接返回 DataFrame\n复权/清洗处理\t需要自行维护数据处理逻辑\t支持 forward、backward 等复权方式\n调用限制与成本\t不同数据源策略差异较大\t面向高性能量化行情访问设计\n全市场数据获取\t逐股票循环容易产生大量网络请求\tCN_Stock 标的池可批量获取全 A 股实时行情\n本地存储衔接\tCSV 等格式需要额外转换\tDataFrame 可直接进入 DuckDB/Parquet 管线\nQuantDash 官方 SDK 支持 Pandas，并且官方仓库展示了从环境变量读取 API Key、获取 K 线以及获取 A 股全市场实时行情的完整路径。\n三、Python 代码实战（可直接复制运行）\n示例 1：QuantDash 获取单标的 K 线",
+    "Url": "https://zhuanlan.zhihu.com/p/2076922798233097616?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 0,
+    "AuthorName": "昵称好难取啊",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-d5ca64cf87d7e02e1a4d98a79a18b0ea_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1787957062,
+    "AuthorityLevel": "2",
+    "RankingScore": 1.5823163
+   },
+   {
+    "Title": "高效存储与极速分析:基于 Parquet + DuckDB 的 A 股数据解决方案 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "-1178004207734507898",
+    "AuthorSignature": "-1178004207734507898",
+    "ContentText": "import duckdb\nimport os\nimport pandas as pd # 仅用于打印DataFrame\n\n# --- 分区数据查询参数 ---\n# 假设分区数据存储在 \"ashare_data_partitioned\" 目录下\n# 并且遵循 stock_code=XXX/year=YYYY/data.parquet 的结构\npartitioned_base_dir = \"ashare_data_partitioned\"\n\n# 检查分区根目录是否存在且不为空\nif not os.path.exists(partitioned_base_dir) or not os.listdir(partitioned_base_dir):\n    print(f\"提示: 分区数据目录 '{partitioned_base_dir}' 不存在或为空。\")\n    print(\"请先运行类似 3.3 节中的分区数据存储逻辑来生成数据，或确保路径正确。\")\n    print(\"跳过分区数据查询示例。\")\nelse:\n    print(f\"\\n--- 开始使用 DuckDB 查询分区 Parquet 数据 (根目录: {partitioned_base_dir}) ---\")\n    con = duckdb.connect(database=':memory:', read_only=False)\n\n    # DuckDB 会自动从目录结构中发现分区列 (如 stock_code, year)\n    # 使用通配符 * 来扫描所有匹配的分区\n    # hive_partitioning=True (或 1) 告诉 DuckDB 这是一个 Hive 分区布局\n    # DuckDB 0.9.0+ 自动推断 Hive 分区，如果文件名是 data.parquet, part_*.parquet 等\n    # 路径中的 '**/' 可以匹配多级子目录，但这里我们明确两级分区\n    # 'data.parquet' 是我们在分区存储概念代码中使用的文件名\n    partitioned_files_path_pattern = os.path.join(partitioned_base_dir, 'stock_code=*', 'year=*', 'data.parquet')\n",
+    "Url": "https://zhuanlan.zhihu.com/p/1906052151362458118?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 46,
+    "AuthorName": "QuantML",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-519d4219ff3c7e39490c9e32b5ed83ae_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1747218269,
+    "AuthorityLevel": "4",
+    "RankingScore": 1.5668933
+   }
+  ]
+ },
+ {
+  "query": "聚宽 米筐 优矿 API 对比 回测",
+  "count": 5,
+  "items": [
+   {
+    "Title": "量化策略一般用什么平台回测?分别有什么优劣势? - 知乎",
+    "ContentType": "Answer",
+    "ContentID": "940663670922066099",
+    "AuthorSignature": "940663670922066099",
+    "ContentText": "平台类型\t代表平台\t核心优势\t核心劣势\t适合人群\n开源框架\tBacktrader, VnPy\t完全免费、高度灵活、本地运行、隐私性好\t需自行搭建环境、处理数据、无实盘通道\t有编程基础，追求绝对控制权，想深入理解系统底层逻辑的开发者\n在线研究平台\t聚宽, 优矿, 米筐\t上手快、社区活跃、数据齐全、无需本地环境\t策略需上传云端、高级功能收费、灵活度受限\t编程新手、策略研究员、希望快速验证想法并借助社区力量的学习者\n券商量化终端\t迅投QMT, 恒生PTrade\t直连实盘、交易速度快、风控严格、部分功能免编程\t有资金门槛、功能与券商深度绑定、部分平台策略需上传云端\t有实盘交易需求，追求交易速度和稳定性的投资者\n一、开源框架：自由与责任的权衡\n如果你享受从零搭建一切的掌控感，那么开源框架会是你的乐园。这类平台完全免费、代码开源、本地运行，策略的私密性和灵活性最高。你可以按需引入任何Python库，实现任何天马行空的逻辑。\n・Backtrader：作为最流行的Python回测框架之一，社区活跃，文档丰富，新手也能在2小时内跑通第一个策略。但你需要自己准备和清洗数据，它本身不提供实盘交易功能。\n・VnPy：一个更完整的量化交易系统框架，模块化设计，不仅支持回测，还封装了对接国内各大券商的交易接口。相应的，它的学习曲线和维护成本也更高。\n一句话总结：开源框架是“自己做饭”，食材（数据）和厨具（环境）都要自己准备，但做什么菜、放多少料，完全由你说了算。\n【关注我，领取粉丝福利，前往主页领取】  ​@添财少年\n二、在线研究平台：低门槛的“策略实验室”\n这类平台大大降低了量化入门的门槛，你只需一个浏览器就能开始编写和回测策略。\n・聚宽 (JoinQuant)：国内用户量最大的平台，社区生态活跃，有大量公开的策略和代码可以学习借鉴。对于Python新手，直接fork别人的策略修改参数，是很好的起步方式。其回测功能完善，但实盘交易支持相对有限。\n・优矿 (Uqer)：最大的亮点是零代码回测，通过图形化界面拖拽即可生成策略，非常适合毫无编程基础的用户。但高级功能限制较多，自定义因子的灵活度不如其他平台。\n・米筐 (RiceQuant)：以数据质量高著称，尤其在做基本面量化时，其清洗过的财务数据能帮你节省大量时间。不过社区活跃度和免费额度是其短板。\n一句话总结：在线平台像是“去餐厅吃饭”，环境好、菜品多（数据全）、上手快，但菜单（功能）是固定的，你想加个“秘制酱料”（自定义复杂逻辑）可能就比较困难。",
+    "Url": "https://www.zhihu.com/question/29494131/answer/2076433965280392824?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 0,
+    "AuthorName": "添财少年",
+    "AuthorAvatar": "https://pic1.zhimg.com/50/v2-4b63805a731293324f2c96dcbdbf350c_l.jpg?source=bbf6831d",
+    "AuthorBadge": "https://picx.zhimg.com/v2-2ddc5cc683982648f6f123616fb4ec09_l.png?source=32738c0c",
+    "AuthorBadgeText": "投资顾问执业资格证持证人",
+    "EditTime": 1787840435,
+    "AuthorityLevel": "2",
+    "RankingScore": 1.365055
+   },
+   {
+    "Title": "量化平台这么多,到底哪家好? - 知乎",
+    "ContentType": "Answer",
+    "ContentID": "5998157546136510059",
+    "AuthorSignature": "5998157546136510059",
+    "ContentText": "下面按使用场景帮你拆解清楚，你对号入座就行。\n作为服务过800+量化投资者的我来说，我给大家总结了国内常见的量化平台表格：\n一、总览对比表\n类别\t平台名称\t核心定位\t适用人群\t费用\n云端研究\t聚宽\t学习入门、策略回测、模拟交易\t新手、个人开发者\t基础免费\n云端研究\t米筐\t专业回测报告、绩效归因分析\t进阶研究者\t基础免费\n云端研究\t优矿\t基本面因子库、多因子研究\t多因子策略开发者\t基础免费\n本地回测\tBacktrader\t轻量级开源回测框架\t有Python基础的个人\t免费\n本地回测\tvn.py\t全链路开源框架（含实盘）\t期货/专业开发者\t免费\n实盘终端\t迅投QMT\tA股量化实盘交易\t有实盘需求的A股交易者\t券商免费开通\n实盘终端\t恒生PTrade\t云端A股量化实盘\t轻量化A股实盘用户\t券商免费开通\n数据接口\tTushare\tPython金融数据接口\t所有开发者\t积分制（基础免费）\n数据接口\tAkShare\t免费开源数据接口\t预算有限的开发者\t免费\n🔗：【国金证券知乎粉丝专享福利，请前往主页领取！】 @国金证券股份有限公司长岭北路营业部\n二、分类详解\n1. 云端研究平台：入门首选，无需安装\n・聚宽：国内用户量最大，社区生态最活跃。“量化小课堂”是新手最友好的入门教程。在线研究环境（Jupyter Notebook）即开即用，适合从零开始学习策略开发。\n・米筐：回测报告的专业度极高，尤其是绩效归因分析（Brinson分解、风险暴露分析）非常细致。如果你对策略的“收益来源”有追究，米筐是最佳选择。\n・优矿：背靠通联数据，在基本面数据积累上有天然优势，内置了数千个标准化因子，适合以财务数据为核心的策略研发。\n三者对比：聚宽胜在社区和教程，米筐胜在回测分析，优矿胜在数据深度。新手建议从聚宽开始。\n2. 本地回测框架：灵活自由，需要编程能力\n・Backtrader：国外最流行的Python回测框架，设计轻量、文档规范，示例代码丰富。适合个人开发者搭建本地回测环境，但实盘支持较弱。\n・vn.py：国内开源量化框架的标杆，功能覆盖数据接入、回测、实盘交易全链路，尤其支持期货CTP柜台。适合有工程化需求、想做期货或自研系统的开发者。\n3. 实盘交易终端：从策略到交易的最后一步\n・QMT ：目前A股量化实盘占有率最高的终端，支持股票、ETF、可转债、两融。策略运行在本地，隐私性好。QMT模式允许纯代码控制交易，对程序员极为友好。\n・PTrade：策略运行在云端，24小时自动运行，内置网格交易等无需编程的工具，对非技术用户更友好。与QMT形成互补。",
+    "Url": "https://www.zhihu.com/question/55637690/answer/2058580365451714883?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 1,
+    "AuthorName": "国金证券股份有限公司长岭北路营业部",
+    "AuthorAvatar": "https://pica.zhimg.com/50/v2-36b3a6fa672909166157878ba6f422be_l.jpg?source=bbf6831d",
+    "AuthorBadge": "https://picx.zhimg.com/v2-2ddc5cc683982648f6f123616fb4ec09_l.png?source=32738c0c",
+    "AuthorBadgeText": "已认证机构号",
+    "EditTime": 1783583805,
+    "AuthorityLevel": "3",
+    "RankingScore": 1.3623903
+   },
+   {
+    "Title": "目前哪个国内量化回测平台最好? - 知乎",
+    "ContentType": "Answer",
+    "ContentID": "-390815651190860846",
+    "AuthorSignature": "-390815651190860846",
+    "ContentText": "一、接口分类总览\n国内股票数据源分为 4 大类，适配不同预算、场景（学习回测 / 实时策略 / 实盘 / 机构多因子）：\n1.开源免费 Python 库：AKShare、Baostock（无付费门槛，适合新手学习）\n2.积分制半商业接口：Tushare Pro（个人量化主流，中低频回测首选）\n3.免费、付费 API 服务商：智兔数服（标准化 HTTP/WebSocket，低延迟实时行情）\n4.机构专业终端 API：Wind 万得、通联优矿、聚宽 / 米筐量化平台（合规全量数据，年费高）\n二、核心维度横向对比表（A 股重点）\n表格\n对比维度\tAKShare\tTushare Pro\t智兔数服\tWind API\tBaostock\n收费模式\t完全免费，无 Token 限制\t注册送基础积分，高频 / 实时消耗积分，付费充值\t按量计费 / 月度套餐，基础额度低价\t年费数万，机构专属\t免费注册，基础日线永久免费\n实时行情延迟\t500ms~2s，爬虫来源\t200~500ms，轮询接口\t30~100ms，WebSocket 长连接\t<50ms，交易所直连\t无实时，仅盘后数据\n历史 K 线\t日线全量；1 分钟仅近 2 年，缺复权\t日线 / 分钟 / 复权齐全，30 年历史\t30 年全量 1min/5min / 日线，自带 MACD/KDJ 指标\t全市场逐笔 Tick、分笔数据\t日线数据完整，分钟线仅短期\n资金流接口\t龙虎榜、北向资金基础字段，数据零散\t完整资金流向、大单净额、主力持仓\t内置分时资金、逐笔资金、板块资金流\tLevel2 逐笔资金、盘口深度\t无资金流向数据\n技术指标\t需本地 Python 自行计算\t仅基础行情，无内置指标\t接口直接返回 MACD、BOLL、RSI 等\t内置数百因子、技术指标\t无指标接口\n稳定性\t爬虫采集，网站改版易失效，无官方维护\t商业服务器，偶有高峰期限流\t云服务器多节点，可用性 99.95%\t金融专网，稳定性顶级\t低频查询稳定，批量易限制\n接入方式\tPython 库一键调用\tPython SDK+HTTP\tHTTP+WebSocket 双协议\t专用 Wind SDK，复杂度高\tPython 库\n适合场景\t学生学习、原型验证、低频研究\t个人量化回测、基本面选股\t实时盯盘、短线策略、自媒体数据\t机构实盘、多因子、研报宏观分析\t极简日线回测、新手入门\n三、各接口深度优缺点拆解",
+    "Url": "https://www.zhihu.com/question/402894422/answer/2070055595009370008?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 0,
+    "AuthorName": "不会写代码的码农",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-abed1a8c04700ba7d72b45195223e0ff_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1786319713,
+    "AuthorityLevel": "4",
+    "RankingScore": 1.3037468
+   },
+   {
+    "Title": "量化交易工具你会选择哪个平台? - 知乎",
+    "ContentType": "Answer",
+    "ContentID": "4863225544837310145",
+    "AuthorSignature": "4863225544837310145",
+    "ContentText": "量化交易工具琳琅满目，如何不被工具绑架，而是让工具为我所用？答案就是：先用聚宽跑通第一个策略，再根据实际需求选择实盘终端。\n量化交易工具怎么选？ 这个问题其实没有标准答案——工具没有绝对的好坏，只有合不合适。我自己的选择是根据所处的阶段和目标来决定，而不是押注某一个量化交易工具。\n下面我把个人量化交易中会用到的平台，按照学习研究和实盘交易两个场景拆开来讲。\n一、学习研究阶段：聚宽是首选\n如果你刚入门，最重要的不是“选哪个平台”，而是先让策略跑起来。很多新手一上来就想自己搭系统，结果卡在环境部署、接口调试上，几个月过去了连一个策略都没跑出来。这个阶段，我的建议是：用成熟平台专注策略实现，把数据、回测这些底层问题交给专业团队。\n聚宽（JoinQuant） 是个人最推荐的学习平台。它的价值在于：\n・零门槛上手：网页端在线环境，不用安装任何软件，打开浏览器就能写Python策略。\n・社区资源丰富：教程完善、策略库庞大，新手可以边学边参考别人的代码。\n・回测功能完善：支持股票、基金、期货等多品种回测，速度也很快。\n聚宽就像一个“量化练兵场”——你在这里写策略、跑回测、验证逻辑，成本几乎为零。唯一的局限是实盘需要额外对接，延迟也高于专业终端。\n优矿（UQER） 是另一个值得关注的平台，尤其适合做基本面量化和因子研究。它背靠通联数据，在财务数据、因子库方面积累深厚。如果你主攻多因子选股，优矿的拖拽式因子研究工具能大幅提升研究效率。\n米筐（RiceQuant） 定位更偏专业投研，数据质量高、支持多语言。但对个人用户来说费用偏高，性价比不如聚宽和优矿。\n🔗：【国金证券知乎粉丝专享福利，请前往主页领取！】 @国金证券股份有限公司长岭北路营业部\n二、实盘交易阶段：QMT与PTrade二选一（必选）\n当你有了成熟的策略准备实盘，就需要从“研究平台”切换到“交易终端”。目前个人量化实盘的主流选择是QMT和PTrade。\n① 迅投QMT——技术流的首选\n目前做量化交易的个人用户中，有一半以上选择QMT。它的核心优势是：\n・本地运行，策略安全：代码存在自己电脑上，不用担心策略泄露。\n・低延迟：全内存撮合，单笔指令延迟低至毫秒级。\n・支持品种全：股票、两融、ETF、期权、期货均可覆盖。\n缺点是本地电脑需要一直开机，且券商版QMT不带Level-2数据，需要额外采购。部分券商有资产门槛要求。\n② 恒生PTrade——省心省力的选择",
+    "Url": "https://www.zhihu.com/question/534517758/answer/2063993605727982958?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 1,
+    "AuthorName": "国金证券股份有限公司长岭北路营业部",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-36b3a6fa672909166157878ba6f422be_l.jpg?source=bbf6831d",
+    "AuthorBadge": "https://picx.zhimg.com/v2-2ddc5cc683982648f6f123616fb4ec09_l.png?source=32738c0c",
+    "AuthorBadgeText": "已认证机构号",
+    "EditTime": 1784874422,
+    "AuthorityLevel": "3",
+    "RankingScore": 1.2260308
+   },
+   {
+    "Title": "量化软件哪个好用? - 知乎",
+    "ContentType": "Answer",
+    "ContentID": "-6960855284716966966",
+    "AuthorSignature": "-6960855284716966966",
+    "ContentText": "对比维度\t迅投QMT\t恒生PTrade\n一句话定位\t编程高手的“专业开发工具”\t普通散户的“省心策略执行器”\n运行模式\t本地电脑运行\t券商云端运行\n核心优势\t自由度极高：可安装任意第三方库，支持Python/VBA双语言。 品种更全：支持股票、期权、期货、港股通等。 隐私性好：策略源码不上传服务器。 回测强大：支持Tick级回测。\t极其省心：无需本地开机，关机、断网策略照常运行。 新手友好：内置大量零代码模板（网格、条件单等）。 自带Level-2十档行情。\n主要局限\t依赖本地设备：需电脑持续开机。 通常不含Level-2数据，需额外付费。\t灵活性受限：无法安装外部库。 代码上传云端。\n适合人群\t有Python基础，追求策略自由、速度与隐私的专业玩家。\t不会编程或不想折腾代码，追求省心省力的上班族/新手。\n怎么选？\n・闭眼选PTrade：完全不会Python、上班族没空24小时开机、只做A股中低频策略。\n・必须上QMT：会Python、做日内高频/期权期货、极度在意策略隐私。\n・进阶玩法：部分券商允许同账户同时开通QMT和PTrade，网格/定投放PTrade云端挂机，复杂策略跑QMT本地。\n🔗：【国金证券知乎粉丝专享福利，请前往主页领取！】 @国金证券股份有限公司长岭北路营业部\n💻 策略研究与回测：云端平台\n如果你还在学习、回测和验证策略的阶段，这些云端平台是很好的起点。\n・聚宽 (JoinQuant)：国内用户量最大的平台，社区活跃、教程丰富，非常适合新手从零开始。\n・优矿 (UQER)：背靠通联数据，拥有丰富的基本面数据和因子库，适合多因子研究和基本面量化。\n・米筐 (RiceQuant)：定位更偏专业投研，数据覆盖面广（含美股、港股）。\n🛠️ 开源框架：技术极客的终极选择\n如果你追求最高自由度，愿意自己动手搭建系统，开源框架是首选。\n・VeighNa (vn.py)：国内Star数最高的Python开源量化框架，覆盖从数据、回测到实盘的全流程。\n・Backtrader：国际上非常流行的Python回测框架，设计灵活，文档丰富。\n・其他选择：还有天勤量化 (TqSdk)、EasyXT、QuantDinger等，各有侧重。\n💎 总结：一张表看懂怎么选\n你的情况\t推荐工具\t理由\n纯新手，不会编程\tPTrade\t零代码、云端运行、省心省力。\n会Python，追求策略自由\tQMT\t本地运行、全品种支持、编程灵活。\n想学习、研究、回测\t聚宽 / 米筐 / 优矿\t社区活跃、数据丰富、即开即用。\n追求极致自由，自己搭系统\tVeighNa / Backtrader\t代码开源、可深度定制。",
+    "Url": "https://www.zhihu.com/question/466989890/answer/2066490996322522161?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 0,
+    "AuthorName": "国金证券股份有限公司长岭北路营业部",
+    "AuthorAvatar": "https://pic1.zhimg.com/50/v2-36b3a6fa672909166157878ba6f422be_l.jpg?source=bbf6831d",
+    "AuthorBadge": "https://picx.zhimg.com/v2-2ddc5cc683982648f6f123616fb4ec09_l.png?source=32738c0c",
+    "AuthorBadgeText": "已认证机构号",
+    "EditTime": 1785469847,
+    "AuthorityLevel": "3",
+    "RankingScore": 1.1548
+   }
+  ]
+ },
+ {
+  "query": "策略 回测 实盘 一套代码 统一 框架",
+  "count": 6,
+  "items": [
+   {
+    "Title": "第6章 专业回测框架实战:不再徒手造轮子,Backtrader才是正规军 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "3624441752170032538",
+    "AuthorSignature": "3624441752170032538",
+    "ContentText": "多时间周期策略也叫“区间套”——用大周期判断方向，用小周期寻找入场点。\n经验教训：在多时间周期策略中，next() 方法会以最小时间周期的频率被调用！也就是说，如果你加了日线和小时线，next会每小时触发一次。很多新手在这里踩坑，导致大周期指标被重复计算或者逻辑错乱。\n复权处理（使用前复权数据是回测的最佳实践）\n如果你用未复权的数据跑回测，遇到股票拆股（比如1拆4），价格瞬间暴跌75%，你的均线系统会疯狂发出死叉卖出信号，回测结果直接废掉，其他策略也会遇到相似的问题。使用前复权数据是回测的最佳实践。\n6.5 其他框架简介：Zipline、VNPY与实盘接口\nBacktrader并非唯一的选择。根据你的具体需求，以下框架各有所长。\n主流回测框架对比\n框架\t开发方\t优势\t劣势\t适合场景\nBacktrader\t社区开源\t功能全面，文档丰富，可视化好\t大规模回测速度较慢\t个人量化，研究到实盘过渡\nZipline\t原Quantopian\t设计优雅，Pipeline API强大\t已停止维护，安装复杂\t学习量化概念，历史策略迁移\nVNPY\t国内社区\t完整的期货/股票实盘交易接口\t学习曲线陡峭，配置复杂\t国内实盘交易，生产环境\nVectorBT\t个人开发\t极快的向量化回测，超参数优化\t灵活性不如事件驱动\t快速原型验证，大规模参数搜索\n框架选择建议\n・Backtrader：事件驱动回测老牌王者，next() 按根 K 线推进，逻辑直观、中文资料多、A股教学友好；但官方自 2023–2024 起基本停更，纯 Python 循环，速度中等偏慢，实盘要自己接 broker。\n・Zipline：Quantopian 遗产，事件驱动 + Pipeline 因子研究很强，原版 2020 就死了；现在只能用社区分支 zipline-reloaded，且默认美股体系，A股要自己写 bundle，安装依赖地狱。新项目不建议从它起步。\n・VNPY：国内最主流的全栈交易平台（不只是回测），CTP/恒生/券商接口开箱即用，A股/T+1/涨跌停/期货风控都能贴近实盘；回测模块相对朴素，但实盘落地能力这四个里最强。\n・VectorBT：NumPy/Numba/Rust 向量化，参数扫描比 Backtrader 快 10–100 倍，多资产×多参数一次矩阵运算出结果；不适合强路径依赖复杂策略，学习曲线陡，实盘弱，免费版 License 有 Commons Clause 限制。",
+    "Url": "https://zhuanlan.zhihu.com/p/2073019419249452420?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 2,
+    "VoteUpCount": 14,
+    "AuthorName": "Wayz",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-4790d4b47f75d4b462d441425ee2f7f8_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1787026681,
+    "CommentInfoList": [
+     {
+      "Content": "感谢分享"
+     },
+     {
+      "Content": "bt慢啊，我记得有pyrustbt"
+     }
+    ],
+    "AuthorityLevel": "4",
+    "RankingScore": 2.0005367
+   },
+   {
+    "Title": "量化系统00:个人量化系统全景 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "3564189535572245018",
+    "AuthorSignature": "3564189535572245018",
+    "ContentText": "阅读前置：本系列假设你会 Python 基础语法（pandas、NumPy 级别），有基本的股票交易经验（知道什么是 K 线、均线、涨跌幅），愿意花 2-4 个月搭建一套自己的系统。不需要机器学习基础、不需要数学专业背景。\n机构量化系统的全景\n先看专业机构怎么做。Man Group、Citadel、Two Sigma、Balyasny、ExodusPoint 这类系统化对冲基金的技术栈，通常包含六个水平层 + 一个垂直骨干。这是从多个机构技术栈的公开资料中归纳出来的共性架构：\n事件流骨干的作用：它不是某一层的组件，而是贯穿所有层的通信管道。数据层发布行情事件，研究层订阅行情并发布信号事件，交易层订阅信号并发布订单事件……每个层只管”发布”和”订阅”，不需要知道消息去了哪里。这带来三个好处：层之间完全解耦、所有操作可审计回放、新增一个消费者不需要改现有代码。\n以上架构综合了 5+ 个公开来源的共性模式，详见文末参考资料。\n关键设计原则\n1. 模块隔离（Separation of Concerns）\n每一层只通过定义好的接口和其他层通信。策略引擎不直接操作数据库，执行引擎不包含策略逻辑。具体来说：行情入口只负责接收外部数据；策略核心只消费稳定事件和指标视图，不反向查询 GUI 或数据库；执行层不污染策略接口。\n2. Research-Production 一致性\n研究环境用的因子计算、信号生成代码必须和生产环境完全一致。不一致是线上事故的最大来源。现代做法是通过 Feature Store 保证训练和推理使用完全相同的特征计算管线，消除 training-serving skew。回测和实盘应该共用同一套策略代码，只在 Broker 接口处做替换——几乎所有成熟的开源框架都遵循这个设计。\n3. 事件驱动（EDA）：所有状态变更以不可变事件流传播——数据服务发布行情、策略发布信号、风控校验订单、执行发布成交、组合更新持仓。pub-sub 松耦合意味着回测引擎和实盘引擎可互换，策略代码不变。\n4. 二段式数据存储：时序 DB 处理 tick/分钟行情（ClickHouse、ArcticDB 等替代 kdb+）；数据湖处理基本面、另类数据与研究产出。个人用 DuckDB + Parquet 即可覆盖。\n5. Build Alpha, Buy Infrastructure\n自建你的 alpha 来源（信号生成、因子研究、策略验证），买/用现成的基础设施（消息队列、数据存储、任务编排）。",
+    "Url": "https://zhuanlan.zhihu.com/p/2074815888981809038?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 11,
+    "AuthorName": "冰锐97",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-fbe6da1268801886d3e54b492e71c1aa_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1787454745,
+    "AuthorityLevel": "4",
+    "RankingScore": 1.9664495
+   },
+   {
+    "Title": "QMT 为什么能成为宽客首选?一文拆解三大核心优势! - 知乎",
+    "ContentType": "Article",
+    "ContentID": "-6550222779747104528",
+    "AuthorSignature": "-6550222779747104528",
+    "ContentText": "通过封装好的API接口，用户可以高效调取全市场数据，包括tick级实时行情、不同周期历史K线数据、个股财务数据等，不需要从外部爬取，也不用付费买数据源。\n获取全推数据——get_full_tick\n下载历史数据——download_history_data\n获取财务数据——get_financial_data\n除此之外，接口全面覆盖交易全流程功能，可直接实现委托报单、批量撤单、实时持仓查询、账户资金查询、历史交易记录调取等操作。\n账户资金查询\n持仓查询\n委托查询\n成交查询\n按合同编号撤单\n批量撤单\n从行情数据读取、策略逻辑运算、交易信号生成，到实盘自动下单、账户风控查询，QMT打通了量化交易的完整闭环，彻底砍掉了复杂的技术门槛，让普通交易者也能轻松将自己的选股、波段、日内交易思路，落地成全自动量化策略！\n二、回测实盘同引擎，回测精度高\n这是QMT区别于其他普通量化工具的优势，也是资深宽客坚持用它做实盘的关键原因。很多新手踩过最大的坑，就是使用普通量化平台回测时历史收益曲线完美、回撤极低、胜率高，一旦接入实盘，收益大幅缩水。\n出现这种情况的核心根源，就是回测平台和实盘平台分离或者不一致，数据处理、信号生成、触发完全不互通，导致回测参考价值低。\n而QMT系统支持回测模型与实盘模型，两者均基于统一的Python策略框架（init + handlebar）架构；回测使用本地历史数据，实盘使用实时推送数据，但接口一致；交易信号触发机制 方面，回测和实盘均通过handlebar函数逐K线驱动。另外，QMT系统内置Tick→年线全周期回测引擎，支持Tick级别的精细化回测。\n三、底层C++架构+极速交易\n量化交易尤其是日内波段、高频交易，拼的就是速度和延迟。行情瞬息万变，几毫秒的延迟，就可能导致交易信号失效、买卖点位偏移、错过最佳开平仓时机，直接影响策略收益。\nC++底层编译的Python API：QMT的Python交易API完全基于C++底层编译实现，区别于普通纯Python编写的量化工具，在数据读取、运算、触发等环节效率可以大幅提升。",
+    "Url": "https://zhuanlan.zhihu.com/p/2076390406561046564?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 1,
+    "AuthorName": "国金长岭北路营业部",
+    "AuthorAvatar": "https://pica.zhimg.com/50/v2-2944e588be522c3f00e85663705d8fd4_l.jpg?source=bbf6831d",
+    "AuthorBadge": "https://picx.zhimg.com/v2-2ddc5cc683982648f6f123616fb4ec09_l.png?source=32738c0c",
+    "AuthorBadgeText": "已认证机构号",
+    "EditTime": 1787830527,
+    "AuthorityLevel": "4",
+    "RankingScore": 1.9594034
+   },
+   {
+    "Title": "第5章 量化回测入门:手把手搭建一套完整的量化回测系统 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "2182323397843162806",
+    "AuthorSignature": "2182323397843162806",
+    "ContentText": "向量化是”上帝视角”，一眼看完所有历史。事件驱动是”第一人称视角”，只能看到当前这一根K线。\n实盘交易，你永远只能是第一人称。所以，事件驱动虽然慢，但它更接近真实。\n我建议你：先用向量化快速验证想法，确认策略有正期望值后，再用事件驱动做精细回测。\n5.5 回测结果可视化：权益曲线与回撤阴影\n为什么可视化这么重要？\n数字是冰冷的，图形是直观的。\n一个策略好不好，你看一眼权益曲线就知道了。曲线平滑向上，回撤小，那是好策略。曲线像过山车，回撤深不见底，那再高的年化收益也是骗人的。\n专业的回测报告，至少要有这四张图：\n1.权益曲线（叠加回撤阴影）\n2.回撤曲线\n3.每日收益率分布\n4.月度收益热力图\n代码实现\n下面这段可视化代码，我尽量做得专业又好看。\n看图有几个要点：\n1.看回撤恢复时间。如果一个策略回撤后，花了半年才恢复，那它的心理成本太高了，你大概率拿不住。\n2.看收益率分布。正态分布是理想的。如果左尾很长，说明有极端亏损，要警惕。\n3.看月度热力图。如果某个月突然暴赚或暴亏，去查查发生了什么。是策略有效，还是运气？\n可视化不是为了好看，是为了发现问题。一张好图，胜过千言万语。\n写在最后\n这一章，我们从零开始，搭了一个向量化回测框架，又手搓了一个事件驱动引擎。\n核心要点回顾\n1.回测的本质是用历史数据模拟策略执行，其价值在于提供可量化的绩效证据，但必须警惕前视偏差、幸存者偏差、过拟合等常见陷阱。\n2.向量化回测用Pandas的向量运算一次性完成信号→持仓→收益计算，代码简洁高效，适用于信号逻辑简单的策略。\n3.真实市场的摩擦成本（佣金、滑点、印花税）会显著侵蚀策略收益。交易频率越高，成本影响越大。\n4.事件驱动回测引擎通过逐Bar循环处理策略逻辑、订单撮合和账户更新，可以灵活应对复杂的仓位管理和止盈止损需求。\n5.专业的回测报告应包含权益曲线、回撤曲线、收益率分布和月度收益热力图，帮助从多维度审视策略的稳定性和风险特征。\n回测是一门艺术，也是一门科学。它需要你既有程序员的严谨，又有交易员的直觉。\n本文是我知乎专栏《新手小白量化入门：从数据工程到实盘策略》的第5章。后续章节陆续更新中。\n本专栏的目的是帮助新人快速入门量化，跨过新手的迷茫区。本专栏目标读者要求“有Python基础、懂基本交易常识”。\n专栏总体框架\n1. 理念与工具准备（第1章） 快速建立量化交易的整体认知，配好环境，熟悉量化专用库栈，让读者能立刻跑起来。",
+    "Url": "https://zhuanlan.zhihu.com/p/2072282404983682617?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 32,
+    "AuthorName": "Wayz",
+    "AuthorAvatar": "https://pic1.zhimg.com/50/v2-4790d4b47f75d4b462d441425ee2f7f8_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1786851505,
+    "AuthorityLevel": "4",
+    "RankingScore": 1.9533664
+   },
+   {
+    "Title": "从零搭建你的 A 股量化系统(二十三):量化项目目录结构设计(附可直接用的模板) - 知乎",
+    "ContentType": "Article",
+    "ContentID": "2282538729879582874",
+    "AuthorSignature": "2282538729879582874",
+    "ContentText": "很多人觉得\"目录嘛，随便建几个文件夹就行，代码能跑不就完了\"。错。而且错得隐蔽。\n散户量化项目最常死于两个极端，而它们看起来都\"很合理\"：\n极端 A：过度工程（架构巨人症）。 一上来就 Docker + K8s + 微服务 + 消息队列，README 写得像大厂方案。结果写了三个月，最小闭环还没跑通，热情耗尽，项目烂尾。这正是散户量化第一杀手。记住原则二：能跑通 > 架构优雅。\n极端 B：混乱工程（文件夹裸奔）。 反过来，所有东西堆在根目录：main.py（2000 行）、test.py、数据.csv、回测结果.xlsx、双均线草稿.ipynb…… 短期爽，三个月后你面对的是：\n・“这段算回撤的代码，我在哪写过？”——复制粘贴的第 4 个分身已经和原版对不上；\n・“上次能跑的策略，这次为啥挂了？”——因为某个 cell 之前手动跑过、状态还热着（S2-020 的\"隐藏状态\"）；\n・“这台新电脑怎么跑不起来？”——因为相对路径依赖了上台的某层目录。\n结论：目录结构是\"约束\"，不是\"装饰\"。它逼你在放文件的那一刻就想清楚\"这东西属于哪一层、谁会调用它、要不要进 Git\"——这个思考过程，本身就是工程能力。\n💡 本篇用三条原则作为总纲：\n\n① 低频优先（日/周频，合规要求也是技术选择）；\n\n② 能跑通 > 架构优雅（先 200 行跑通最小闭环）；\n\n③ 分层解耦，每层可独立测试（回测/实盘共用同一套策略代码，否则\"回测好好的实盘不一样\"是必然）。\n二、目标骨架：一套能长到大的目录\n下面是本篇脚手架会直接生成的目录树。它按 S2 教学阶段裁剪（P0 即可用，能平滑长到 P7 全量）。先整体看一眼，后面逐层拆：\n⚠️ 关键认知：上面这棵树不是\"等你变厉害了才用得上\"的豪华别墅，而是P0 阶段就该打好的地基。区别只在于——P0 时 src/ 下可能只有 utils/ 和 strategy/ 两个包有点东西，其余是空壳；P7 时每个包都长满了模块。但骨架从第一天就长这样，你不用在\"小项目\"和\"大项目\"之间反复搬家。\n三、逐层拆解：每层放什么、不该放什么\n光有树不够，得清楚边界。下面这张表是全文精华，建议记住：\n目录\t放什么（✅）\t不该放什么（❌）\nconfig/\tsettings.yaml（全局）、strategies/*.yaml（参数，带 version）、*.example 样例\t真实 secrets.yaml/account.yaml（含密钥与持仓，被 gitignore）；别把参数写死在 .py 里\n",
+    "Url": "https://zhuanlan.zhihu.com/p/2074913905403549393?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 2,
+    "AuthorName": "yanxing520",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-abed1a8c04700ba7d72b45195223e0ff_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1787478091,
+    "AuthorityLevel": "4",
+    "RankingScore": 1.9427006
+   },
+   {
+    "Title": "自己整理的13个量化Skill合集,让AI替你写策略、跑回测、出研报 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "5311682656260177161",
+    "AuthorSignature": "5311682656260177161",
+    "ContentText": "一套让AI真正\"懂量化\"的底层能力包，覆盖数据获取、回测框架、实盘交易、投研报告全链路。\n一、先聊聊什么是\"Skill\"\n很多人把AI当成一个\"啥都懂一点的聊天机器人\"，但实际上，AI的能力上限取决于你喂给它什么。\nSkill，可以理解为\"给AI装的专业插件\"——每个Skill本质上是一套结构化的指令包，包含了某个领域的特定知识、工作流程、代码模板和参考文档。当AI加载了一个Skill后，它就不再是泛泛地猜测，而是按照该领域的专业规范来工作。\n举个直观的例子：\n・没有Skill：你问AI\"帮我写个双均线回测策略\"，AI可能会给你一段表面上看起来对、但缺东少西的代码。\n・有Skill：同一个问题，AI会严格按照backtrader框架规范，生成完整的策略类、配置回测引擎、添加分析器、输出夏普比率和最大回撤——一步到位，直接能跑。\nSkill的核心好处：\n1.降低门槛：不需要你精通每个框架的API细节，Skill帮你记住了一切。\n2.提高质量：AI按专业规范执行，生成的代码符合框架最佳实践，减少bug。\n3.节省时间：从\"查文档→试错→改bug\"的循环中解放出来，聚焦策略思路本身。\n4.知识沉淀：每个Skill就是你量化知识体系的固化，可复用、可迭代、可分享。\n简单说——Skill让AI从\"实习生\"变成\"熟手分析师\"。\n二、今天分享一套自整理的量化Skill合集\n过去几个月，我陆陆续续整理了 13 个量化相关的 Skill，覆盖了从数据获取、策略回测、实盘交易到投研报告的全链路。\n按照使用场景，我把它们分成四个大类：\n数据获取（6个）\n1. akshare —— 全品类开源金融数据，零门槛上手\n覆盖面最广的开源数据接口，股票、期货、期权、基金、外汇、债券、指数、加密货币甚至宏观经济数据一应俱全，无需注册、无需API Key，pip install 就能用。最适合快速获取数据和搭建数据管道。附带了 70+ 个接口速查表和 10 个开箱即用的数据脚本。\n2. baostock —— A股\"免费午餐\"，入门首选\n专注A股市场的免费数据平台，支持历史K线、财务报表、行业分类、指数成分股、交易日历等。同样是零注册、零门槛，代码格式简洁（sh.600519），非常适合新手入门和低成本数据需求。如果你只需要A股历史数据，baostock是最省心的选择。\n3. tushare —— 专业级金融数据，一应俱全\n国内最成熟的金融数据平台之一。",
+    "Url": "https://zhuanlan.zhihu.com/p/2073001403262449283?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 4,
+    "VoteUpCount": 51,
+    "AuthorName": "花小姐的春天",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-0dcc2e7a41013af20d74c10f90659028_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1787022049,
+    "CommentInfoList": [
+     {
+      "Content": "基本全都要钱，没开始的不用看了"
+     },
+     {
+      "Content": "qmt 好像不能交易。"
+     },
+     {
+      "Content": "从查文档到试错到改bug的循环里解放出来，这句说到点子上了。量化这个领域特别适合Skill化，框架规范是死的，backtrader那套模板AI记一次就永远不错。建议下一步把风控规则也做成独立Skill，和策略Skill分开调用，不然AI容易在策略代码里自作主张加仓位逻辑。"
+     }
+    ],
+    "AuthorityLevel": "4",
+    "RankingScore": 1.8813179
+   }
+  ]
+ },
+ {
+  "query": "QMT xtquant python 实盘 对接 经验",
+  "count": 6,
+  "items": [
+   {
+    "Title": "QMT导入第三方库两种实操方案|彻底解决Nomodulenamed报错,个人量化从入门到自由开发 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "6752650647624024196",
+    "AuthorSignature": "6752650647624024196",
+    "ContentText": "复制刚才查到的根路径，打开文件夹，依次进入`Lib\\site-packages`，这个文件夹是QMT内置Python读取所有第三方、自定义模块的固定目录。\n步骤4：粘贴自定义脚本文件\n把提前写好的`test2.py`，直接复制粘贴到`site-packages`文件夹内。\n步骤5：重启QMT，验证模块调用\n完全关闭软件后重新打开，回到策略编辑器执行导入模块代码，底部运行日志正常打印文件内输出内容，代表模块导入成功。\n补充一点：如果需要安装pandas、tushare这类完整第三方库，不用手动复制零散文件，在cmd里定向安装到上面的site-packages路径也是可以的；\n这里有几个一定要注意的关键点：\n1.QMT内置Python版本为3.6，安装库时尽量选择兼容3.6的旧版本，新版库大概率出现兼容报错；\n2.部分券商后台开启Python库白名单，复制文件后依旧提示禁止导入，直接联系开户券商客服开通对应库权限；\n3.新增库、自定义文件后必须完整重启QMT，只重新运行策略不会刷新Python环境。\n优缺点总结\n优点：不用额外安装代码编辑器，全部操作在QMT软件内部完成，自带回测、模拟盘、实盘通道，零基础量化交易者能快速上手简单选股、日内策略；\n缺点：内置Python环境版本老旧，库存在双重限制（版本限制+券商白名单），复杂机器学习、大数据分析库极易报错，内置编辑器无断点调试功能，复杂策略排查问题效率很低。\n二、方案二：xtquant外部IDE独立开发\n如果你习惯用VSCode/PyCharm写代码，需要自由调用数据分析、机器学习库，想要断点调试、管理多文件量化工程，这套xtquant方案是个人量化的终极解法。\n核心原理\n`xtquant`是迅投官方原生SDK，打通本地电脑Python环境与MiniQMT客户端，本地IDE编写的代码可以直接调用QMT全部行情、交易API，策略逻辑写法和QMT内置代码完全通用，本地环境不受券商、软件版本束缚。\n分步图文实操教程\n步骤1：打开CMD命令行工具\nWin10/11系统，直接在底部搜索框输入`cmd`打开命令提示符；Windows老旧系统使用Win+R快捷键，弹出运行窗口后输入`cmd`启动。\n步骤2：执行xtquant安装操作\n在CMD窗口输入官方安装指令，等待工具自动下载、部署完成。\n步骤3：本地IDE对接QMT行情交易API\n在VSCode/PyCharm新建策略脚本，调用QMT官方行情下载接口，运行代码后，终端输出连接成功日志，就代表本地Python环境和QMT底层行情、交易通道成功打通。",
+    "Url": "https://zhuanlan.zhihu.com/p/2066525547048522624?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 0,
+    "AuthorName": "不知名的量化白",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-d1c06461975d548dd433aacab77751e1_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1785479593,
+    "AuthorityLevel": "3",
+    "RankingScore": 1.4508162
+   },
+   {
+    "Title": "手把手教你用Python+迅投miniqmt构建实时大盘涨跌幅图形变化监控 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "-3555200981231801106",
+    "AuthorSignature": "-3555200981231801106",
+    "ContentText": "在量化交易的道路上，很多初学者往往只盯着上证指数或者深证成指的跳动。然而，经验丰富的老手都知道，指数往往是失真的。\n有时候指数翻红，但你手里的个股却绿油油一片；有时候指数微跌，但市场情绪却已经崩溃。这是因为大盘股的权重扭曲了整体市场的真实表现。要想看透市场的真实水温，我们需要一个更微观、更直接的指标——全市场涨跌家数统计。\n今天，我们就利用 Python 和 QMT 的xtdata接口，手写一个实时大盘情绪监控工具。这不仅能帮你告别“只赚指数不赚钱”的困惑，更是你学习 Python 数据可视化和量化实盘对接的绝佳案例。\n一、 为什么我们需要监控“涨跌家数”？\n在正式写代码之前，我们先聊聊这个工具的实战意义。\n在量化技术分析中，有一个非常重要的概念叫“市场广度”。涨跌家数就是市场广度的核心指标之一。\n1.验证指数的真实性：当指数创新高，但上涨家数却逐渐减少（顶背离），说明上涨仅仅是由少数权重股拉动的，市场其实是虚弱的，此时往往是风险预警信号。\n2.捕捉情绪冰点与沸点：当全市场上涨家数超过 4000 家，说明市场情绪达到沸点，可能需要警惕回调；当上涨家数不足 500 家，说明市场进入情绪冰点，往往孕育着反弹的机会。\n通过实时绘制涨跌家数的曲线，我们能直观地看到资金在全市场的攻击方向，而不仅仅是盯着那几只大象在跳舞。\n二、 核心代码实现\n基于 QMT 的xtdata库和强大的matplotlib绘图库，我们可以在几十行代码内实现一个动态刷新的监控面板。\n这里提供一个AI写的例子， 动态监控股票涨跌家数。\nfromxtquantimportxtdata\nimportmatplotlib.animationasanimation\nimportmatplotlib.pyplotasplt\nimportseabornassns\nfromdatetimeimportdatetime, timedelta\nimportwarnings\n# 忽略警告信息\nwarnings.filterwarnings('ignore')\n# 设置绘图风格\nsns.set(style=\"whitegrid\")\n# 设置字体 (兼容 Windows 和 Mac)\nplt.rcParams['font.sans-serif'] = ['Arial Unicode MS','PingFang SC','SimHei']\nplt.rcParams['axes.unicode_minus'] =False\n",
+    "Url": "https://zhuanlan.zhihu.com/p/2035481952971700128?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 1,
+    "AuthorName": "子晓AI量化",
+    "AuthorAvatar": "https://pic1.zhimg.com/50/v2-c41bd544f8e6e8222fd1360b639ec237_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1778076715,
+    "AuthorityLevel": "4",
+    "RankingScore": 1.322523
+   },
+   {
+    "Title": "开源一个基于qmt的两家交易框架 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "2754814293114037356",
+    "AuthorSignature": "2754814293114037356",
+    "ContentText": "迅投的qmt差不多就提供了一个交易和数据的接口，真正用到实盘还有很多工作要做。之前用QMT搞了个简单的自动实盘，跑起来之后，人就颓废了差不多一年，折腾工作室，折腾硬件网络之类。最近团队有了新的策略思路，回头一看，当初那个实盘程序实在太糙了，好多地方根本满足不了现在的要求。市面上其他量化框架我也看了看，要么不支持A股，要么把Python的能力限制得死死的，用着别扭。干脆，自己动手重新写一个吧，怎么顺手怎么来。目前这个框架还在打磨阶段，有不少待完善的地方，如果有感兴趣的朋友，欢迎一起来折腾。\n这个框架在设计上，主要关注了这些点：\n・交易连接与自动重连\n・实时行情订阅与分发\n・策略运行与状态恢复\n・订单追踪与成交回调\n・持仓管理与盈亏统计\n・手续费追踪与 T+0/T+1 可用仓位控制\n・Watchdog 监控告警\n・FastAPI + Vue Web 控制台\n・一个策略对象维护一个标的，实现标的管理解耦。\n・长期调度与日内交易会话完全分离，便于稳定运行与分层控制。\nWeb后台监控这块，我选了网页的形式，目前主要做了这几个功能：\n・系统运行状态查看\n・策略列表与状态控制\n・持仓与盈亏明细查看\n・订单状态跟踪与撤单\n・成交记录与成交时间展示",
+    "Url": "https://zhuanlan.zhihu.com/p/2015852656502022385?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 9,
+    "VoteUpCount": 13,
+    "AuthorName": "杨清风",
+    "AuthorAvatar": "https://pic1.zhimg.com/50/v2-5a90617b3eec1ef292d66aa077ada984_l.jpg?source=bbf6831d",
+    "AuthorBadge": "https://pic1.zhimg.com/v2-2ddc5cc683982648f6f123616fb4ec09_l.png?source=32738c0c",
+    "AuthorBadgeText": "中南大学 电气工程硕士",
+    "EditTime": 1773396999,
+    "CommentInfoList": [
+     {
+      "Content": "这项目也太清晰了，我最近也在重构qmt代码，可以参考大佬的项目"
+     },
+     {
+      "Content": "正好也在搞，跟大佬学学"
+     },
+     {
+      "Content": "我直接用vnpy+miniqmt[哇],"
+     }
+    ],
+    "AuthorityLevel": "4",
+    "RankingScore": 1.284328
+   },
+   {
+    "Title": "量化软件QMT怎么创建一个策略|保姆级教程 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "-8974591404949713089",
+    "AuthorSignature": "-8974591404949713089",
+    "ContentText": "量化交易≠画几条K线就完事。真正的实盘，必须让策略能听、能说、能记录。\n今天这份QMT（MiniQMT通用）保姆级教程，让你的账户：\n・成交即打印\n・失败即报警\n・断连即重连全部代码已放文末\n前言：\nxtquant 是 QMT 官方维护的 Python 接口，把“下单-回报-成交-异常”全部封装成事件回调。\n今天全文只围绕一份代码展开，逐行讲透：一个事件驱动的回调\n1.如何建立柜台连接；\n2.如何监听委托、成交、撤单、断线等 7 大事件；\n3.如何把事件打印成结构化日志，方便后续扩展成资金风控、推送微信、入库 MySQL。\n二、运行环境\n・Windows 10/11（QMT 仅支持 Win）\n・Python ≥3.7，64 位\n・pip install xtquant  （2025-10 官方已支持 3.11）\n・券商版 QMT 交易端（模拟盘也可）已启动并登录\n三、完整代码（共 92 行，含空行）\nPython复制#coding=utf-8 ：这是 Python 文件中的编码声明，用来告诉 Python 解释器这个文件是用 UTF-8 编码的。这通常用于确保文件中的非 ASCII 字符（如中文）能被正确处理。\nfrom xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback from xtquant.xttype import StockAccount from xtquant import xtconstant：这段代码的目的是为了使用 xtquant 这个量化交易库中的功能，包括创建交易者实例、处理交易回调、管理股票账户以及使用预定义的常量。\n ・xtquant.xttrader：这是一个模块的路径，可能是一个量化交易相关的库。\n ・XtQuantTrader：从 xtquant.xttrader 模块中导入的类，可能用于创建量化交易的交易者实例。\n ・XtQuantTraderCallback：同样是从 xtquant.xttrader 模块中导入的类，可能是一个回调类，用于处理交易过程中的回调事件。\n1.from xtquant.xttype import StockAccount：\n・xtquant.xttype：这是另一个模块的路径，可能包含与量化交易相关的数据类型。\n・StockAccount：从 xtquant.xttype 模块中导入的类，可能代表一个股票账户，用于管理股票交易相关的账户信息。",
+    "Url": "https://zhuanlan.zhihu.com/p/1968999912789218039?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 4,
+    "VoteUpCount": 5,
+    "AuthorName": "躺平发育",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-c05839757d2f4e988560235227f423e8_l.jpg?source=bbf6831d",
+    "AuthorBadge": "https://pic1.zhimg.com/v2-2ddc5cc683982648f6f123616fb4ec09_l.png?source=32738c0c",
+    "AuthorBadgeText": "证券行业 从业人员",
+    "EditTime": 1776690173,
+    "CommentInfoList": [
+     {
+      "Content": "能分享一下资料库吗[害羞]"
+     },
+     {
+      "Content": "资料库也想要"
+     }
+    ],
+    "AuthorityLevel": "4",
+    "RankingScore": 1.283078
+   },
+   {
+    "Title": "miniQMT入手教程 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "5089735662735889904",
+    "AuthorSignature": "5089735662735889904",
+    "ContentText": "QMT提供了一个包：xtquant，这个包就可以使用miniQMT了，\n本文详细讲解如何使用miniQMT:\n一，获取QMT软件：\n迅投QMT和券商合作很多，券商对接实盘，也可以获取模拟软件试用一下，\n有些券商可能有资金要求，或者不支持mini；\n这个可以与我交流。\n二，启动mini（极简模式）：\nQMT的登录界面上就有选项，勾选即可\n或者从大QMT进入mini：\n在大QMT界面下方，有个蓝色方框，橘色M字母的按钮，点击就会出现mini客户端。\n用这种方式可以实现大QMT和mini共存，还能开发更多技巧（doge）\n三，下载xtquant：\n有了QMT，就可以找到知识库，找到xtquant的下载路径，“点击下载”\n下载的是一个zip包，我们需要的是压缩包的文件夹；",
+    "Url": "https://zhuanlan.zhihu.com/p/688296339?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 22,
+    "VoteUpCount": 318,
+    "AuthorName": "大白量化",
+    "AuthorAvatar": "https://pic1.zhimg.com/50/v2-940ad1fb7c09377034711a3431c3e127_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1751529110,
+    "CommentInfoList": [
+     {
+      "Content": "老师，如何联系你？"
+     },
+     {
+      "Content": "miniQMT怎么回测呀"
+     },
+     {
+      "Content": "这个收费吗"
+     }
+    ],
+    "AuthorityLevel": "4",
+    "RankingScore": 1.1817245
+   },
+   {
+    "Title": "从0到1自建量化股票平台(五):自动化交易 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "-5962859080857433755",
+    "AuthorSignature": "-5962859080857433755",
+    "ContentText": "如果你已经写过策略，你一定经历过这个阶段：\n回测看起来很美，手动实盘却很累。开盘要盯、风控要盯、成交要盯，稍微离开屏幕就容易错过最佳执行窗口。\n这也是我写「从0到1自建量化股票平台」系列到第五篇，必须讲“自动化交易”的原因。\n自动化交易的本质，不是把鼠标点击改成 API 调用；而是把“交易行为”变成一条可验证、可追踪、可修复的工程链路。\n前四篇我们已经把框架搭起来了：\n・有策略输出\n・有风控边界\n・有账户与数据模型\n・有基础联调能力\n一、本篇要解决什么问题（背景与目标）\n前几篇我们已经完成了数据与策略侧能力，这一篇只解决一个主问题：\n・如何把策略信号可靠地送到交易通道\n・如何避免“重复下单/失控下单/状态不一致”\n・如何形成“开发→验证→复盘→优化”的执行闭环\n二、自动化交易层架构\n交易执行层不是“直接调券商接口”：\n・strategy 层：只输出 OrderIntent / TargetPosition\n・core 层：OMS、风控、对账、事件总线\n・adapters 层：xtqmt/miniqmt 连接、回调桥接、限流重试\n・interfaces 层：HTTP API + MCP 工具 + UI 管理面板\n三、实现步骤（环境、代码、配置、运行）\nStep 1：miniQMT 环境搭建（自动化交易前置条件）\n在策略上线前，先把交易终端和账户连接打通。这里给一套可复现、可排障的最小流程。\n1）准备组件\n・券商端可用的 miniQMT/xtquant 运行环境\n・本项目代码与 Python 环境\n・已开通并可登录的证券账户（用于联调/实盘）\n2）安装项目依赖\npip install -e .[trade,test]\n3）配置环境变量与账户\n・复制模板：.env.example -> .env\n・核心安全开关：先保持 TRADING_ENABLED=false\n・在 configs/accounts/*.yaml 配置账户（如 account_a.yaml / account_b.yaml）\n・确认 miniqmt_path、session_id、账户信息与实际环境一致\n4）验证连接链路\n先启动 API：\npython scripts/run_api.py\n检查健康状态：\n・GET /health\n・确认 xtqmt_state 不是 DEGRADED\n・能看到已注册账户列表\nStep 2：启动交易主流程（多账户编排 + 风控 + 回调）",
+    "Url": "https://zhuanlan.zhihu.com/p/2032492999956017363?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 4,
+    "AuthorName": "长卷如金",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-d97096a7492a5e611b4151dc5df25cdc_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1781926164,
+    "AuthorityLevel": "4",
+    "RankingScore": 1.1476784
+   }
+  ]
+ },
+ {
+  "query": "backtrader 局限 替代 重构",
+  "count": 6,
+  "items": [
+   {
+    "Title": "我是如何用 1650 个小时把 Backtrader 重构成 C++20,并使得性能提升100倍以上的 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "8960910944032891675",
+    "AuthorSignature": "8960910944032891675",
+    "ContentText": "如果只看结果，这件事可以用几组数字概括：\n・117 个策略 benchmark case，C++ 版本 117/117 success，0 metric mismatches；\n・C++ total-time median speedup：128.82x；\n・C++ run-time median speedup：235.78x；\n・pybind11 total-time median speedup：43.39x；\n・pybind11 run-time median speedup：57.60x。\n也就是说，在保持关键指标和 Python 版本对齐的前提下，C++ 版本把 Backtrader 的回测速度提升到了一个新的量级。通过 pybind11 接口，Python 用户也可以直接使用：\n它基本可以替换原来的：\n这个结果背后，是大约 1650 个小时的重构、测试、对齐、修 bug 和性能优化。\n为什么还是 Backtrader\n我是在 2018 年 4 月开始接触 Backtrader 的。\n当时最吸引我的是它的易用性和完整性：策略、数据、指标、broker、observer、analyzer 这些量化回测里常见的模块，它都已经组织得比较成熟。后来我也陆续接触过很多量化投研平台，但真正做策略研究、回测和实盘时，总会遇到各种限制。绕了一圈，最后经常还是回到 Backtrader。\n所以我对 Backtrader 的感情比较复杂：它很好用，但也有历史包袱；它足够灵活，但性能和工程结构还有继续优化的空间。\n2025 年左右，我开始对 Backtrader 做第一轮重构。当时主要使用 Claude 3.5、Claude 3.7 这一类模型协助开发。那一代模型的编程能力已经不错，但还没有现在这么强。整个过程陆陆续续花了一年左右，中间失败过几次，最后完成了一件比较关键的事：去掉 Backtrader 里大量依赖元编程的实现方式。\n这次重构之后，Backtrader 的性能提升了 45% 左右。同时我还增加了 tickbroker 和 mixbroker，让它能够更好地支持高频策略和中频策略的回测与实盘。\n重构后的 Backtrader 一直保持开源：\n・GitHub：https://http://github.com/cloudQuant/backtrader\n・Gitee：https://http://gitee.com/yunjinqi/backtrader",
+    "Url": "https://zhuanlan.zhihu.com/p/2053252686313740249?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 9,
+    "VoteUpCount": 41,
+    "AuthorName": "云金杞",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-0f110c61f1058785f75b15aece86466b_l.jpg?source=bbf6831d",
+    "AuthorBadge": "https://picx.zhimg.com/v2-2ddc5cc683982648f6f123616fb4ec09_l.png?source=32738c0c",
+    "AuthorBadgeText": "西南财经大学 金融硕士",
+    "EditTime": 1782313708,
+    "CommentInfoList": [
+     {
+      "Content": "烧了多少token？"
+     },
+     {
+      "Content": "牛逼，等试试"
+     },
+     {
+      "Content": "之前深度使用bt将近两年, 现在回看觉得bt只适合规则类的策略"
+     }
+    ],
+    "AuthorityLevel": "4",
+    "RankingScore": 1.1557012
+   },
+   {
+    "Title": "backtrader,德国造工业级量化投资框架,支持实盘与机器学习生态 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "-4051355673760972025",
+    "AuthorSignature": "-4051355673760972025",
+    "ContentText": "持续行动1期 52/100，“AI技术应用于量化投资研究”。\n今天聊聊backtrader——号称最强大的“工业级”单机版量化框架。可能需要一系列的文章能把这个讲清楚，不只是简单使用，要改造成适合A股市场，电子货币实盘，接入机器学习生态等。\n版本1.9，比较成熟，海外很多机构在用，而且支持实盘，支持电子货币等。\n我比较看重实盘、生态。所以值得系统学习一下，并整合进我们的投研生态中。backtrader本身包很小，才420k左右，而且依赖包也不多，不像qlib，很多用户估计安装都有些许困难。\n写一个简单的量化回测框架很简单，但要把问题考虑全，对上下游生态的整合，并不容易。而且要知道，我们的核心是策略，策略，策略（因子）。\nbacktrader是否方便整合机器学习生态，这个有待深入研究。\n另外backtrader有一个缺点，就是代码比较难懂。这是我一直对这个框架没有提上日程的原因。但仔细一想，我们真正要改框架的地方不会太多，qlib很容易看懂，我也只是复用过它的代码，并没有扩展和修改过它的组件。\n安装指令：pip install backtrader。\n文档地址： https://www.http://backtrader.com/docu/quickstart/quickstart/https://www.http://backtrader.com/docu/quickstart/quickstart/\n01 数据源\n首先要解决的就是数据源的问题。\n官网上的示例使用yahoofinance，国内访问不稳定，而且使用的示例数据也是美股，给我们的感觉是不太熟悉。\nbacktrader支持PandasData就是Dataframe，这就好办了。\n最简单的，就是从本地加载csv，而本地数据我早就准备好了。\n这是一个通用的datafeed_csv.py（大家从gitee ailabx可以下载）\n读出沪深300指数如下：\n数据规整成backtrader格式，\nindex转为datetime格式，加一列openinterest(这个是期货里的概念，未平仓合约，不知为何要作为必选列，没有就置为0即可)，然后把不需要的列去掉。\n",
+    "Url": "https://zhuanlan.zhihu.com/p/566666275?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 2,
+    "VoteUpCount": 27,
+    "AuthorName": "AGI量化实验室",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-0c40d93a5d920b1b7948104bc38fdb7f_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1663736377,
+    "CommentInfoList": [
+     {
+      "Content": "大佬，你的engine引用在哪里？"
+     },
+     {
+      "Content": "gitee ailabx,代码更新了。"
+     }
+    ],
+    "AuthorityLevel": "4",
+    "RankingScore": 1.0136275
+   },
+   {
+    "Title": "82、backtrader部分回测功能替代品_ts和cs功能介绍及使用说明 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "2782072857610902722",
+    "AuthorSignature": "2782072857610902722",
+    "ContentText": "在github上找了一圈用于做因子测试的框架，并没有找到比较合适的，要么是比较难学，要么就是速度比较慢，不得不自己用了一两周的时间写了 一个cs的框架用于期货单因子的回测(也可以用于股票上)，并且经过几个月的改进，cs这个框架的速度大大提高，在我本地电脑上，基于期货各品种的日线数据\n做一万七千多组参数优化，跑10个进程，使用的时间不超过20分钟。本来这个算是公司资产，但是离职的时候谈的条件是公司这边允许我自由使用我在工作期间撰写的代码 、使用的数据和做出的研究，所以我就尝试把cs这个框架公开了。后续和backtrader有关的一些策略代码之类的也准备放到这个专栏里面分享。\n这两天也尝试实现了一个ts的框架，用于时序策略的回测，跟backtrader对比了一下，速度提高有600倍以上，\n并且净值序列相关性非常高(没能完全相关的原因在于backtrader计算每个bar的净值的方式不一样，只有在没有持仓的时候净值才完全一致)，\n所以可以替代一部分backtrader的功能。\nbacktrader运行耗费的时间为:218.7071305999998\nts_python运行耗费的时间为:1.6099043001886457\nts_numba运行耗费的时间为:0.35054199979640543\nts_cython运行耗费的时间为:0.351795099908486\nbacktrader ts_numba ts_python ts_cython\nbacktrader 1.000000 0.999998 0.999998 0.999998\nts_numba 0.999998 1.000000 1.000000 1.000000\nts_python 0.999998 1.000000 1.000000 1.000000\nts_cython 0.999998 1.000000 1.000000 1.000000\n对于backtrader，准确点说，我并不是放弃，而是扬弃。\n事物发展的规律往往是螺旋上升的: 从最开始经历过各种回测框架，踩过很多坑之后，到坚信backtrader是最好的量化框架，到发现backtrader也存在种种不足之处，\n到自己手动撸一些框架，替代backtrader的部分功能，中间对backtrader的认识也有了很大的提升，对于backtrader也既爱又恨。爱是因为它确实很好用，恨是因为\n",
+    "Url": "https://zhuanlan.zhihu.com/p/627084555?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 7,
+    "VoteUpCount": 5,
+    "AuthorName": "云金杞",
+    "AuthorAvatar": "https://pica.zhimg.com/50/v2-0f110c61f1058785f75b15aece86466b_l.jpg?source=bbf6831d",
+    "AuthorBadge": "https://picx.zhimg.com/v2-2ddc5cc683982648f6f123616fb4ec09_l.png?source=32738c0c",
+    "AuthorBadgeText": "西南财经大学 金融硕士",
+    "EditTime": 1683293095,
+    "CommentInfoList": [
+     {
+      "Content": "Backtrader停更很久了，有待大神去添砖加瓦[大笑]"
+     },
+     {
+      "Content": "请教一下期货tick级别的回测用什么平台比较好?"
+     },
+     {
+      "Content": "你是用的向量计算吧，如果是按每条bar计算不可能提高几百倍"
+     }
+    ],
+    "AuthorityLevel": "3",
+    "RankingScore": 0.9021069
+   },
+   {
+    "Title": "好的量化框架可以帮助量化交易者 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "-858316525747486554",
+    "AuthorSignature": "-858316525747486554",
+    "ContentText": "1.毕竟是英语文档，中英文阅读存在一定的差异。\n2.文档是海纳百川，有的地方讲的太详细，侧重于细枝末节则易失主干。本文有的放矢，力求让读者彻底明白框架运行的结构。\n3.本文会增加一些交易思维的讲解，当然这个见仁见智。\n4.增加一些经典策略的代码实现。\n详细课程请见： 量化交易Backtrader核心掌握\n本文尚在持续更新中。若文章中出现纰漏，请勿客气。\n1.1 Backtrader是什么\n众所周知，实践是检验真理的唯一标准，回测是检验量化交易的重要手段。未来不可知难以验证准确，真金白银实战的踩坑填坑得不偿失，回测就是利用过去的数据提高交易的准确性。当然回测框架也可以用来实盘交易。\nBacktrader回测框架是大浪淘中，众多框架中的优秀作品。Backtrader作者说，他不知道谁在使用，但是他知道华尔街很多量化交易者在使用。\nBacktrader不仅得到了华尔街量化交易者的喜爱，在国内也有一众粉丝。很多的人量化交易学习也是从Backtrader开始\n1.2 Backtrader特性\nBacktrader 是基于python语言的量化工具，可以支持多种资产。\nBacktrader优点众多，网上介绍很多。比如组件多，支持pandas矢量计算，内置百种技术指标。Backtrader最大的特点就是简单易用，灵活。\nBacktrader在官方文档中提到 \n该平台有两个主要目标。一是简单易用，二是请参考第一条。其格式类似于投资大师巴菲特投资名言：“第一保证本金安全，永远不要亏损；第二条请参考第一条”\n得益于作者强大编程能力，backtrader框架使用简单，量化交易者可以集中精力放在交易逻辑的编写。使用backtrader就像搭积木一样，需要什么模块，拿来组装就可以。\nbacktrader也有一定的局限，因为python语言的本身，速度相对较慢，不太适合高频交易者。Backtrader适合投中低频率的交易者。\nbacktrader作者运用大量的元编程技术，如果运行出现问题，需要一定的python知识才能够解决问题。\n1.3 基本使用\n1.3.1 backtrader安装\n推荐使用python 包管理工具anaconda.推荐使用清华镜像源。\npip install backtrader\n下载经常使用的数据分析的包\nconda install numpy\nconda install pandas\npip install matplotlib==3.2.2",
+    "Url": "https://zhuanlan.zhihu.com/p/573244190?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 0,
+    "VoteUpCount": 0,
+    "AuthorName": "风扇",
+    "AuthorAvatar": "https://pic1.zhimg.com/50/v2-31546da5cdbdda871a0584dfd0f1edae_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1665647235,
+    "AuthorityLevel": "3",
+    "RankingScore": 0.8885745
+   },
+   {
+    "Title": "量化交易框架vnpy vs backtrader,请大神点评各自优缺点,尤其在数字货币领域? - 知乎",
+    "ContentType": "Answer",
+    "ContentID": "-6197016882016462598",
+    "AuthorSignature": "-6197016882016462598",
+    "ContentText": "引言\n最近由于个人较作的行为，右脚内外踝骨折做了个手术，有很长一段时间需要闲赋在家了，我想有必要来升级下我的AlphaLab了，数据模块我已经全部重构，采用了DuckDB+Parquet结合的方式，因子计算也绕过pandas，直接采用duckdb的sql计算，这样性能和效率都会有大幅提升，具体的数据后面另外文章再放出。今天是要讲讲另外一个问题：策略框架中的BT模式和Backtrader模式。\nBT范式和Backtrader范式\nBacktrader范式\n很多人接触开源量化框架可能都是从Backtrader开始，我也是从Backtrader开始研究量化交易的，而且Backtrader常有人会简写为bt，所以会将BT和Backtrader混淆，其实两个框架是完全不同的策略模型。Backtrader的思路很符合从手动交易转换过来的交易者，尤其是按指标信号交易的人，它的流程几乎跟手动交易一模一样，先选股，再根据指标则时交易，有风险控制模块进行止盈止损，所以非常好理解。一般的资深韭菜给你能描述的策略，什么三底啊，V型反弹啊，都很符合Backtrader的策略逻辑。\n但是，它也有明显的缺点，新增策略稍显复杂，尤其不同策略或不同指标对比非常困难，很多证券公司出的各种因子，很难在该模型中测试，实盘也比较复杂，所以一般人可能就弄几个均值策略、海归策略什么的跑几遍，估计也就结束了。\nBT范式\n后来，我发现了BT，这就是完全不同的策略模式了，一开始根本不理解，觉得它根本不是量化回测框架，就给一堆股票按因子排序，然后TopN、TopK什么的，就完了，根本不是通常意义上的买入和卖出，等逐渐理解了BT模型，才发现它的强大。可以理解为它只有一个策略，就是周期轮询，改变的是成千上万的因子。下面从专业角度来比较下两种策略模式的区别和优缺点。\n两类策略核心逻辑对比\n其实这两类策略的核心矛盾点正是量化策略开发的分水岭问题——截面因子排序 vs 行为驱动交易。\n维度\t向量化截面策略（BT范式）\t行为驱动策略（Backtrader范式）\n策略哲学\t市场无效性套利 （错误定价的统计修复）\t价格行为追踪 （跟随市场参与者情绪）\n持仓周期\t4天-3周（跨周期噪声过滤）\t5分钟-3天（捕捉短期动量）\n回测可验证性\t可验证性高（IC>0.3的策略年化18.7±2.3%）\t可验证性中低（参数敏感度±40%）\n注： IC（信息系数）>0.3表明因子预测能力超越基准（沪深300指数）",
+    "Url": "https://www.zhihu.com/question/418804367/answer/1915063803550335265?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 1,
+    "VoteUpCount": 7,
+    "AuthorName": "不拆特量化实验室",
+    "AuthorAvatar": "https://picx.zhimg.com/50/v2-9b46e07db65bcb64d72223f4d0e0c7ba_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1749366790,
+    "CommentInfoList": [
+     {
+      "Content": "不就是多因子模型么，无非是投资个股和投资因子的差别，因子代表了一篮子股票"
+     }
+    ],
+    "AuthorityLevel": "4",
+    "RankingScore": 0.84340787
+   },
+   {
+    "Title": "量化回测框架大比拼:我测了10个工具,这个最好 - 知乎",
+    "ContentType": "Article",
+    "ContentID": "-7014551434552085889",
+    "AuthorSignature": "-7014551434552085889",
+    "ContentText": "说实话，我本来没打算写这篇文章的。\n事情是这样的，上个月有个老朋友找我，说他搞了个均线策略，想做个回测看看效果。我说这还不简单嘛，用Backtrader几行代码就搞定了。结果他回我一句：\"Backtrader？那玩意儿不是早就没人维护了吗？现在大家都用什么？\"\n我愣了一下。\n这一愣不要紧，直接把我给愣清醒了。我突然意识到一个问题：我用了这么多年的回测框架，好像从来没有系统性地横向对比过。每次都是哪个顺手用哪个，或者项目需要什么功能就临时找个能用的。\n于是我做了一个可能有点疯狂的决定——把市面上主流的量化回测框架全部测一遍。\n这一测就是整整三周。\n三周啊兄弟们，我头发又少了一撮。但测完之后我觉得这事儿太值了，因为我发现了很多之前完全不知道的坑，也找到了一个我认为目前最香的框架。\n今天这篇文章，我就把这三周的测试结果，讲给大家听。\n我到底测了哪10个框架？\n先说说我测试的这10个选手，按我接触的先后顺序排列：\n1.Backtrader - 老牌Python回测框架，江湖地位摆在那\n2.Zipline - Quantopian的遗产，曾经的王者\n3.VectorBT - 向量化计算的新贵\n4.QuantConnect/Lean - 工业级的存在\n5.PyAlgoTrade - 轻量级选手\n6.Freqtrade - 加密货币圈的宠儿\n7.Rqalpha - 国产之光，米筐出品\n8.Catalyst - Zipline的加密货币分支\n9.bt - 名字最短，但能量不小\n10.Zvt - 另一个国产选手，知乎大V出品\n为什么选这10个？说白了就是两个标准：第一，GitHub上星星够多，说明有人在用；第二，最近两年还有人在维护，不然测了也没意义。\n好，选手介绍完毕，下面开始正式比赛。\n评测维度：我关心的那些事儿\n在开测之前，我先定了几个评测维度。这些维度都是我这些年实际做量化过程中，真正会遇到的痛点：\n我会在后面的测试中，针对每个维度给出1-10的评分。这个评分完全是主观的，基于我个人的使用体验，大家可以不同意，欢迎在评论区讨论。\n测试环境和数据\n为了公平起见，所有测试都在同一台机器上跑：\n・CPU: Intel i9-13900K\n・内存: 64GB DDR5\n・硬盘: 2TB NVMe SSD\n・系统: Ubuntu 22.04 LTS\n・Python: 3.10.12\n测试数据我用的是A股全市场日线数据，大概5000只股票，时间跨度是2015年1月1日到2024年12月31日，差不多10年的数据量。",
+    "Url": "https://zhuanlan.zhihu.com/p/1995510498830091671?utm_medium=openapi_platform&utm_source=17b7c21c",
+    "CommentCount": 1,
+    "VoteUpCount": 24,
+    "AuthorName": "原力量化",
+    "AuthorAvatar": "https://pic1.zhimg.com/50/v2-2e0eee451aafa99884d4049bb71f1a35_l.jpg?source=bbf6831d",
+    "AuthorBadge": "",
+    "AuthorBadgeText": "",
+    "EditTime": 1768546858,
+    "CommentInfoList": [
+     {
+      "Content": "向量回测，不好实盘。验证因子还差不多。"
+     }
+    ],
+    "AuthorityLevel": "3",
+    "RankingScore": 0.8265109
+   }
+  ]
+ }
+]
