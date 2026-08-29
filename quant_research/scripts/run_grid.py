@@ -32,7 +32,6 @@
 from __future__ import annotations
 
 import argparse
-import itertools
 import logging
 import sys
 import time
@@ -49,47 +48,15 @@ if str(_PROJECT_ROOT) not in sys.path:
 from quant_research.config import load_config, load_strategy_config
 from quant_research.data import DataLoader
 from quant_research.backtest import BacktestEngine, ETFMomentum
+from quant_research.runner import (
+    ETF_COMMISSION,
+    grid_combinations,
+    parse_grid_spec,
+    slice_feeds as _slice_feeds,
+    warmup_days as _warmup_days,
+)
 
 logger = logging.getLogger("grid_run")
-
-# ETF 现货免印花税与过户费
-_ETF_COMMISSION = {"stamp_duty": 0.0, "transfer_fee": 0.0}
-
-# 参数名 → 类型解析器
-_PARAM_TYPES = {
-    "lookback": int,
-    "top_k": int,
-    "ma_filter": int,
-    "min_volume": float,
-    "stop_loss_pct": lambda s: None if s.strip().lower() == "none" else float(s),
-    "vol_adjusted": lambda s: s.strip().lower() in ("1", "true", "yes", "on"),
-    "rebalance_freq": str,
-    "defensive": str,
-}
-
-
-def _parse_mom_windows(raw: str) -> tuple[int, ...]:
-    return tuple(int(x) for x in raw.split(";") if x.strip())
-
-
-def parse_grid_spec(specs: Sequence[str]) -> dict[str, list]:
-    """解析 --grid key=v1,v2 为 {key: [值,...]}"""
-    grid: dict[str, list] = {}
-    for spec in specs:
-        if "=" not in spec:
-            raise SystemExit(f"--grid 格式错误（应为 key=v1,v2）: {spec}")
-        key, _, values = spec.partition("=")
-        key = key.strip()
-        if key == "mom_windows":
-            grid[key] = [_parse_mom_windows(v) for v in values.split(",")]
-            continue
-        if key not in _PARAM_TYPES:
-            raise SystemExit(
-                f"未知参数: {key}（支持: {', '.join(_PARAM_TYPES)}, mom_windows）"
-            )
-        conv = _PARAM_TYPES[key]
-        grid[key] = [conv(v) for v in values.split(",")]
-    return grid
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -135,41 +102,16 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def _warmup_days(params: dict) -> int:
-    """按最长指标窗口换算数据预热日历日数"""
-    windows = params.get("mom_windows") or (params.get("lookback", 60),)
-    if not isinstance(windows, (list, tuple)):
-        windows = (windows,)
-    longest = max(int(max(windows)), int(params.get("ma_filter", 250)))
-    return int(longest * 1.7)
-
-
-def _slice_feeds(
-    feeds: dict[str, pd.DataFrame], start: str, end: str
-) -> dict[str, pd.DataFrame]:
-    """按 [start, end] 切片各标的数据（保留切片前全部预热数据）"""
-    ts_start, ts_end = pd.Timestamp(start), pd.Timestamp(end)
-    out: dict[str, pd.DataFrame] = {}
-    for sym, df in feeds.items():
-        sliced = df[(df["date"] >= ts_start) & (df["date"] <= ts_end)]
-        if len(sliced) > 0:
-            out[sym] = sliced
-    return out
-
-
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
 
-    grid = parse_grid_spec(args.grid)
-    combos = list(itertools.product(*grid.values()))
-    n_combos = len(combos)
-    if n_combos > args.max_combos:
-        print(
-            f"组合数 {n_combos} 超出预算 {args.max_combos}（防过拟合纪律），"
-            f"请缩小扫描范围或显式提高 --max-combos",
-            file=sys.stderr,
-        )
+    try:
+        grid = parse_grid_spec(args.grid)
+        combos = grid_combinations(grid, args.max_combos)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
         return 2
+    n_combos = len(combos)
     print(f"扫描维度: {list(grid.keys())}, 组合数: {n_combos}")
 
     cfg = load_config(args.config)
@@ -244,7 +186,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             if not seg_feeds:
                 continue
             engine = BacktestEngine(
-                cfg, commission_overrides=_ETF_COMMISSION,
+                cfg, commission_overrides=ETF_COMMISSION,
                 logger=logging.getLogger(f"grid.{i}.{seg_name}"),
             )
             try:
