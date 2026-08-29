@@ -292,3 +292,17 @@ CI 通过只能说明自动检查通过，不能替代人工语义收敛，也�
 - 自动 tag 默认不触发，只有 commit title 包含 `#patch`、`#minor`、`#major` 才会触发版本号更新。
 - 手动打 tag 必须使用 annotated tag。
 - 用户可见变更优先通过 PR 合入，并补齐 label 与验证说明。
+
+## 10. Agent Skills
+
+### Issue Tracker
+
+Issue、spec 和本地任务使用 `.scratch/` 下的 Markdown 文件管理。详见 `docs/agents/issue-tracker.md`。
+
+### Triage Labels
+
+使用默认本地分诊词汇。详见 `docs/agents/triage-labels.md`。
+
+### Domain Docs
+
+仓库协作采用单一上下文文档布局。根 Git 仓库内有两个独立运行项目：`daily_stock_analysis/` 与 `quant_research/`；本地任务目录必须分别使用 `dsa-` 或 `quant-` 前缀。详见 `docs/agents/domain.md`。
