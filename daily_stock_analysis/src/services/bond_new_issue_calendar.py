@@ -42,6 +42,7 @@ LISTING_WINDOW_DAYS = 1  # 上市时间 ∈ [今天, 今天+1]
 STATE_RETENTION_DAYS = 45
 
 STAGE_TIPS: Dict[str, str] = {
+    "rights": "📌 配债登记提醒（今日买入/持有正股可获优先配债；抢权需承担正股敞口风险，安全垫以公告为准）",
     "subscribe": "🎯 今日/明日申购（9:25-15:00 券商 APP 顶格申购，无需预缴资金）",
     "payment": "💰 缴款提醒（中签后 T+2 16:00 前账户留足 1000 元/签，弃购 3 次禁打新半年）",
     "listing": "📈 上市卖出提醒（建议上市首日 14:50 前卖出落袋）",
@@ -212,66 +213,100 @@ class BondNewIssueCalendarService:
             return None
         return ts.date()
 
-    def _classify(
+    def _classify_all(
         self, record: Dict[str, Any], today: date
-    ) -> Optional[Tuple[str, str, str]]:
-        """判定单条记录命中的提醒阶段。
+    ) -> List[Tuple[str, str, str]]:
+        """判定单条记录命中的全部提醒阶段（P2-2：新增配债登记阶段）。
+
+        阶段语义：
+        - rights（配债登记）：申购日 == 明天 → 今日为股权登记日（按申购日
+          前一交易日近似，节假日顺延以公告为准）。持有人可参与优先配债；
+          抢权（仅为配债买入正股）存在正股下跌风险，社区教训：龙建股份
+          抢权配售正股 -9%。
+        - subscribe（申购）：申购日 ∈ [今天, 明天]
+        - payment（缴款）：申购日 ∈ [今天-2, 今天-1]（T+2 缴款窗口）
+        - listing（上市）：上市日 ∈ [今天, 明天]
 
         Returns:
-            (stage, bond_code, bond_name) 或 None
+            [(stage, bond_code, bond_name), ...]，按时间顺序；无命中返回空表
         """
         bond_code = str(record.get("债券代码", "") or "").strip()
         bond_name = str(record.get("债券简称", "") or "").strip()
         if not bond_code:
-            return None
+            return []
 
         subscribe_date = self._parse_date(record.get("申购日期"))
         listing_date = self._parse_date(record.get("上市时间"))
+        stages: List[Tuple[str, str, str]] = []
+
+        # 配债登记：申购日 == 明天（登记日 ≈ 申购日前一交易日）
+        if subscribe_date is not None and subscribe_date == today + timedelta(days=1):
+            stages.append(("rights", bond_code, bond_name))
 
         # 申购阶段：[今天, 今天+1]
         if subscribe_date is not None and today <= subscribe_date <= today + timedelta(
             days=SUBSCRIBE_WINDOW_DAYS
         ):
-            return ("subscribe", bond_code, bond_name)
+            stages.append(("subscribe", bond_code, bond_name))
 
         # 缴款阶段：申购日期 ∈ [今天-2, 今天-1]（T+2 缴款窗口）
         if subscribe_date is not None and today - timedelta(
             days=PAYMENT_WINDOW_DAYS
         ) <= subscribe_date <= today - timedelta(days=1):
-            return ("payment", bond_code, bond_name)
+            stages.append(("payment", bond_code, bond_name))
 
         # 上市阶段：[今天, 今天+1]
         if listing_date is not None and today <= listing_date <= today + timedelta(
             days=LISTING_WINDOW_DAYS
         ):
-            return ("listing", bond_code, bond_name)
+            stages.append(("listing", bond_code, bond_name))
 
-        return None
+        return stages
+
+    def _classify(
+        self, record: Dict[str, Any], today: date
+    ) -> Optional[Tuple[str, str, str]]:
+        """判定单条记录命中的提醒阶段（返回首个命中；兼容旧语义）。
+
+        优先级与既有行为一致：subscribe > payment > listing（rights 仅在
+        _classify_all 中参与，不改变单阶段兼容口径）。
+
+        Returns:
+            (stage, bond_code, bond_name) 或 None
+        """
+        priority = {"subscribe": 0, "payment": 1, "listing": 2}
+        stages = [
+            s for s in self._classify_all(record, today) if s[0] in priority
+        ]
+        if not stages:
+            return None
+        stages.sort(key=lambda s: priority.get(s[0], 9))
+        return stages[0]
 
     def _collect_reminders(self, today: date) -> List[_BondReminder]:
         reminders: List[_BondReminder] = []
         for record in self._fetch_calendar():
-            classified = self._classify(record, today)
-            if classified is None:
-                continue
-            stage, bond_code, bond_name = classified
-            reference = (
-                self._parse_date(record.get("上市时间" if stage == "listing" else "申购日期"))
-            )
-            reference_str = reference.isoformat() if reference else "未知日期"
-            note = (
-                f"今日上市，建议 14:50 前卖出"
-                if stage == "listing" and reference == today
-                else f"明日上市，明日 14:50 前卖出" if stage == "listing"
-                else f"申购日 {reference_str}"
-                if stage == "subscribe"
-                else f"申购日 {reference_str}，留意中签缴款"
-            )
-            reminders.append(
-                _BondReminder(bond_code, bond_name, stage, reference_str, note)
-            )
-        # 申购在前、缴款次之、上市最后，同类内按代码排序
-        stage_order = {"subscribe": 0, "payment": 1, "listing": 2}
+            for stage, bond_code, bond_name in self._classify_all(record, today):
+                reference = (
+                    self._parse_date(record.get("上市时间" if stage == "listing" else "申购日期"))
+                )
+                reference_str = reference.isoformat() if reference else "未知日期"
+                note = (
+                    f"今日为股权登记日（申购日 {reference_str}），持有人可优先配债；"
+                    f"抢权需承担正股敞口风险，以公告为准"
+                    if stage == "rights"
+                    else f"今日上市，建议 14:50 前卖出"
+                    if stage == "listing" and reference == today
+                    else f"明日上市，明日 14:50 前卖出" if stage == "listing"
+                    else f"申购日 {reference_str}"
+                    if stage == "subscribe"
+                    else f"申购日 {reference_str}，留意中签缴款"
+                )
+                reminders.append(
+                    _BondReminder(bond_code, bond_name, stage, reference_str, note)
+                )
+        # 配债登记最早（申购前一日）、申购、缴款、上市，同类内按代码排序
+        stage_order = {"rights": 0, "subscribe": 1, "payment": 2, "listing": 3}
         reminders.sort(key=lambda r: (stage_order.get(r.stage, 9), r.bond_code))
         return reminders
 
@@ -283,14 +318,14 @@ class BondNewIssueCalendarService:
     def _build_message(reminders: List[_BondReminder]) -> str:
         from src.notification import NotificationBuilder
 
-        sections: Dict[str, List[str]] = {"subscribe": [], "payment": [], "listing": []}
+        sections: Dict[str, List[str]] = {"rights": [], "subscribe": [], "payment": [], "listing": []}
         for reminder in reminders:
             sections.setdefault(reminder.stage, []).append(
                 f"- **{reminder.bond_name} ({reminder.bond_code})** — {reminder.note}"
             )
 
         parts: List[str] = []
-        for stage in ("subscribe", "payment", "listing"):
+        for stage in ("rights", "subscribe", "payment", "listing"):
             lines = sections.get(stage) or []
             if not lines:
                 continue
@@ -300,6 +335,7 @@ class BondNewIssueCalendarService:
 
         content = "\n".join(parts)
         content += "💡 顶格申购无需预缴资金，中签才缴款；上市首日卖出为社区共识默认策略。"
+        content += "\n⚠️ 抢权配售 ≠ 无风险套利：正股敞口可能吞掉配债收益（社区实测教训），以公告安全垫为准。"
         return NotificationBuilder.build_simple_alert(
             title="转债打新日历提醒",
             content=content,

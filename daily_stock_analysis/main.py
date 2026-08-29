@@ -1707,6 +1707,34 @@ def main() -> int:
                     "name": "bond_new_issue_monitor",
                 })
 
+            # 市场监控：ETF 溢价率买点护栏（底仓低溢价买入纪律）
+            if getattr(config, 'etf_premium_monitor_enabled', False):
+                from src.services.etf_premium_monitor import EtfPremiumMonitorService
+
+                premium_interval_minutes = max(
+                    5, getattr(config, 'market_monitor_interval_minutes', 60)
+                )
+                premium_service = EtfPremiumMonitorService(
+                    symbol=getattr(config, 'etf_premium_symbol', '511380'),
+                    max_premium_pct=getattr(config, 'etf_premium_max_pct', 1.5),
+                )
+
+                def etf_premium_task():
+                    stats = premium_service.run_once()
+                    if stats.get("notified", 0):
+                        logger.info(
+                            "[EtfPremiumMonitor] %s 溢价 %.2f%% 超阈值，已推送暂缓买入提醒",
+                            stats["symbol"],
+                            stats.get("premium_pct") or 0.0,
+                        )
+
+                background_tasks.append({
+                    "task": etf_premium_task,
+                    "interval_seconds": premium_interval_minutes * 60,
+                    "run_immediately": True,
+                    "name": "etf_premium_monitor",
+                })
+
             schedule_kwargs = {
                 "task": scheduled_task,
                 "schedule_time": config.schedule_time,

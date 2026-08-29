@@ -1040,6 +1040,9 @@ class Config:
     event_arbitrage_monitor_enabled: bool = False  # 扫描要约收购/现金选择权/私有化/主动退市公告
     bond_new_issue_monitor_enabled: bool = False  # 转债打新三段式提醒（申购/缴款/上市）
     market_monitor_interval_minutes: int = 60  # 两个监控共用的轮询间隔（分钟）
+    etf_premium_monitor_enabled: bool = False  # ETF 溢价率买点监控（第 2 层底仓护栏）
+    etf_premium_symbol: str = "511380"  # 监控的 ETF 代码（默认转债 ETF）
+    etf_premium_max_pct: float = 1.5  # 溢价率上限（%），超过提醒暂缓买入
 
     # === 通知配置（可同时配置多个，全部推送）===
     
@@ -2082,6 +2085,16 @@ class Config:
                 60,
                 field_name='MARKET_MONITOR_INTERVAL_MINUTES',
                 minimum=5,
+            ),
+            etf_premium_monitor_enabled=parse_env_bool(
+                os.getenv('ETF_PREMIUM_MONITOR_ENABLED'),
+                default=False,
+            ),
+            etf_premium_symbol=(os.getenv('ETF_PREMIUM_SYMBOL') or '511380').strip(),
+            etf_premium_max_pct=parse_env_float(
+                os.getenv('ETF_PREMIUM_MAX_PCT'),
+                1.5,
+                field_name='ETF_PREMIUM_MAX_PCT',
             ),
             wechat_webhook_url=os.getenv('WECHAT_WEBHOOK_URL'),
             feishu_webhook_url=os.getenv('FEISHU_WEBHOOK_URL'),
