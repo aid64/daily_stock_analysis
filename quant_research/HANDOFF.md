@@ -200,6 +200,14 @@
 - **因子 IC 报告**（`output/cb_factor_ic_report.csv`）：双低因子 RankIC -0.05~-0.06、|t| 12.8-16.6（远超 HLZ t>3）且周期越长越强——横截面预测力统计显著；单独 premium_rate 不显著。IC 显著 ≠ 成本后可交易（52x 换手已证明费用吞掉毛 alpha）。
 - 测试 178→**237 项全过**。**下一步**：P0-2 PBO/CSCV/DSR（R4 试验数 N 已就绪；对现有 WF 收益矩阵跑 CSCV S=16 枚举 + DSR + HLZ 门槛）；P1-1 温度计门控（不依赖重构，随时可做，PIT 面板可直接算双低中位数）。
 
+### 4.4 P0-2 过拟合审计与 P1-1 温度计门控（2026-08-29 完成）
+
+- **P0-2**：`core/overfit_audit.py`（CSCV/PBO + DSR + HLZ，无 scipy）；`scripts/run_overfit_audit.py` 宽矩阵审计入口。**预注册修订（有记录）**：固定矩阵互补恒等式诅咒实测推翻两次预期（iid 矩阵 PBO 0.95），PBO 降级为诊断参考，**主门槛 = DSR<0.5 + HLZ |t|>3**。
+- **审计结论**：ETF 动量路线 DSR 0.6447 过门（非纯噪声）但 HLZ 日频 t 全 18 配置不显著（≤1.06）；CB 两段式路线 DSR 0.7363 过门、HLZ 全不显著（≤1.78）。两路线共同结论：无统计显著日频预测力，WF 纪律（OOS 正+折间一致）仍不满足，不实盘。
+- **P1-1 温度计门控：不采纳**（预注册验证）。门控实现保留在 `pit_snapshot_picks`（dd_median_upper/lower，默认关闭）。8 折 WF：门控 OOS -13.66% vs 基线 +1.94%。归因：2023-2025 双低中位数几乎全程在 140-171 中间带（三年砍半仓位）；2026 全程 ≥170 清仓但 fold 8 仅改善 0.4pp（亏损源于 ETF 腿）。教训：静态绝对阈值在漂移统计量上 regime 脆弱；相对阈值留待独立预注册。
+- 测试 237→**250 项全过**。产物：`output/overfit_audit_etf_momentum.json`、`output/overfit_audit_cb_two_stage.json`、`output/wf_p11_thermo_t5p20.csv`。
+- **下一步候选**：P2 层确定性收益增强（主项目事件套利加厚/511380 溢价买点监控，见改进计划）；第 3 层新策略假设需全新预注册。
+
 ## 5. 快速恢复（新环境/新会话）
 
 ```bash

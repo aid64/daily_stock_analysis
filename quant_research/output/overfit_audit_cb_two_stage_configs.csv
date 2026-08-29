@@ -1,0 +1,7 @@
+﻿config,top_n,max_premium,total_return,annual_return,max_drawdown,sharpe,hlz_t,hlz_significant
+top_n=3|max_premium=15.0,3,15.0,-0.140464,-0.019875,0.362234,-0.247428,-0.2545,False
+top_n=3|max_premium=20.0,3,20.0,0.243334,0.029044,0.329546,0.133226,0.8032,False
+top_n=3|max_premium=25.0,3,25.0,0.742554,0.074288,0.317888,0.444734,1.6366,False
+top_n=5|max_premium=15.0,5,15.0,0.209803,0.024854,0.174251,0.09881,0.9441,False
+top_n=5|max_premium=20.0,5,20.0,0.200008,0.023707,0.253572,0.085247,0.8712,False
+top_n=5|max_premium=25.0,5,25.0,0.587715,0.061208,0.267288,0.4421,1.7788,False
