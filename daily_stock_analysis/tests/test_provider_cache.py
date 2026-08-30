@@ -351,6 +351,9 @@ def test_litellm_openai_prompt_cache_key_is_not_passed_through_without_verified_
         sanitized_env.pop(key, None)
     sanitized_env["NO_PROXY"] = "127.0.0.1,localhost"
     sanitized_env["no_proxy"] = "127.0.0.1,localhost"
+    # 跳过 litellm 首次调用时的远程 model cost map 拉取（GitHub DNS/网络
+    # 在高负载下可达数秒，吃掉 subprocess 15s 预算导致偶发超时——flaky 修复）
+    sanitized_env["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
 
     script = textwrap.dedent(
         """
@@ -414,7 +417,7 @@ def test_litellm_openai_prompt_cache_key_is_not_passed_through_without_verified_
                 timeout=5,
                 num_retries=0,
             )
-            if not request_seen.wait(timeout=10):
+            if not request_seen.wait(timeout=30):
                 raise AssertionError("LiteLLM did not send request to local capture server")
         finally:
             server.shutdown()
@@ -429,7 +432,7 @@ def test_litellm_openai_prompt_cache_key_is_not_passed_through_without_verified_
         capture_output=True,
         env=sanitized_env,
         text=True,
-        timeout=15,
+        timeout=60,
     )
     if completed.returncode == 77:
         if "LOCAL_SOCKET_UNAVAILABLE" in completed.stdout + completed.stderr:

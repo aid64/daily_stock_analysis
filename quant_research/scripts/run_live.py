@@ -30,6 +30,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from quant_research.config import load_config
 from quant_research.backtest.mwu import build_experts
+from quant_research.runner import latest_snapshot_date
 from quant_research.trade import (
     PaperBroker,
     TDXJKBroker,
@@ -44,7 +45,6 @@ logger = logging.getLogger("run_live")
 
 # 专家需要的最长窗口（MA250 / 动量 60 / RSI2+MA200）→ 取 300 根足够
 _WINDOW = 300
-_LAST_DATE = pd.Timestamp("2026-08-08")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -59,7 +59,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="定时轮询间隔（秒），默认 3600（1h）",
     )
     p.add_argument("--capital", type=float, default=10000.0, help="初始资金（模拟模式）")
-    p.add_argument("--as-of", default=None, help="参考行情截止日期（默认 2026-08-08）")
+    p.add_argument("--as-of", default=None,
+                   help="参考行情截止日期（默认取快照内最新日期）")
     return p
 
 
@@ -106,8 +107,18 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     logger.info("运行模式: %s, 专家: %s", args.mode, [e.name for e in experts])
 
-    # 预加载行情窗口（Paper 模式复用快照；TDX 模式走 GetQuote 单点行情）
-    as_of = pd.Timestamp(args.as_of) if args.as_of else _LAST_DATE
+    # 预加载行情窗口（Paper 模式复用快照；TDX 模式走 GetQuote 单点行情）。
+    # Bug-3 修复：--as-of 未指定时从快照数据推导最新日期（此前硬编码
+    # 2026-08-08，快照更新后 paper 模式仍重放旧日期）。
+    if args.as_of:
+        as_of = pd.Timestamp(args.as_of)
+    else:
+        raw_feeds = pd.read_pickle(_PROJECT_ROOT / "output" / "feeds_snapshot.pkl")
+        as_of = latest_snapshot_date(raw_feeds)
+        if as_of is None:
+            logger.error("快照中无有效日期，无法确定重放截止日")
+            return 1
+        logger.info("未指定 --as-of，使用快照最新日期 %s", as_of.date())
     price_series = _load_price_window(as_of)
     if not price_series:
         logger.error("无可用行情数据，请确认 output/feeds_snapshot.pkl 存在")

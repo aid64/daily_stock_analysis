@@ -324,6 +324,10 @@ class SystemConfigApiTestCase(unittest.TestCase):
 
         with (
             patch(
+                "src.services.agent_backend_status_service.is_native_windows",
+                return_value=False,  # 探针序列测试需绕过 native Windows 平台护栏
+            ),
+            patch(
                 "src.services.agent_backend_status_service.resolve_command",
                 return_value=["/test/codex"],
             ),

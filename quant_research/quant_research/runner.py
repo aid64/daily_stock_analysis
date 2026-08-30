@@ -230,3 +230,25 @@ def sha256_file(path: Path) -> str:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def latest_snapshot_date(feeds: dict) -> Optional[pd.Timestamp]:
+    """取快照 feeds 的全局最新日期（各标的 date 列最大值）
+
+    Bug-3 修复（2026-08-29）：run_live 此前硬编码 `_LAST_DATE = 2026-08-08`，
+    快照更新后 paper 模式仍重放到旧日期。改为从快照数据推导；
+    feeds 为空或无 date 列返回 None（调用方报错退出）。
+    """
+    latest: Optional[pd.Timestamp] = None
+    for frame in feeds.values():
+        if frame is None or len(frame) == 0 or "date" not in frame.columns:
+            continue
+        try:
+            frame_max = pd.Timestamp(frame["date"].max())
+        except (TypeError, ValueError):
+            continue
+        if pd.isna(frame_max):
+            continue
+        if latest is None or frame_max > latest:
+            latest = frame_max
+    return latest

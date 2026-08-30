@@ -17,6 +17,14 @@ from pathlib import Path
 
 import pytest
 
+# Codex App Server 传输依赖 POSIX 进程组管理，产品决策在 native Windows
+# 上显式禁用该功能（见 agent_backend_status_service 的 platform_unsupported
+# 护栏）；传输测试在 Windows 上必然失败，与产品行为保持一致地跳过。
+pytestmark = pytest.mark.skipif(
+    os.name == "nt",
+    reason="Codex App Server transport requires POSIX process groups (unsupported on native Windows)",
+)
+
 from scripts.codex_app_server_gate_a import (
     MAX_STDERR_BYTES,
     MAX_STDOUT_FRAME_BYTES,

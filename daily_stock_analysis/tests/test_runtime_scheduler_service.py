@@ -774,3 +774,70 @@ class RuntimeSchedulerServiceTestCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MarketMonitorBackgroundTasksTestCase(unittest.TestCase):
+    """Bug-2 修复回归：serve/Web 模式的 runtime scheduler 默认装配三个市场监控。
+
+    此前这些监控只注册在 CLI schedule 模式（main.py background_tasks），
+    --serve --schedule 或 Web 调度时静默失效。
+    """
+
+    def _config(self, **overrides):
+        from types import SimpleNamespace
+        base = dict(
+            event_arbitrage_monitor_enabled=True,
+            bond_new_issue_monitor_enabled=True,
+            etf_premium_monitor_enabled=True,
+            etf_premium_symbol="511380",
+            etf_premium_max_pct=1.5,
+            market_monitor_interval_minutes=60,
+        )
+        base.update(overrides)
+        return SimpleNamespace(**base)
+
+    def test_all_enabled_assembles_three_market_monitors(self):
+        from src.services.runtime_scheduler import RuntimeSchedulerService
+
+        service = RuntimeSchedulerService()
+        names = [t["name"] for t in service._current_background_tasks(self._config())]
+        for expected in ("event_arbitrage_monitor", "bond_new_issue_monitor", "etf_premium_monitor"):
+            self.assertIn(expected, names)
+
+    def test_disabled_monitors_are_absent_and_cache_cleaned(self):
+        from src.services.runtime_scheduler import RuntimeSchedulerService
+
+        service = RuntimeSchedulerService()
+        # 先全开（填充缓存）
+        service._current_background_tasks(self._config())
+        # 再全部关闭：任务消失且缓存清理
+        config = self._config(
+            event_arbitrage_monitor_enabled=False,
+            bond_new_issue_monitor_enabled=False,
+            etf_premium_monitor_enabled=False,
+        )
+        names = [t["name"] for t in service._current_background_tasks(config)]
+        for expected in ("event_arbitrage_monitor", "bond_new_issue_monitor", "etf_premium_monitor"):
+            self.assertNotIn(expected, names)
+        self.assertFalse(service._background_task_registered_names
+                         & {"event_arbitrage_monitor", "bond_new_issue_monitor", "etf_premium_monitor"})
+
+    def test_interval_seconds_respect_config(self):
+        from src.services.runtime_scheduler import RuntimeSchedulerService
+
+        service = RuntimeSchedulerService()
+        tasks = service._current_background_tasks(self._config(market_monitor_interval_minutes=10))
+        for task in tasks:
+            if task["name"] in ("event_arbitrage_monitor", "bond_new_issue_monitor", "etf_premium_monitor"):
+                self.assertEqual(task["interval_seconds"], 600)
+
+    def test_run_immediately_only_on_first_registration(self):
+        from src.services.runtime_scheduler import RuntimeSchedulerService
+
+        service = RuntimeSchedulerService()
+        first = service._current_background_tasks(self._config())
+        self.assertTrue(all(t["run_immediately"] for t in first
+                            if t["name"] == "etf_premium_monitor"))
+        second = service._current_background_tasks(self._config())
+        again = [t for t in second if t["name"] == "etf_premium_monitor"][0]
+        self.assertFalse(again["run_immediately"])

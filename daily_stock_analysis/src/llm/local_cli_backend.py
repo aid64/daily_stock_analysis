@@ -626,6 +626,12 @@ def build_local_cli_env(source: Optional[Mapping[str, str]] = None) -> Dict[str,
         if not allowed or _is_sensitive_env_name(upper):
             continue
         child_env[key] = value
+    # Bug-5 修复（2026-08-29）：强制子进程 stdio 使用 UTF-8。Windows 上
+    # 子进程默认按 locale（GBK）编码 stdout，CLI（opencode/claude 等）
+    # 输出含中文的 JSON 时会被以 UTF-8 读回的输出文件错解成乱码。
+    # PYTHONUTF8=1 启用解释器 UTF-8 模式；PYTHONIOENCODING 兜底旧解释器。
+    child_env.setdefault("PYTHONUTF8", "1")
+    child_env["PYTHONIOENCODING"] = "utf-8"
     return child_env
 
 
@@ -2144,7 +2150,12 @@ class LocalCliGenerationBackend(GenerationBackend):
         with _local_cli_concurrency_slot(concurrency_limit):
             self._emit_progress(stream_progress_callback, 0)
             try:
-                with tempfile.TemporaryDirectory(prefix="dsa-local-cli-") as cwd:
+                # ignore_cleanup_errors=True：Windows 上被杀进程树若仍有句柄
+                # 释放延迟，清理失败不应掩盖真实错误（如 output_stat_failed）；
+                # 残留目录由系统临时目录清理机制兜底。
+                with tempfile.TemporaryDirectory(
+                    prefix="dsa-local-cli-", ignore_cleanup_errors=True
+                ) as cwd:
                     cwd_path = Path(cwd)
                     try:
                         cwd_path.chmod(0o700)
@@ -2780,6 +2791,22 @@ class LocalCliGenerationBackend(GenerationBackend):
         if process.poll() is not None:
             return
         if os.name == "nt":
+            # Bug 修复（2026-08-29）：Windows 上 process.terminate()/kill()
+            # 只杀直接子进程——孙进程（CLI 自己再起的子进程）会存活并持有
+            # 临时目录内文件句柄（prompt.txt 等），导致 TemporaryDirectory
+            # 清理抛 WinError 32 并把真实错误误标为 process_start_failed。
+            # taskkill /F /T 树杀整个进程组（Windows 标准做法）。
+            try:
+                taskkill = subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                    capture_output=True,
+                    timeout=5,
+                )
+                if taskkill.returncode == 0:
+                    process.wait(timeout=5)
+                    return
+            except Exception:
+                pass
             ctrl_break = getattr(signal, "CTRL_BREAK_EVENT", None)
             if ctrl_break is not None:
                 try:
@@ -2954,10 +2981,17 @@ def _path_size_required(path: Path) -> int:
 def _read_text_file(path: Path, *, limit_bytes: Optional[int] = None) -> str:
     try:
         with path.open("rb") as handle:
-            raw = handle.read() if limit_bytes is None else handle.read(limit_bytes)
+            raw = handle.read()
     except OSError:
         return ""
-    return raw.decode("utf-8", errors="replace")
+    # 诊断预览归一化 CRLF → LF：Windows CLI 的 text-mode stdout 输出 CRLF，
+    # 每行多 1 字节——若先按原始字节截断再归一化，Windows 上的截断窗口
+    # 会与 POSIX 错位，截断点后的内容丢失（该读取仅用于诊断展示，文件
+    # 大小已受 max_output_bytes 上限约束）。
+    text = raw.decode("utf-8", errors="replace").replace("\r\n", "\n")
+    if limit_bytes is not None and len(text) > limit_bytes:
+        text = text[:limit_bytes]
+    return text
 
 
 def _read_text_file_required(path: Path) -> str:

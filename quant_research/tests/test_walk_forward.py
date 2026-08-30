@@ -43,3 +43,24 @@ def test_training_selection_never_reads_test_metrics():
     ]
     selected = run_walk_forward._select_training_result(rows)
     assert selected["lookback"] == 60
+
+
+class TestLatestSnapshotDate:
+    """Bug-3 修复回归：run_live 重放日期从快照数据推导而非硬编码"""
+
+    def test_picks_global_max_across_symbols(self):
+        import pandas as pd
+        from quant_research.runner import latest_snapshot_date
+        feeds = {
+            "A.SH": pd.DataFrame({"date": pd.to_datetime(["2026-08-01", "2026-08-05"])}),
+            "B.SH": pd.DataFrame({"date": pd.to_datetime(["2026-08-03", "2026-08-08"])}),
+        }
+        assert latest_snapshot_date(feeds) == pd.Timestamp("2026-08-08")
+
+    def test_empty_and_malformed_feeds_return_none(self):
+        import pandas as pd
+        from quant_research.runner import latest_snapshot_date
+        assert latest_snapshot_date({}) is None
+        assert latest_snapshot_date({"A": pd.DataFrame()}) is None
+        assert latest_snapshot_date({"A": pd.DataFrame({"x": [1]})}) is None
+        assert latest_snapshot_date({"A": pd.DataFrame({"date": [None]})}) is None

@@ -12,6 +12,14 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+
+# 同 gate_a：Codex 工具进程依赖 POSIX 信号/进程组语义，Windows 上跳过
+pytestmark = pytest.mark.skipif(
+    os.name == "nt",
+    reason="Codex tool process requires POSIX signals/process groups (unsupported on native Windows)",
+)
+
 from sqlalchemy import create_engine
 from sqlalchemy.pool import QueuePool
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import os
 import gc
 import shutil
 import time
@@ -17,6 +18,7 @@ from warnings import warn
 
 import anyio.to_thread
 import fastapi.testclient
+import pytest
 import httpx
 import starlette.testclient
 from anyio._backends import _asyncio
@@ -283,3 +285,30 @@ def safe_cleanup_temp_dir(temp_dir, *, max_retries: int = 3, base_delay: float =
         except Exception:
             shutil.rmtree(temp_dir.name, ignore_errors=True)
             return
+
+
+@pytest.fixture(autouse=True)
+def _isolate_process_env():
+    """每个测试前后快照/恢复 ``os.environ``（修复跨测试环境变量污染）。
+
+    根因（Bug-1，2026-08-29）：``ENV_FILE`` 未设置时 ``Config.setup_env()``
+    会把仓库真实 ``.env`` 的键值 ``load_dotenv`` 进 ``os.environ``（只增
+    不减、无人清理）。残留的 LITELLM_MODEL / LLM_CHANNELS 等真实用户配置
+    会污染后续所有用 ``ENV_FILE`` + ``Config.reset_instance()`` 做隔离的
+    测试——全量套件 57-81 个混沌失败的根源（受影响集合逐次运行不同，
+    是不同污染路径叠加所致）。此 fixture 保证每个测试都从会话级基线
+    环境出发，无论哪个测试改写了环境变量。
+    """
+    snapshot = dict(os.environ)
+    yield
+    os.environ.clear()
+    os.environ.update(snapshot)
+    # 第二层（Bug-1 后续，2026-08-30）：Config 的 bootstrap 运行时覆盖
+    # 捕获是进程级一次性动作（首个 Config 初始化时按当时环境快照）。
+    # 若首个初始化发生在被污染/不同 ENV_FILE 状态下，捕获结果会残留到
+    # 后续所有测试。重置标志让每个测试在自身环境下重新捕获。
+    try:
+        from src.config import Config
+        Config._BOOTSTRAP_RUNTIME_ENV_OVERRIDES_CAPTURED = False
+    except Exception:  # pragma: no cover - src.config 未导入时无需处理
+        pass

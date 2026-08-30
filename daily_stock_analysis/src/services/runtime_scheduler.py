@@ -98,6 +98,109 @@ def build_agent_event_monitor_background_tasks(
     }]
 
 
+def _market_monitor_interval_seconds(config: Config) -> int:
+    """Return the validated market-monitor polling interval in seconds."""
+    interval_minutes = getattr(config, "market_monitor_interval_minutes", 60)
+    try:
+        interval_minutes = max(5, int(interval_minutes))
+    except (TypeError, ValueError):  # pragma: no cover - defensive branch
+        logger.warning(
+            "Invalid MARKET_MONITOR_INTERVAL_MINUTES=%r; use fallback 60",
+            interval_minutes,
+        )
+        interval_minutes = 60
+    return interval_minutes * 60
+
+
+def build_market_monitor_background_tasks(config: Config) -> List[Dict[str, Any]]:
+    """构建三个市场监控的后台任务（事件套利 / 转债打新日历 / ETF 溢价护栏）。
+
+    Bug-2 修复（2026-08-29）：这些监控此前只注册在 CLI schedule 模式的
+    background_tasks（main.py），serve/Web 模式下 runtime scheduler 的
+    默认装配不含它们，导致 `--serve --schedule` 或 Web 调度时监控静默
+    失效。现与 agent_event_monitor / data_purge 相同的模式接入。
+    任务闭包惰性构造服务实例（首次调用时），与服务既有行为一致。
+    """
+    interval_seconds = _market_monitor_interval_seconds(config)
+    tasks: List[Dict[str, Any]] = []
+
+    if getattr(config, "event_arbitrage_monitor_enabled", False):
+        service_holder: Dict[str, Any] = {}
+
+        def event_arbitrage_task() -> None:
+            service = service_holder.get("svc")
+            if service is None:
+                from src.services.event_arbitrage_monitor import EventArbitrageMonitorService
+                service = EventArbitrageMonitorService()
+                service_holder["svc"] = service
+            stats = service.run_once()
+            if stats.get("notified", 0):
+                logger.info(
+                    "[EventArbitrageMonitor] 本轮推送 %d 条事件（抑制重复 %d 条）",
+                    stats["notified"], stats.get("suppressed", 0),
+                )
+
+        tasks.append({
+            "task": event_arbitrage_task,
+            "interval_seconds": interval_seconds,
+            "run_immediately": True,
+            "name": "event_arbitrage_monitor",
+        })
+
+    if getattr(config, "bond_new_issue_monitor_enabled", False):
+        service_holder_bond: Dict[str, Any] = {}
+
+        def bond_new_issue_task() -> None:
+            service = service_holder_bond.get("svc")
+            if service is None:
+                from src.services.bond_new_issue_calendar import BondNewIssueCalendarService
+                service = BondNewIssueCalendarService()
+                service_holder_bond["svc"] = service
+            stats = service.run_once()
+            if stats.get("notified", 0):
+                logger.info(
+                    "[BondNewIssueCalendar] 本轮推送 %d 条提醒（抑制重复 %d 条）",
+                    stats["notified"], stats.get("suppressed", 0),
+                )
+
+        tasks.append({
+            "task": bond_new_issue_task,
+            "interval_seconds": interval_seconds,
+            "run_immediately": True,
+            "name": "bond_new_issue_monitor",
+        })
+
+    if getattr(config, "etf_premium_monitor_enabled", False):
+        service_holder_etf: Dict[str, Any] = {}
+        etf_symbol = str(getattr(config, "etf_premium_symbol", "511380") or "511380")
+        etf_threshold = float(getattr(config, "etf_premium_max_pct", 1.5))
+
+        def etf_premium_task() -> None:
+            service = service_holder_etf.get("svc")
+            if service is None:
+                from src.services.etf_premium_monitor import EtfPremiumMonitorService
+                service = EtfPremiumMonitorService(
+                    symbol=etf_symbol, max_premium_pct=etf_threshold,
+                )
+                service_holder_etf["svc"] = service
+            stats = service.run_once()
+            if stats.get("notified", 0):
+                logger.info(
+                    "[EtfPremiumMonitor] %s 溢价 %.2f%% 超阈值，已推送暂缓买入提醒",
+                    stats.get("symbol", etf_symbol),
+                    stats.get("premium_pct") or 0.0,
+                )
+
+        tasks.append({
+            "task": etf_premium_task,
+            "interval_seconds": interval_seconds,
+            "run_immediately": True,
+            "name": "etf_premium_monitor",
+        })
+
+    return tasks
+
+
 class RuntimeSchedulerService:
     """Manage scheduled analysis inside the current API/Web/Desktop process."""
 
@@ -216,8 +319,48 @@ class RuntimeSchedulerService:
             return self._background_tasks_provider(config)
         tasks: List[Dict[str, Any]] = []
         tasks.extend(self._current_agent_event_monitor_background_tasks(config))
+        tasks.extend(self._current_market_monitor_background_tasks(config))
         tasks.extend(self._current_data_purge_background_tasks(config))
         return tasks
+
+    _MARKET_MONITOR_TASK_NAMES = (
+        "event_arbitrage_monitor",
+        "bond_new_issue_monitor",
+        "etf_premium_monitor",
+    )
+
+    def _current_market_monitor_background_tasks(self, config: Config) -> List[Dict[str, Any]]:
+        """装配三个市场监控后台任务（按配置开关；沿用按名缓存模式）。"""
+        entries = build_market_monitor_background_tasks(config)
+        names = {entry["name"] for entry in entries}
+        # 已关闭的监控：清理缓存与注册标记（复用 agent_event_monitor 的清理语义）
+        for name in self._MARKET_MONITOR_TASK_NAMES:
+            if name not in names:
+                self._background_task_cache.pop(name, None)
+                self._background_task_registered_names.discard(name)
+
+        result: List[Dict[str, Any]] = []
+        for entry in entries:
+            name = entry["name"]
+            cached = self._background_task_cache.get(name)
+            if cached is None:
+                cached = dict(entry)
+                self._background_task_cache[name] = cached
+            else:
+                # 保留缓存的 task 闭包避免每次重建，但刷新 interval
+                cached["interval_seconds"] = int(entry["interval_seconds"])
+            run_immediately = (
+                bool(cached.get("run_immediately", False))
+                and name not in self._background_task_registered_names
+            )
+            self._background_task_registered_names.add(name)
+            result.append({
+                "task": cached["task"],
+                "interval_seconds": int(cached["interval_seconds"]),
+                "run_immediately": run_immediately,
+                "name": name,
+            })
+        return result
 
     def _current_data_purge_background_tasks(self, config: Config) -> List[Dict[str, Any]]:
         """构建数据清理后台任务 entry。

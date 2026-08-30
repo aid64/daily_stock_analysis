@@ -3,6 +3,8 @@
 
 import json
 import os
+
+import pytest
 import runpy
 import shlex
 import subprocess
@@ -159,6 +161,10 @@ esac
     codesign_tool.chmod(0o755)
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="_bash_path 的 /mnt 翻译仅适用于 WSL；Git Bash 下路径不成立",
+)
 def test_macos_signature_audit_normalizes_invalid_signatures(tmp_path: Path) -> None:
     fake_bin = tmp_path / "bin"
     _write_fake_macos_signature_tools(fake_bin)
@@ -192,6 +198,10 @@ def test_macos_signature_audit_normalizes_invalid_signatures(tmp_path: Path) -> 
     assert "removed=1" in result.stdout
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="_bash_path 的 /mnt 翻译仅适用于 WSL；Git Bash 下路径不成立",
+)
 def test_macos_signature_audit_rejects_invalid_signatures(tmp_path: Path) -> None:
     fake_bin = tmp_path / "bin"
     _write_fake_macos_signature_tools(fake_bin)
