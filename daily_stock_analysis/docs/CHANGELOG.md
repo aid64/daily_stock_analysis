@@ -111,6 +111,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [新功能] 转债打新日历新增配债登记阶段（P2-2）：申购日前一交易日提醒持有人可优先配债，显式标注抢权正股敞口风险（社区教训：龙建股份抢权正股 -9%）；原三段式语义与消费方保持兼容。
 - [新功能] 新增 ETF 溢价率买点监控（P2-3）：底仓（默认 511380 转债 ETF）溢价率超过阈值（默认 1.5%）时提醒暂缓买入，帮助执行低溢价分批建仓纪律；新增配置 ETF_PREMIUM_MONITOR_ENABLED / ETF_PREMIUM_SYMBOL / ETF_PREMIUM_MAX_PCT（默认关闭，已同步 .env.example）。
 - [测试] 主项目监控测试 38 → 44 项（新增要约价提取/价差分类/配售噪声/配债登记/溢价监控 14 项）；全量离线套件 5843 通过（78 失败为既有的跨模块测试隔离污染——基线对照运行同样 57 失败且集合混沌不重合，涉改模块单文件与邻接运行均全过，非本次改动引入）。
+- [修复] 测试环境根治收尾：conftest 双层环境隔离重构（session 级干净基线 undo collection 阶段写入 + 逐测试恢复"本测试开始前"状态并保留 setUpClass 设置、回填 PYTEST_CURRENT_TEST）；进程级默认 ENV_FILE（极简 .env）随基线捕获——任何测试 teardown pop 掉它之后由快照恢复自动带回，后台线程（AlertWorker/task_queue worker）任意时刻 get_config() → setup_env() 永远读干净文件而非真实 .env（跨线程污染终级根治，泄漏审计 fixture 留作长期哨兵）；ConfigManager .env 原子替换在 Windows 共享冲突（WinError 5/32）下重试 8×0.2s 后回退 in-place 重写。
+- [测试] 全量离线套件失败数 57-81（混沌）→ 稳定 ≤3：跨测试环境污染多层全部根治（env 注入/collection 写入/bootstrap 标志/teardown pop/后台线程/WinError 5 竞态），残余为 intelligence fail_open 单个负载敏感测试（隔离必过，全量长负载下偶发 saved_count=0，feedparser 全局状态考古留待专项）。
 - [修复] 修复六类测试环境/Windows 平台 bug（全量离线失败 57-81 → 24）：①conftest 新增 autouse 的 os.environ 快照/恢复 + Config bootstrap 捕获标志重置（根因：ENV_FILE 未设时真实 .env 被 load_dotenv 进进程环境且只增不减，跨测试污染 LLM 配置类测试）；②serve/Web 模式 runtime scheduler 此前未注册事件套利/转债打新/ETF 溢价三个监控（仅 CLI schedule 注册），已按 agent_event_monitor 同模式接入；③run_live.py 重放日期硬编码 2026-08-08 改为从快照数据推导；④codex 传输/工具进程测试在 native Windows 上按产品平台护栏跳过（POSIX 进程组语义，31+12 项）；⑤local CLI 后端三个真生产 bug——子进程 stdio 强制 UTF-8（Windows locale GBK 导致中文 JSON 乱码）、终止时 taskkill /F /T 树杀（原只杀直接子进程，孙进程泄漏持锁临时目录）、诊断预览 CRLF 归一化后再截断；⑥macOS 签名审计测试与 provider_cache 的环境/超时假设修正。
 
 ## [3.30.0] - 2026-08-09
