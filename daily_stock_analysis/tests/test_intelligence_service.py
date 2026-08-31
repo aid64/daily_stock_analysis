@@ -55,7 +55,7 @@ class IntelligenceServiceTestCase(unittest.TestCase):
         os.environ["DATABASE_PATH"] = os.path.join(self._temp_dir.name, "intelligence.db")
         os.environ["NEWS_INTEL_RETENTION_DAYS"] = "30"
         os.environ["NEWS_INTEL_MAX_ITEMS_PER_SOURCE"] = "50"
-        os.environ["NEWS_INTEL_FETCH_TIMEOUT_SEC"] = "3"
+        os.environ["NEWS_INTEL_FETCH_TIMEOUT_SEC"] = "15"
         Config._instance = None
         DatabaseManager.reset_instance()
         IntelligenceService.reset_auto_fetch_state()

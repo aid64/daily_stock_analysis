@@ -8,6 +8,8 @@ import json
 import os
 import tempfile
 import unittest
+
+import pytest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import ANY, MagicMock, patch
@@ -160,6 +162,14 @@ def _market_phase_summary() -> dict:
         "analysis_intent": "auto",
         "warnings": ["partial_bar"],
     }
+
+
+@pytest.fixture(autouse=True)
+def _restore_module_env_file():
+    """conftest 基线恢复会 undo 模块级 ENV_FILE 写入；每个测试前重放。"""
+    os.environ["ENV_FILE"] = str(_MODULE_ENV_FILE)
+    yield
+    os.environ.pop("ENV_FILE", None)
 
 
 class AnalysisApiContractTestCase(unittest.TestCase):

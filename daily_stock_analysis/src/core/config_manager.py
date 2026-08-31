@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +18,28 @@ from dotenv import dotenv_values
 
 _ASSIGNMENT_PATTERN = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$")
 _FALLBACK_REWRITE_ERRNOS = {errno.EBUSY, errno.EXDEV}
+# Windows 共享冲突：os.replace 目标被其他线程/进程短暂打开（读句柄未
+# 释放）时抛 WinError 5 (EACCES) / 32 (EBUSY 的 Windows 映射)。此类冲突
+# 是瞬态的，短重试即可成功；穷尽后交由调用方的 in-place 回退。
+_REPLACE_TRANSIENT_ERRNOS = {errno.EACCES, errno.EBUSY}
+_REPLACE_RETRY_ATTEMPTS = 8
+_REPLACE_RETRY_DELAY_SECONDS = 0.2
+
+
+def _atomic_replace_with_retry(src, dst) -> None:
+    """os.replace with bounded retry for transient Windows sharing violations."""
+    last_exc: OSError | None = None
+    for attempt in range(_REPLACE_RETRY_ATTEMPTS):
+        try:
+            os.replace(src, dst)
+            return
+        except OSError as exc:
+            if exc.errno not in _REPLACE_TRANSIENT_ERRNOS:
+                raise
+            last_exc = exc
+            time.sleep(_REPLACE_RETRY_DELAY_SECONDS * (attempt + 1))
+    if last_exc is not None:
+        raise last_exc
 _COMPOSE_ESCAPED_ENV_VALUE_KEYS = frozenset({"CUSTOM_WEBHOOK_BODY_TEMPLATE"})
 _APPLICATION_TEMPLATE_PLACEHOLDER_PATTERN = re.compile(
     r"(?<!\$)\$(?:"
@@ -241,13 +264,14 @@ class ConfigManager:
             os.fsync(file_obj.fileno())
 
         try:
-            os.replace(temp_path, self._env_path)
+            _atomic_replace_with_retry(temp_path, self._env_path)
         except OSError as exc:
-            if exc.errno not in _FALLBACK_REWRITE_ERRNOS:
+            if exc.errno not in _FALLBACK_REWRITE_ERRNOS | _REPLACE_TRANSIENT_ERRNOS:
                 raise
 
             logger.warning(
-                "Atomic replace for .env failed with errno=%s, falling back to in-place rewrite",
+                "Atomic replace for .env failed with errno=%s after retries, "
+                "falling back to in-place rewrite",
                 exc.errno,
             )
             self._rewrite_in_place(content)

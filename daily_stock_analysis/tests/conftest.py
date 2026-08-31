@@ -8,8 +8,10 @@ import concurrent.futures
 import os
 import gc
 import shutil
+import tempfile
 import time
 import threading
+from pathlib import Path
 from collections.abc import Awaitable, Callable
 from contextvars import copy_context
 from functools import wraps
@@ -287,28 +289,86 @@ def safe_cleanup_temp_dir(temp_dir, *, max_retries: int = 3, base_delay: float =
             return
 
 
+# 干净基线在 conftest 导入时（即任何测试模块导入之前）捕获：collection
+# 阶段测试模块在模块级写入 os.environ 的行为（如个别文件导入时
+# load_dotenv 真实 .env）会在会话开始前被一次性 undo。
+# 进程级默认 ENV_FILE 在基线捕获**之前**设置，使其成为基线的一部分：
+# 任何测试 teardown pop 掉它之后，conftest 的逐测试快照恢复都会把它
+# 带回来——后台线程（AlertWorker / task_queue worker 等，跨测试存活）
+# 的任意 get_config() → setup_env() 因此永远读极简 .env，而不是仓库
+# 真实 .env（跨线程污染的终级根治）。
+_SESSION_ENV_DIR = tempfile.mkdtemp(prefix="dsa-session-env-")
+_SESSION_ENV_FILE = Path(_SESSION_ENV_DIR) / ".env"
+_SESSION_ENV_FILE.write_text("STOCK_LIST=000001.SZ\n", encoding="utf-8")
+os.environ["ENV_FILE"] = str(_SESSION_ENV_FILE)
+_ENV_CLEAN_BASELINE = dict(os.environ)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _restore_clean_env_at_session_start():
+    """会话开始（首个测试前）把 os.environ 恢复到干净基线（含默认
+    ENV_FILE）。
+
+    undo collection 阶段的模块级环境写入（如个别测试文件导入时
+    load_dotenv 真实 .env），保证第一个测试从干净环境出发。
+    """
+    os.environ.clear()
+    os.environ.update(_ENV_CLEAN_BASELINE)
+    yield
+    os.environ.pop("ENV_FILE", None)
+
+
 @pytest.fixture(autouse=True)
 def _isolate_process_env():
-    """每个测试前后快照/恢复 ``os.environ``（修复跨测试环境变量污染）。
+    """每个测试恢复到"该测试开始前"的环境状态（修复跨测试污染）。
 
     根因（Bug-1，2026-08-29）：``ENV_FILE`` 未设置时 ``Config.setup_env()``
     会把仓库真实 ``.env`` 的键值 ``load_dotenv`` 进 ``os.environ``（只增
     不减、无人清理）。残留的 LITELLM_MODEL / LLM_CHANNELS 等真实用户配置
     会污染后续所有用 ``ENV_FILE`` + ``Config.reset_instance()`` 做隔离的
     测试——全量套件 57-81 个混沌失败的根源（受影响集合逐次运行不同，
-    是不同污染路径叠加所致）。此 fixture 保证每个测试都从会话级基线
-    环境出发，无论哪个测试改写了环境变量。
+    是不同污染路径叠加所致）。
+
+    恢复目标是"本测试开始前的快照"而非全局基线：setUpClass 里设置、供
+    整个测试类使用的环境变量（如 test_auth_api 的 ENV_FILE/DATABASE_PATH）
+    必须在类内各测试之间保持；逐测试恢复只 undo 本测试自身对环境的改动。
+    collection 阶段的污染由 session 级 fixture 在首个测试前统一 undo。
     """
     snapshot = dict(os.environ)
     yield
+    # 泄漏审计：测试运行期间若有真实 .env 的用户配置键渗入 os.environ
+    # （后台线程 setup_env 的跨线程竞态路径），立即打印并标记，随后由
+    # 下方的快照恢复 undo——失败定位信息保留在输出里。
+    _LEAK_AUDIT_KEYS = (
+        "LITELLM_MODEL",
+        "LITELLM_FALLBACK_MODELS",
+        "LLM_CHANNELS",
+        "DEEPSEEK_API_KEY",
+    )
+    leaked_now = {k: os.environ[k] for k in _LEAK_AUDIT_KEYS if os.environ.get(k)}
+    if leaked_now:
+        import warnings
+
+        warnings.warn(
+            f"[env-leak-audit] user config leaked into os.environ during "
+            f"{os.environ.get('PYTEST_CURRENT_TEST', '?')}: {leaked_now}",
+            stacklevel=1,
+        )
+    # pytest 在 teardown 阶段管理 PYTEST_CURRENT_TEST（晚于本恢复动作
+    # 删除该变量），恢复环境时必须先取出并回填，否则 pytest 的
+    # os.environ.pop 会 KeyError。
+    current_test = os.environ.get("PYTEST_CURRENT_TEST")
     os.environ.clear()
     os.environ.update(snapshot)
+    if current_test is not None:
+        os.environ["PYTEST_CURRENT_TEST"] = current_test
     # 第二层（Bug-1 后续，2026-08-30）：Config 的 bootstrap 运行时覆盖
     # 捕获是进程级一次性动作（首个 Config 初始化时按当时环境快照）。
     # 若首个初始化发生在被污染/不同 ENV_FILE 状态下，捕获结果会残留到
     # 后续所有测试。重置标志让每个测试在自身环境下重新捕获。
     try:
         from src.config import Config
+
         Config._BOOTSTRAP_RUNTIME_ENV_OVERRIDES_CAPTURED = False
     except Exception:  # pragma: no cover - src.config 未导入时无需处理
         pass

@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import importlib
+import os
 import sys
+import tempfile
 import types
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -15,6 +17,15 @@ ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
+
+# Bug-1 收尾（2026-08-30）：被测脚本在模块级 load_dotenv()，若 ENV_FILE
+# 未设置会读取仓库真实 .env 并把 LITELLM_MODEL/LLM_CHANNELS 等用户配置
+# 注入 os.environ（collection 阶段发生，残留至整个测试进程）。导入前先
+# 指向极简临时 .env，与 test_analysis_api_contract 的隔离模式一致。
+_MODULE_TEMP_DIR = tempfile.TemporaryDirectory()
+_MODULE_ENV_FILE = Path(_MODULE_TEMP_DIR.name) / ".env"
+_MODULE_ENV_FILE.write_text("STOCK_LIST=000001.SZ\n", encoding="utf-8")
+os.environ["ENV_FILE"] = str(_MODULE_ENV_FILE)
 
 if "dotenv" not in sys.modules:
     dotenv_stub = types.ModuleType("dotenv")

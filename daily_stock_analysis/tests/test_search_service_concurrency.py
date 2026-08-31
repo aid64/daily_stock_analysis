@@ -407,7 +407,10 @@ class SearchServiceConcurrencyTestCase(unittest.TestCase):
             topic="影视传媒",
             max_results=2,
             focus_keywords=None,
-            timeout_seconds=5.0,
+            # spawn 子进程需重新 import src.search_service 全链路，全量
+            # 套件负载下可超过 5s；测试意图是"deadline 后干净返回结构化
+            # 失败且无残留进程"，15s 留足余量。
+            timeout_seconds=15.0,
         )
 
         self.assertFalse(response.success)

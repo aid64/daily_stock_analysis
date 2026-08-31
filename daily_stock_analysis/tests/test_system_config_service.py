@@ -26,6 +26,24 @@ from src.services.system_config_service import ConfigConflictError, ConfigImport
 
 class SystemConfigServiceTestCase(unittest.TestCase):
     def setUp(self) -> None:
+        # Bug-1 收口（2026-08-30）：本文件对环境极敏感——conftest 的逐测试
+        # 快照/恢复无法覆盖"collection 阶段或上游测试在进程内注入真实 .env
+        # 值"的所有路径（表现曾为全量下 20 项混沌失败、单跑全绿）。
+        # 检测到泄漏键时快速失败并给出可见泄漏键，不静默产出错误结论。
+        _LEAK_PROBE_KEYS = (
+            "LITELLM_MODEL",
+            "LITELLM_FALLBACK_MODELS",
+            "LITELLM_CONFIG",
+            "LLM_CHANNELS",
+            "LLM_LOCAL_MODELS",
+            "DEEPSEEK_API_KEY",
+        )
+        leaked = {k: os.environ.get(k) for k in _LEAK_PROBE_KEYS if os.environ.get(k)}
+        if leaked:
+            raise AssertionError(
+                f"cross-test environment leak detected before {self.id()}: {leaked}"
+            )
+
         self.temp_dir = tempfile.TemporaryDirectory()
         self.env_path = Path(self.temp_dir.name) / ".env"
         self.env_path.write_text(

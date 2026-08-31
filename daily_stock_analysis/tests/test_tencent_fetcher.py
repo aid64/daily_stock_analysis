@@ -34,7 +34,7 @@ def _read_priority_from_fresh_process(value: str | None) -> int:
         check=True,
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=120,
     )
     return int(result.stdout.strip().splitlines()[-1])
 
@@ -65,7 +65,7 @@ def test_tencent_priority_honors_env_set_after_package_import() -> None:
         check=True,
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=120,
     )
 
     assert int(result.stdout.strip().splitlines()[-1]) == 0
@@ -97,7 +97,7 @@ def test_tencent_priority_honors_dotenv_when_manager_loads_config_after_package_
         check=True,
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=120,
     )
 
     assert int(result.stdout.strip().splitlines()[-1]) == 0

@@ -115,7 +115,8 @@ def test_akshare_call_with_timeout_returns_promptly() -> None:
             call_name="unit-hang",
         )
 
-    assert time.monotonic() - started < 0.5
+    # 全量套件负载下偶发 0.52s；断言语义是"及时返回而非挂死到 akshare 默认超时"，2s 仍有充足余量
+    assert time.monotonic() - started < 2.0
 
 
 def test_akshare_call_with_timeout_reaps_timed_out_worker_process() -> None:
