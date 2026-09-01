@@ -1,42 +1,62 @@
-# quant_research 交接文档（2026-08-17）
+# quant_research 交接文档（2026-08-31 更新）
 
-> 用途：作者更换账号/环境前固化项目状态。新会话应先读本文件，再按"快速恢复"验证环境。
-> 配套文档：`daily_stock_analysis/docs/quant_research_architecture_research.md`（6.2.6 节为最新研究结论）、`daily_stock_analysis/docs/CHANGELOG.md`。
+> 用途：新会话/新环境先读本文件，再按"快速恢复"验证环境。
+> 配套文档：`daily_stock_analysis/docs/quant_research_architecture_research.md`（6.2.7/6.2.8 为最新工程与研究结论）、`daily_stock_analysis/docs/CHANGELOG.md`、`.scratch/project-future-plan-20260831.md`（90 天路线图，4.5 节有摘要）。
 
 ## 1. 项目定位
 
 低门槛个人量化交易系统（普通人量化路线）：
 
-- 低手续费账户 + TDXJK 通达信接口（http://tdxjk.bbroot.com）+ AI 辅助策略迭代。
-- **不以 10 万元 QMT 开户门槛为前提**：保留 `PaperBroker` / `TDXJKBroker` 低门槛执行路径。
-- 策略栈：ETF 动量 / RSI(2) 均值回归 / 国债 ETF 防御 / 可转债双低（`price + premium_rate`），四专家 MWU 融合（Fixed Share 回拉）。
-- 回测框架：Backtrader 封装（`quant_research/backtest/engine.py`）。
+- 低手续费账户 + 执行通道（PaperBroker / TDXJK DLL 现状；QMT/miniQMT 为 read-only PoC 候选）+ AI 辅助策略迭代。
+- **不以 10 万元 QMT 开户门槛为前提**；策略未过研究门槛前禁止向真实账户发单。
+- 研究纪律：预注册门槛、冻结数据快照、实验注册（试验数 N 可追溯）、诚实负结果入档。
+- 架构（2026-08-29 重构后六层，commit 4cc0dc8a..c01a9836）：
+  1. **数据层** `core/panel.py`：PIT 长表 → (date × symbol) 矩阵，查询式 `get_panel`/`forward_returns`
+  2. **因子层** `core/factors.py`：装饰器注册因子 + RankIC/IC 评估
+  3. **决策层** `core/mwu_core.py` + `backtest/mwu.py`：MWUCore 唯一权重融合实现（回测/实盘共用）
+  4. **规则层** `core/rules.py`：RuleBook（品种 × 生效日期 → 费率/涨跌停/T+1），broker 强制闸
+  5. **运行时层** `backtest/adapter.py` + `trade/`：MarketView 协议适配反转；PaperBroker/TDXJKBroker
+  6. **实验层** `core/experiments.py` + `runner.py`：run_id 注册、试验数 N 追溯、编排单一来源
+- 两段式转债回测 `backtest/two_stage.py`：PIT 全量池矩阵选债 → 仅被选券 feed 执行模拟（**precompute 候选并集已废除**）。
 
-## 2. 当前状态快照（2026-08-17）
+## 2. 当前状态快照（2026-08-31）
 
-- 全量测试：**171 passed**（`py -m pytest -q`，在 `quant_research/` 下执行）。
-- 最新本地提交：`3689eb51`（docs: changelog）。**quant_research 全部工作均未提交**：
-  - 已修改 21 个文件（backtest/engine、broker、strategies、config schema/loader、data loader/cache、clients、scripts、tests、docs）。
-  - 新增未跟踪 17 项：`backtest/convertible.py`、`backtest/mwu.py`、`data/clients/ifind_client.py`、`trade/`、`scripts/build_pit_snapshot.py`、`scripts/run_grid.py`、`scripts/run_live.py`、`scripts/run_walk_forward.py`、5 个测试文件、2 个 MWU yaml、`data/`、`output/`。
-- 环境：Windows，Python 用 `py` 启动器；工作目录必须是 `d:\daily_stock_analysis\quant_research`。
-- 代码规范入口：仓库根 `AGENTS.md`（不擅自 commit/push、CHANGELOG 扁平格式、新配置同步 `.env.example`）。
+- 全量测试：**252 passed**（`py -m pytest -q`，在 `quant_research/` 下执行）。
+- 全部工作已提交（本地领先 origin/main 39 个提交；GitHub 连接受本机代理阻断，推送/上游同步待网络恢复后先做差异审计）。
+- 环境：Windows，Python 用 `py` 启动器（`python` 是坏桩）；工作目录 `d:\daily_stock_analysis\quant_research`。
+- 代码规范入口：仓库根 `AGENTS.md`。
 
-### 关键数据资产（均未入库，切换环境前需备份）
+### 研究结论速览（详见第 3 节与 architecture_research 6.2.x）
+
+| 路线 | 状态 | 关键数字 |
+| --- | --- | --- |
+| ETF 动量 | WF 8 折 OOS 无稳定参数，禁止实盘 | 后 3 折 +20%/+54%/+6%，前 5 折全负 |
+| MWU+转债双低（月频 v2 过滤） | WF OOS 全负 → 禁止实盘 | 池规则后 -0.89%~-1.25%；R1b/R2 后 -0.50%~+1.94% |
+| 双低因子本身 | **横截面预测力统计显著** | RankIC -0.05~-0.06，\|t\| 12.8-16.6（HLZ 门槛 3） |
+| 两段式新基线（无并集预计算） | 独立基线，成本吞噬 | +15.28%/6.6 年，回撤 25.3%，换手 52.12x |
+| 温度计门控（静态 170/140） | 预注册验证**不采纳** | OOS -13.66% vs 基线 +1.94%；静态阈值 regime 脆弱 |
+| 过拟合审计 | DSR 过门（非纯噪声）、HLZ 全不显著 | ETF DSR 0.6447 / CB DSR 0.7363；t ≤1.06/1.78 |
+
+**核心矛盾**：因子有信号，成本吃掉一切。下一阶段第一变量是**降换手**（预注册假设 H1，见 4.5 节与未来计划），不是新因子。
+
+### 关键数据资产
 
 | 路径 | 说明 |
 | --- | --- |
-| `data/pit/convertible_pit.parquet` | 转债 PIT 快照（**全量池**）：**624,637 行 / 849 只有效 / 8 列 schema / 每日中位 362 只候选**（2026-08-18 全量重建；68 只时代为 59,609 行） |
+| `data/pit/convertible_pit.parquet` | 转债 PIT 快照（**全量池**）：624,637 行 / 849 只有效 / 8 列 schema / 每日中位 362 只候选 |
 | `data/pit/coverage.json` | 覆盖率审计：请求 854 / 有效 849 / coverage 99.41%，评级覆盖 100%，0 未来行，0 脏行 |
 | `data/universe_cb_full.txt` | 全量 universe（854 只，2019+ 上市全部发行券） |
-| `data/cb_candidate_union.txt` | 月频双低候选并集（276 只，`precompute_cb_union.py` 产物，回测 `--cb-symbols-file` 用） |
-| `data/pit/raw/<代码>/{年份}.csv + meta.json` | 原始缓存（**914 目录**：iFinD 60 + AKShare 854，meta 带 `source` 区分；**重建成本最高的资产**，支持 `--assemble-only` 离线重组） |
-| `output/feeds_snapshot.pkl` | 冻结 ETF 行情快照（13 只 ETF，约 2012/2013 → 2026-08-14），SHA-256 `273c8153ec8c89228b65bf8068cd9faa4e5e2dfb4811202f6fe2311556f65161` |
-| `output/feeds_snapshot_v2.pkl` | **当前主用快照**（17 只 ETF = 原 13 + 159531 中证2000 / 512890 红利低波 / 518880 黄金 / 511880 银华日利，2012 → 2026-08-17），SHA-256 `7a8cd2da9145a9902186986914c81920cae75e16e9f9c3fa147dd6a257e2ee11`；由 `scripts/build_feeds_snapshot.py --source akshare` 构建；老 13 只与 v1 日收益 corr=1.0000（历史结果可复现） |
-| `output/walk_forward_etf_2020_2026.csv` + `_locked.csv` | 8 折滚动 Walk-Forward 逐折明细与锁定参数序列 |
-| `data/cache/bars/` | 13 只 ETF 本地行情 parquet |
-| `data/universe_cb_pit.csv` | 转债请求池（68 只） |
+| `data/pit/raw/<代码>/{年份}.csv + meta.json` | 原始缓存（914 目录：iFinD 60 + AKShare 854；**重建成本最高**，支持 `--assemble-only` 离线重组） |
+| `output/feeds_snapshot_v2.pkl` | **主用 ETF 快照**（17 只，2012 → 2026-08-17），SHA-256 `7a8cd2da...`；老 13 只与 v1 corr=1.0000 |
+| `output/cb_feeds_snapshot.pkl` | 转债候选并集冻结 feed（160 只，SHA `146d7155...`） |
+| `output/runs/` | 实验注册（run_id + index.jsonl，试验数 N 机器追溯） |
+| `output/overfit_audit_*.json` | 两条路线的 DSR/HLZ/PBO 审计报告 |
+| `output/cb_two_stage_weights.csv`、`cb_factor_ic_report.csv` | 两段式选债计划与因子 IC 报告 |
+| `data/cache/bars/` | 转债日线本地 parquet（ETF hfq 缓存已清，ETF 快照走 akshare 链） |
 
 ## 3. 最新验证结论（务必先读，避免重复劳动）
+
+> **时效声明（2026-08-31）**：本节按时间顺序记录研究演进，**最下方（4.1-4.5）的批次更新**。当前有效基线以 2 节"研究结论速览"表和 4.5/4.6 节为准——特别是：候选并集 precompute 已被两段式回测废除（R5）、月频基线已从 -3.45% 演进为 -0.50%~+1.94%（R1b/R2 后）、双低因子 IC 显著是新增强结论。旧批次中的"当前基线"字样均指当时时点。
 
 ### 3.1 可转债 PIT（2026-08-18 重大更新：AKShare 补采完成）
 
