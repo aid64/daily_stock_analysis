@@ -49,11 +49,16 @@ def compute_cb_target_weights(
     min_candidates: Optional[int] = None,
     dd_median_upper: Optional[float] = None,
     dd_median_lower: Optional[float] = None,
+    rank_buffer: int = 0,
 ) -> dict[str, dict[str, float]]:
     """第一段：PIT 矩阵逐调仓日选债 → {日期: {symbol: 目标权重}}
 
     rebalance="M" 为每月首个 PIT 交易日；"W" 为 ISO 周首日。
     选债走 pit_snapshot_picks 单一过滤链（与 PIT 专家语义一致）。
+
+    rank_buffer > 0 时（H1）：返回 top_n + rank_buffer 的候选队列——
+    前 top_n 只等权为目标，其余以 0 权重列入（供执行层的持仓缓冲
+    判定："仍在队列内的持仓不换出"）。选债过滤语义不变。
     """
     panel = Panel(pit_table)
     price = panel.get_panel("price", start=start, end=end)
@@ -75,7 +80,7 @@ def compute_cb_target_weights(
             continue
         picks = pit_snapshot_picks(
             snapshot,
-            top_n=top_n,
+            top_n=top_n + max(0, int(rank_buffer)),
             min_rating=min_rating,
             max_premium=max_premium,
             exclude_new_days=exclude_new_days,
@@ -89,7 +94,14 @@ def compute_cb_target_weights(
             dd_median_lower=dd_median_lower,
         )
         if picks:
-            target_weights[ts.date().isoformat()] = picks
+            if rank_buffer > 0 and len(picks) > top_n:
+                # 队列化：按双低升序，前 top_n 等权为目标，buffer 区 0 权重
+                ordered = list(picks.keys())
+                queued = {sym: (1.0 / top_n if i < top_n else 0.0)
+                          for i, sym in enumerate(ordered)}
+                target_weights[ts.date().isoformat()] = queued
+            else:
+                target_weights[ts.date().isoformat()] = picks
     return target_weights
 
 
@@ -149,6 +161,8 @@ class WeightTargetStrategy(TargetWeightExecutionMixin, bt.Strategy):
         ("convertible_symbols", ()),
         ("convertible_lot_size", 10),
         ("stop_loss_pct", None),
+        ("hold_buffer", False),       # H1：启用持仓缓冲（0 权重队列成员不换出）
+        ("min_trade_ratio", 1.0),     # H1：差额市值 < ratio×一手成本 → 跳过该腿
     )
 
     def __init__(self):
@@ -158,13 +172,85 @@ class WeightTargetStrategy(TargetWeightExecutionMixin, bt.Strategy):
         }
         self._executed: set[str] = set()
 
+    def _apply_h1_overrides(self, raw: dict[str, float]) -> dict[str, float]:
+        """H1 执行变体：对一期目标权重做缓冲与最小交易阈值处理。
+
+        - hold_buffer：上期实际持有的、且在本期 0 权重队列内的标的，
+          视为"仍在 rank-buffer 内"→ 给予等权目标（不换出）。
+        - 返回处理后的目标权重（供 _rebalance_to 与 min_trade 阈值）。
+        """
+        if not self.p.hold_buffer:
+            return raw
+        target = {k: v for k, v in raw.items() if v > 0}
+        queue = [k for k, v in raw.items() if v <= 0]
+        if not target or not queue:
+            return raw
+        per = max(target.values())
+        held_in_queue = [
+            s for s in queue
+            if self.getposition(self._get_data(s)).size > 0
+        ]
+        for s in held_in_queue:
+            target[s] = per
+        return target
+
+    def _min_trade_skip(self, name: str, tgt_value: float) -> bool:
+        """H1 最小交易阈值：差额市值不足 ratio×一手成本则跳过。"""
+        d = self._get_data(name)
+        if d is None:
+            return True
+        price = float(d.close[0])
+        import math as _math
+        if not _math.isfinite(price) or price <= 0:
+            return True
+        lot = self._lot_of(name)
+        one_lot_cost = price * lot
+        pos = self.getposition(d)
+        cur_value = pos.size * price
+        diff = abs(tgt_value - cur_value)
+        return diff < float(self.p.min_trade_ratio) * one_lot_cost
+
+    def _rebalance_to_h1(self, target: dict[str, float]) -> None:
+        """带最小交易阈值的调仓：先经 H1 缓冲处理，再对每腿做阈值过滤。
+
+        实现：对超出容差的腿逐个检查阈值——卖出腿与买入腿均适用；
+        阈值过滤后剩余目标重新归一（把被跳过腿的权重按比例分给其余腿），
+        再调用标准 _rebalance_to。
+        """
+        processed = self._apply_h1_overrides(target)
+        total_value = self.broker.getvalue()
+        kept: dict[str, float] = {}
+        skipped_value = 0.0
+        for name, w in processed.items():
+            d = self._get_data(name)
+            if d is None:
+                continue
+            price = float(d.close[0])
+            import math as _math
+            if not _math.isfinite(price) or price <= 0:
+                continue
+            tgt_value = total_value * w
+            if w > 0 and self._min_trade_skip(name, tgt_value):
+                skipped_value += tgt_value
+                continue
+            kept[name] = w
+        if kept and skipped_value > 0:
+            # 归一：把跳过腿的权重按比例摊给保留腿
+            total_kept_w = sum(kept.values())
+            if total_kept_w > 0:
+                kept = {k: w * (1.0 + skipped_value / total_kept_w) for k, w in kept.items()}
+        self._rebalance_to(kept if kept else {})
+
     def next(self):
         self._check_stop_loss()
         key = self.datas[0].datetime.date(0).isoformat()
         if key not in self._schedule or key in self._executed:
             return
         self._executed.add(key)
-        self._rebalance_to(self._schedule[key])
+        if self.p.hold_buffer or float(self.p.min_trade_ratio) > 1.0:
+            self._rebalance_to_h1(self._schedule[key])
+        else:
+            self._rebalance_to(self._schedule[key])
 
 
 def run_two_stage(

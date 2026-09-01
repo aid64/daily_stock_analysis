@@ -1,0 +1,251 @@
+{
+ "task": "H1 turnover control (preregistered: docs/h1-preregistration.md)",
+ "window": "2020-01-01..2025-12-31",
+ "pick_params": {
+  "top_n": 5,
+  "min_rating": "AA-",
+  "max_premium": 20.0,
+  "exclude_new_days": 30,
+  "max_conv_value": 135.0,
+  "min_maturity_days": 365,
+  "min_candidates": 15
+ },
+ "note_2026_excluded": "2026 zero-exposure year excluded per preregistration",
+ "pit_sha256": "ed87b1103c89edc80a96f322d10e14e49bddcade8ef85e13a41d5714689e85fb",
+ "baseline_turnover_1x": 51.9902,
+ "h1_pass": true,
+ "verdicts": [
+  {
+   "combo": "buffer=3,ratio=1.0,buf=True",
+   "net_2x_positive": false,
+   "turnover_drop_1x_ge_30pct": false,
+   "both_pass": false,
+   "detail_1x": {
+    "total_return": 0.042583,
+    "turnover": 40.270901,
+    "turnover_drop_pct": 0.2254
+   },
+   "detail_2x": {
+    "total_return": -0.198428,
+    "turnover": 45.084351
+   }
+  },
+  {
+   "combo": "buffer=3,ratio=2.0,buf=True",
+   "net_2x_positive": true,
+   "turnover_drop_1x_ge_30pct": true,
+   "both_pass": true,
+   "detail_1x": {
+    "total_return": 0.032413,
+    "turnover": 1.712105,
+    "turnover_drop_pct": 0.9671
+   },
+   "detail_2x": {
+    "total_return": 0.026931,
+    "turnover": 1.718757
+   }
+  },
+  {
+   "combo": "buffer=5,ratio=1.0,buf=True",
+   "net_2x_positive": false,
+   "turnover_drop_1x_ge_30pct": false,
+   "both_pass": false,
+   "detail_1x": {
+    "total_return": 0.042583,
+    "turnover": 40.270901,
+    "turnover_drop_pct": 0.2254
+   },
+   "detail_2x": {
+    "total_return": -0.198428,
+    "turnover": 45.084351
+   }
+  },
+  {
+   "combo": "buffer=5,ratio=2.0,buf=True",
+   "net_2x_positive": true,
+   "turnover_drop_1x_ge_30pct": true,
+   "both_pass": true,
+   "detail_1x": {
+    "total_return": 0.032413,
+    "turnover": 1.712105,
+    "turnover_drop_pct": 0.9671
+   },
+   "detail_2x": {
+    "total_return": 0.026931,
+    "turnover": 1.718757
+   }
+  }
+ ],
+ "rows": [
+  {
+   "combo": "buffer=0,ratio=1.0,buf=False",
+   "hold_buffer": false,
+   "buffer": 0,
+   "min_trade_ratio": 1.0,
+   "cost_multiplier": 1,
+   "total_return": 0.157366,
+   "annual_return": 0.019017,
+   "max_drawdown": 0.253585,
+   "sharpe": 0.028924,
+   "total_trades": 190,
+   "completed_orders": 394,
+   "traded_value": 576450.82,
+   "commission_paid": 2124.82,
+   "turnover": 51.990195,
+   "final_value": 11573.66
+  },
+  {
+   "combo": "buffer=0,ratio=1.0,buf=False",
+   "hold_buffer": false,
+   "buffer": 0,
+   "min_trade_ratio": 1.0,
+   "cost_multiplier": 2,
+   "total_return": -0.220076,
+   "annual_return": -0.031531,
+   "max_drawdown": 0.344441,
+   "sharpe": -0.578139,
+   "total_trades": 190,
+   "completed_orders": 386,
+   "traded_value": 456904.92,
+   "commission_paid": 4104.73,
+   "turnover": 50.065878,
+   "final_value": 7799.24
+  },
+  {
+   "combo": "buffer=3,ratio=1.0,buf=True",
+   "hold_buffer": true,
+   "buffer": 3,
+   "min_trade_ratio": 1.0,
+   "cost_multiplier": 1,
+   "total_return": 0.042583,
+   "annual_return": 0.00539,
+   "max_drawdown": 0.126843,
+   "sharpe": -0.253243,
+   "total_trades": 171,
+   "completed_orders": 345,
+   "traded_value": 413872.74,
+   "commission_paid": 1837.31,
+   "turnover": 40.270901,
+   "final_value": 10425.83
+  },
+  {
+   "combo": "buffer=3,ratio=1.0,buf=True",
+   "hold_buffer": true,
+   "buffer": 3,
+   "min_trade_ratio": 1.0,
+   "cost_multiplier": 2,
+   "total_return": -0.198428,
+   "annual_return": -0.028108,
+   "max_drawdown": 0.262647,
+   "sharpe": -0.792505,
+   "total_trades": 175,
+   "completed_orders": 350,
+   "traded_value": 408064.42,
+   "commission_paid": 3721.22,
+   "turnover": 45.084351,
+   "final_value": 8015.72
+  },
+  {
+   "combo": "buffer=3,ratio=2.0,buf=True",
+   "hold_buffer": true,
+   "buffer": 3,
+   "min_trade_ratio": 2.0,
+   "cost_multiplier": 1,
+   "total_return": 0.032413,
+   "annual_return": 0.00412,
+   "max_drawdown": 0.025846,
+   "sharpe": -1.272001,
+   "total_trades": 5,
+   "completed_orders": 10,
+   "traded_value": 17523.76,
+   "commission_paid": 54.83,
+   "turnover": 1.712105,
+   "final_value": 10324.13
+  },
+  {
+   "combo": "buffer=3,ratio=2.0,buf=True",
+   "hold_buffer": true,
+   "buffer": 3,
+   "min_trade_ratio": 2.0,
+   "cost_multiplier": 2,
+   "total_return": 0.026931,
+   "annual_return": 0.003431,
+   "max_drawdown": 0.025908,
+   "sharpe": -1.28364,
+   "total_trades": 5,
+   "completed_orders": 10,
+   "traded_value": 17523.76,
+   "commission_paid": 109.65,
+   "turnover": 1.718757,
+   "final_value": 10269.31
+  },
+  {
+   "combo": "buffer=5,ratio=1.0,buf=True",
+   "hold_buffer": true,
+   "buffer": 5,
+   "min_trade_ratio": 1.0,
+   "cost_multiplier": 1,
+   "total_return": 0.042583,
+   "annual_return": 0.00539,
+   "max_drawdown": 0.126843,
+   "sharpe": -0.253243,
+   "total_trades": 171,
+   "completed_orders": 345,
+   "traded_value": 413872.74,
+   "commission_paid": 1837.31,
+   "turnover": 40.270901,
+   "final_value": 10425.83
+  },
+  {
+   "combo": "buffer=5,ratio=1.0,buf=True",
+   "hold_buffer": true,
+   "buffer": 5,
+   "min_trade_ratio": 1.0,
+   "cost_multiplier": 2,
+   "total_return": -0.198428,
+   "annual_return": -0.028108,
+   "max_drawdown": 0.262647,
+   "sharpe": -0.792505,
+   "total_trades": 175,
+   "completed_orders": 350,
+   "traded_value": 408064.42,
+   "commission_paid": 3721.22,
+   "turnover": 45.084351,
+   "final_value": 8015.72
+  },
+  {
+   "combo": "buffer=5,ratio=2.0,buf=True",
+   "hold_buffer": true,
+   "buffer": 5,
+   "min_trade_ratio": 2.0,
+   "cost_multiplier": 1,
+   "total_return": 0.032413,
+   "annual_return": 0.00412,
+   "max_drawdown": 0.025846,
+   "sharpe": -1.272001,
+   "total_trades": 5,
+   "completed_orders": 10,
+   "traded_value": 17523.76,
+   "commission_paid": 54.83,
+   "turnover": 1.712105,
+   "final_value": 10324.13
+  },
+  {
+   "combo": "buffer=5,ratio=2.0,buf=True",
+   "hold_buffer": true,
+   "buffer": 5,
+   "min_trade_ratio": 2.0,
+   "cost_multiplier": 2,
+   "total_return": 0.026931,
+   "annual_return": 0.003431,
+   "max_drawdown": 0.025908,
+   "sharpe": -1.28364,
+   "total_trades": 5,
+   "completed_orders": 10,
+   "traded_value": 17523.76,
+   "commission_paid": 109.65,
+   "turnover": 1.718757,
+   "final_value": 10269.31
+  }
+ ]
+}

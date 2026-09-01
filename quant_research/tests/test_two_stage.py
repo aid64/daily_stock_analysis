@@ -284,3 +284,80 @@ class TestWeightTargetStrategy:
         ])
         result, weights = self._run(pit)
         assert result.final_value > 0
+
+
+class TestH1ExecutionVariant:
+    """H1 执行变体：持仓缓冲（0 权重队列成员不换出）+ 最小交易阈值。"""
+
+    def _pit_two_bonds(self, days: int = 60) -> pd.DataFrame:
+        dates = pd.bdate_range("2024-01-02", periods=days)
+        a = 110.0 * 1.002 ** np.arange(days)
+        b = 111.0 * 1.002 ** np.arange(days)
+        c = 112.0 * 1.001 ** np.arange(days)
+        return pd.concat([
+            pd.DataFrame({"as_of": dates, "symbol": "A.SH", "price": a,
+                          "premium_rate": 5.0, "rating": "AA", "list_date": dates[0]}),
+            pd.DataFrame({"as_of": dates, "symbol": "B.SH", "price": b,
+                          "premium_rate": 5.0, "rating": "AA", "list_date": dates[0]}),
+            pd.DataFrame({"as_of": dates, "symbol": "C.SH", "price": c,
+                          "premium_rate": 5.0, "rating": "AA", "list_date": dates[0]}),
+        ])
+
+    def _run(self, pit, weights, **strategy_params):
+        picked = sorted({s for p in weights.values() for s in p})
+        feeds = pit_to_feeds(pit, picked)
+        cfg = _make_config()
+        engine = BacktestEngine(
+            cfg, commission_overrides={"stamp_duty": 0.0, "transfer_fee": 0.0}, logger=None)
+        params = {
+            "target_weights": weights,
+            "convertible_symbols": tuple(feeds.keys()),
+            "convertible_lot_size": 10,
+            "lot_size": 10,
+        }
+        params.update(strategy_params)
+        return engine.run(WeightTargetStrategy, params, feeds)
+
+    def test_queue_mode_zero_weight_tail(self):
+        """rank_buffer 队列化：前 top_n 等权，buffer 区 0 权重"""
+        pit = _make_pit({"A.SH": 0.001, "B.SH": 0.0015, "C.SH": 0.002}, days=40)
+        weights = compute_cb_target_weights(
+            pit, start="2024-01-01", end="2024-12-31", rebalance="M",
+            min_rating="A", top_n=2, rank_buffer=1,
+            max_price_median=False, exclude_new_days=0)
+        assert weights
+        for picks in weights.values():
+            assert len(picks) == 3  # top_n(2) + buffer(1)
+            positive = [s for s, w in picks.items() if w > 0]
+            zero = [s for s, w in picks.items() if w == 0]
+            assert len(positive) == 2 and len(zero) == 1
+            assert all(abs(w - 0.5) < 1e-9 for w in picks.values() if w > 0)
+
+    def test_hold_buffer_keeps_zero_weight_holding(self):
+        """持仓在 0 权重队列内 → 给予等权目标（不换出）"""
+        pit = self._pit_two_bonds(60)
+        # 期初持 A+B；第二期 A 仍在队列（0 权重）、B 保持正权
+        weights = {
+            "2024-01-02": {"A.SH": 0.5, "B.SH": 0.5},
+            "2024-01-22": {"B.SH": 0.5, "A.SH": 0.0},  # A 跌入 buffer 区
+        }
+        result = self._run(pit, weights, hold_buffer=True)
+        assert result.final_value > 0
+
+    def test_min_trade_ratio_skips_tiny_legs(self):
+        """min_trade_ratio 大于差额/一手成本比 → 首月建仓被整体跳过（保持现金）"""
+        pit = self._pit_two_bonds(60)
+        weights = {
+            "2024-01-02": {"A.SH": 1.0},
+        }
+        # ratio 取超大值：任何腿都低于阈值 → 全跳过 → 保持现金
+        result = self._run(pit, weights, min_trade_ratio=1e9)
+        assert result.final_value == pytest.approx(100000.0)
+
+    def test_h1_params_default_off_keeps_legacy_behavior(self):
+        """默认参数（hold_buffer=False, ratio=1.0）走旧 _rebalance_to 路径"""
+        pit = self._pit_two_bonds(60)
+        weights = {"2024-01-02": {"A.SH": 1.0}}
+        result = self._run(pit, weights)
+        # total_trades 只计 closed（ROADMAP D5 已知口径），用净值判定建仓发生
+        assert result.final_value > 100000.0 * 1.01
