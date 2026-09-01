@@ -208,12 +208,21 @@
 - 测试 237→**250 项全过**。产物：`output/overfit_audit_etf_momentum.json`、`output/overfit_audit_cb_two_stage.json`、`output/wf_p11_thermo_t5p20.csv`。
 - **下一步候选**：P2 层确定性收益增强（主项目事件套利加厚/511380 溢价买点监控，见改进计划）；第 3 层新策略假设需全新预注册。
 
+### 4.5 全仓未来计划定稿（2026-08-31）
+
+- 产物：`.scratch/project-future-plan-20260831.md`（全仓两子项目 90 天路线图）。
+- 核心判断：quant_research 已从"回测项目"变为"研究基础设施"——双低因子横截面预测力统计显著（RankIC |t| 12.8-16.6）但净收益被 52x 换手的成本吞噬，下一阶段第一变量是**成本而非新因子**（预注册假设 H1：rank-buffer + 最小换手约束，目标换手降 ≥30% 且 2x 成本下不劣于基线）；2026-08-09 之后数据冻结为最终 holdout，现有 2020-2026 窗口已被多轮研究触碰不再作最终 OOS。
+- DSA 主项目方向：投资工作台闭环（统一 InvestmentEvent 事件模型、结构化套利核查卡、双信息源验证）；P2 监控层已落地（事件套利加厚/配债登记/ETF 溢价监控，commit c9aa7972）。
+- 测试可靠性：主项目全量离线失败 57-81（混沌）→ 稳定 ≤3；跨测试环境污染六层根治（conftest 双层 env 隔离 + session 默认 ENV_FILE + ConfigManager WinError 5 重试回退，commit 9f26838c/15cd0eff）。唯一残余为 intelligence fail_open 负载敏感单测（隔离必过）。
+- 执行通道：QMT 只做 read-only PoC；策略过研究门槛前 PaperBroker 跑完整年报季/强赎周期。
+- 分支治理：本地领先 origin/main 39 个提交未推送；GitHub 直连被本机代理阻断（127.0.0.1 连接失败），恢复后先做上游差异审计（上游最新已知提交 5159bd72）再决定推送/合并策略。
+
 ## 5. 快速恢复（新环境/新会话）
 
 ```bash
 # 1. 环境自检（工作目录必须是 quant_research）
 cd d:\daily_stock_analysis\quant_research
-py -m pytest -q          # 预期 171 passed
+py -m pytest -q          # 预期 252 passed
 
 # 2. PIT 覆盖率复核（不发网络请求）
 py scripts/build_pit_snapshot.py --validate-only --pit data/pit/convertible_pit.parquet --universe-file data/universe_cb_pit.csv --start 2018-01-01 --end 2026-08-08
@@ -229,11 +238,11 @@ py scripts/run_walk_forward.py --snapshot output/feeds_snapshot.pkl --start 2020
 
 ```text
 继续 d:\daily_stock_analysis\quant_research 的低门槛量化项目。
-先读 quant_research/HANDOFF.md 与 daily_stock_analysis/docs/quant_research_architecture_research.md 的 6.2.6 节。
-当前状态：171 tests passed；ETF 动量 8 折 Walk-Forward 已完成且无稳定参数（禁止实盘）；
-转债 PIT 有效 27/68 只，41 只缺失全卡在 meta 获取。
-下一步按 HANDOFF.md 第 4 节优先级执行，从 universe 补齐或 MWU Walk-Forward 开始。
-遵守根目录 AGENTS.md：未经确认不 commit/push。
+先读 quant_research/HANDOFF.md（4.5 节为最新方向）与 daily_stock_analysis/docs/quant_research_architecture_research.md。
+当前状态：252 tests passed；六层架构重构完成（core 包 / Runner / 实验注册 / 两段式转债回测）；
+双低因子 RankIC 显著但换手 52x 成本吞噬，下一步按 .scratch/project-future-plan-20260831.md
+执行预注册假设 H1（rank-buffer 降换手），2026-08-09 后数据为冻结 holdout。
+禁止实盘：WF 纪律未通过。遵守根目录 AGENTS.md。
 ```
 
 ## 6. 已知坑位（踩过的坑，勿重蹈）
