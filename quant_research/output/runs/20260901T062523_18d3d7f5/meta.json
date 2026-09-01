@@ -1,0 +1,35 @@
+{
+ "run_id": "20260901T062523_18d3d7f5",
+ "params": {
+  "kind": "a1_cost_sensitivity",
+  "start": "2020-01-01",
+  "end": "2026-08-08",
+  "multipliers": [
+   1,
+   2,
+   4
+  ],
+  "top_n": 5,
+  "min_rating": "AA-",
+  "max_premium": 20.0,
+  "exclude_new_days": 30,
+  "max_conv_value": 135.0,
+  "min_maturity_days": 365,
+  "min_candidates": 15,
+  "pit_sha256": "ed87b1103c89edc80a96f322d10e14e49bddcade8ef85e13a41d5714689e85fb"
+ },
+ "metrics": {
+  "total_return_1x": 0.157366,
+  "total_return_2x": -0.220076,
+  "total_return_4x": -0.439333
+ },
+ "artifacts": {
+  "report": "D:\\daily_stock_analysis\\quant_research\\output\\a1_cost_sensitivity.json",
+  "table": "D:\\daily_stock_analysis\\quant_research\\output\\a1_cost_sensitivity_table.csv"
+ },
+ "tags": {
+  "kind": "a1_cost_sensitivity"
+ },
+ "timestamp": "2026-09-01T06:25:23.912575+00:00",
+ "git_sha": "3c5049112141925d0049d823590f3b2d75e1f316"
+}

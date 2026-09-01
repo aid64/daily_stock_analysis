@@ -1,0 +1,70 @@
+{
+ "task": "A1 cost sensitivity (ROADMAP §3.3 A1)",
+ "start": "2020-01-01",
+ "end": "2026-08-08",
+ "pick_params": {
+  "top_n": 5,
+  "min_rating": "AA-",
+  "max_premium": 20.0,
+  "exclude_new_days": 30,
+  "max_conv_value": 135.0,
+  "min_maturity_days": 365,
+  "min_candidates": 15
+ },
+ "rebalances": 70,
+ "picked_union": 115,
+ "pit_sha256": "ed87b1103c89edc80a96f322d10e14e49bddcade8ef85e13a41d5714689e85fb",
+ "rows": [
+  {
+   "cost_multiplier": 1,
+   "commission_rate": 0.0001,
+   "min_commission": 5.0,
+   "total_return": 0.157366,
+   "annual_return": 0.019017,
+   "max_drawdown": 0.253585,
+   "sharpe": 0.028924,
+   "calmar": 0.074992,
+   "total_trades": 190,
+   "completed_orders": 394,
+   "traded_value": 576450.82,
+   "commission_paid": 2124.82,
+   "turnover": 51.990195,
+   "final_value": 11573.66,
+   "return_decay_vs_1x_pp": 0.0
+  },
+  {
+   "cost_multiplier": 2,
+   "commission_rate": 0.0002,
+   "min_commission": 10.0,
+   "total_return": -0.220076,
+   "annual_return": -0.031531,
+   "max_drawdown": 0.344441,
+   "sharpe": -0.578139,
+   "calmar": 0.091544,
+   "total_trades": 190,
+   "completed_orders": 386,
+   "traded_value": 456904.92,
+   "commission_paid": 4104.73,
+   "turnover": 50.065878,
+   "final_value": 7799.24,
+   "return_decay_vs_1x_pp": -37.744
+  },
+  {
+   "cost_multiplier": 4,
+   "commission_rate": 0.0004,
+   "min_commission": 20.0,
+   "total_return": -0.439333,
+   "annual_return": -0.071872,
+   "max_drawdown": 0.485151,
+   "sharpe": -1.050317,
+   "calmar": 0.148143,
+   "total_trades": 147,
+   "completed_orders": 295,
+   "traded_value": 340661.09,
+   "commission_paid": 6268.69,
+   "turnover": 44.613831,
+   "final_value": 5606.67,
+   "return_decay_vs_1x_pp": -59.67
+  }
+ ]
+}
