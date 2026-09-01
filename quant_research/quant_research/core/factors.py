@@ -11,7 +11,7 @@ IC/RankIC 评估是通用后处理——任何注册因子直接可用。
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Sequence
 
 import numpy as np
 import pandas as pd

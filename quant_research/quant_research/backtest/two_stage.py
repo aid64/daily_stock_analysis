@@ -20,7 +20,7 @@ backtrader feed，需 precompute_cb_union.py 预计算候选并集（并附加
 
 from __future__ import annotations
 
-from typing import Mapping, Optional
+from typing import Mapping, Optional, Sequence
 
 import backtrader as bt
 import numpy as np

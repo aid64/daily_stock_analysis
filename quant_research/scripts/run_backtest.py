@@ -79,7 +79,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="可转债日线 feed 限制清单（每行一个代码）：PIT 模式下默认为快照全部"
         " symbol 建_feed，全量池（数百只）会拖垮引擎；传入预计算的候选并集"
-        "（如 data/cb_candidate_union.txt）可显著提速，选债结果不受影响"
+        "（历史产物 data/cb_candidate_union*.txt；两段式管线 run_cb_backtest.py "
+        "已无需此参数）"
         "（专家只从有 feed 的券里选，并集 ⊇ 全部过滤后候选）",
     )
     return p

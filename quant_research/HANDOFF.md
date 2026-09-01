@@ -1,7 +1,7 @@
 # quant_research 交接文档（2026-08-31 更新）
 
 > 用途：新会话/新环境先读本文件，再按"快速恢复"验证环境。
-> 配套文档：`daily_stock_analysis/docs/quant_research_architecture_research.md`（6.2.7/6.2.8 为最新工程与研究结论）、`daily_stock_analysis/docs/CHANGELOG.md`、`.scratch/project-future-plan-20260831.md`（90 天路线图，4.5 节有摘要）。
+> 配套文档：**`docs/ROADMAP.md`（2026-09 路线图，下一步计划的唯一真源）**、`daily_stock_analysis/docs/quant_research_architecture_research.md`（6.2.7/6.2.8 为最新工程与研究结论）、`daily_stock_analysis/docs/CHANGELOG.md`、`PRIMARY_SOURCE_RESEARCH.md`。
 
 ## 1. 项目定位
 
@@ -226,11 +226,11 @@
 - **审计结论**：ETF 动量路线 DSR 0.6447 过门（非纯噪声）但 HLZ 日频 t 全 18 配置不显著（≤1.06）；CB 两段式路线 DSR 0.7363 过门、HLZ 全不显著（≤1.78）。两路线共同结论：无统计显著日频预测力，WF 纪律（OOS 正+折间一致）仍不满足，不实盘。
 - **P1-1 温度计门控：不采纳**（预注册验证）。门控实现保留在 `pit_snapshot_picks`（dd_median_upper/lower，默认关闭）。8 折 WF：门控 OOS -13.66% vs 基线 +1.94%。归因：2023-2025 双低中位数几乎全程在 140-171 中间带（三年砍半仓位）；2026 全程 ≥170 清仓但 fold 8 仅改善 0.4pp（亏损源于 ETF 腿）。教训：静态绝对阈值在漂移统计量上 regime 脆弱；相对阈值留待独立预注册。
 - 测试 237→**250 项全过**。产物：`output/overfit_audit_etf_momentum.json`、`output/overfit_audit_cb_two_stage.json`、`output/wf_p11_thermo_t5p20.csv`。
-- **下一步候选**：P2 层确定性收益增强（主项目事件套利加厚/511380 溢价买点监控，见改进计划）；第 3 层新策略假设需全新预注册。
+- **下一步**：按 ROADMAP §3.3 执行 A1（成本 1x/2x/4x 敏感性，全盘最关键曲线）→ A2（有效暴露口径）→ B1（H1 换手控制预注册）。
 
 ### 4.5 全仓未来计划定稿（2026-08-31）
 
-- 产物：`.scratch/project-future-plan-20260831.md`（全仓两子项目 90 天路线图）。
+- 产物：`docs/ROADMAP.md`（quant_research 深度路线图，主计划）+ `.scratch/project-future-plan-20260831.md`（全仓总览，DSA 侧主计划）。
 - 核心判断：quant_research 已从"回测项目"变为"研究基础设施"——双低因子横截面预测力统计显著（RankIC |t| 12.8-16.6）但净收益被 52x 换手的成本吞噬，下一阶段第一变量是**成本而非新因子**（预注册假设 H1：rank-buffer + 最小换手约束，目标换手降 ≥30% 且 2x 成本下不劣于基线）；2026-08-09 之后数据冻结为最终 holdout，现有 2020-2026 窗口已被多轮研究触碰不再作最终 OOS。
 - DSA 主项目方向：投资工作台闭环（统一 InvestmentEvent 事件模型、结构化套利核查卡、双信息源验证）；P2 监控层已落地（事件套利加厚/配债登记/ETF 溢价监控，commit c9aa7972）。
 - 测试可靠性：主项目全量离线失败 57-81（混沌）→ 稳定 ≤3；跨测试环境污染六层根治（conftest 双层 env 隔离 + session 默认 ENV_FILE + ConfigManager WinError 5 重试回退，commit 9f26838c/15cd0eff）。唯一残余为 intelligence fail_open 负载敏感单测（隔离必过）。

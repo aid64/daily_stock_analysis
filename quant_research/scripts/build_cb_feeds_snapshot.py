@@ -2,7 +2,7 @@
 """构建冻结的可转债日线 feeds 快照（pkl），供 Walk-Forward 复现使用。
 
 与 build_feeds_snapshot.py（ETF）同哲学：WF 依赖冻结输入保证可复现。
-标的清单来自 precompute_cb_union.py 的候选并集（v2 宽参数超集），
+标的清单来自历史候选并集文件（v2 宽参数超集；precompute_cb_union.py 已随 R5 两段式管线废除），
 数据走 DataLoader 多源链（tushare cb_daily 主力，缓存优先）。
 
 用法：
