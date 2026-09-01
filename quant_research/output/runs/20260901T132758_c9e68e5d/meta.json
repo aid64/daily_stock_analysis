@@ -1,0 +1,30 @@
+{
+ "run_id": "20260901T132758_c9e68e5d",
+ "params": {
+  "kind": "real_fee_sensitivity",
+  "window": "2020-01-01..2025-12-31",
+  "fee_scenarios": [
+   "real_huatai",
+   "assume_1x",
+   "assume_2x"
+  ],
+  "pit_sha256": "ed87b1103c89edc80a96f322d10e14e49bddcade8ef85e13a41d5714689e85fb"
+ },
+ "metrics": {
+  "monthly_real_huatai": 0.157366,
+  "monthly_assume_1x": 0.157366,
+  "monthly_assume_2x": -0.158895,
+  "quarterly_real_huatai": 0.146417,
+  "quarterly_assume_1x": 0.146417,
+  "quarterly_assume_2x": -0.016982
+ },
+ "artifacts": {
+  "report": "D:\\daily_stock_analysis\\quant_research\\output\\real_fee_sensitivity.json",
+  "table": "D:\\daily_stock_analysis\\quant_research\\output\\real_fee_sensitivity_table.csv"
+ },
+ "tags": {
+  "kind": "real_fee_sensitivity"
+ },
+ "timestamp": "2026-09-01T13:27:58.087954+00:00",
+ "git_sha": "765494c085a18658ec12bf8ccc79248b4fff781b"
+}
