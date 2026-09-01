@@ -66,8 +66,13 @@ def compute_cb_target_weights(
         return {}
 
     dates = pd.Series(price.index)
-    if rebalance.upper() == "M":
+    freq = rebalance.upper()
+    if freq == "M":
         keys = dates.groupby([dates.dt.year, dates.dt.month]).min()
+    elif freq == "Q":
+        # 每季首个 PIT 交易日（H2）
+        quarter = dates.dt.year * 10 + ((dates.dt.month - 1) // 3 + 1)
+        keys = dates.groupby(quarter).min()
     else:  # W
         iso = dates.dt.isocalendar()
         keys = dates.groupby([iso.year, iso.week]).min()

@@ -1,0 +1,105 @@
+{
+ "task": "H2 quarterly rebalance (preregistered: docs/h2-preregistration.md)",
+ "window": "2020-01-01..2025-12-31",
+ "pick_params": {
+  "top_n": 5,
+  "min_rating": "AA-",
+  "max_premium": 20.0,
+  "exclude_new_days": 30,
+  "max_conv_value": 135.0,
+  "min_maturity_days": 365,
+  "min_candidates": 15
+ },
+ "pit_sha256": "ed87b1103c89edc80a96f322d10e14e49bddcade8ef85e13a41d5714689e85fb",
+ "verdict": {
+  "net_2x_positive": false,
+  "annual_events_le_6": true,
+  "turnover_drop_ge_50pct": true,
+  "max_drawdown_not_worse_by_5pp": true,
+  "detail": {
+   "monthly_1x": {
+    "total_return": 0.157366,
+    "max_drawdown": 0.253585,
+    "turnover": 51.990195
+   },
+   "monthly_2x": {
+    "total_return": -0.220076
+   },
+   "quarterly_1x": {
+    "total_return": 0.146417,
+    "max_drawdown": 0.147719,
+    "turnover": 18.204975
+   },
+   "quarterly_2x": {
+    "total_return": -0.021428,
+    "max_drawdown": 0.157405,
+    "turnover": 17.268828
+   },
+   "turnover_drop": 0.6498,
+   "quarterly_events_per_year": 3.83
+  },
+  "h2_pass": false
+ },
+ "rows": [
+  {
+   "rebalance": "monthly",
+   "cost_multiplier": 1,
+   "rebalance_events": 70,
+   "total_return": 0.157366,
+   "annual_return": 0.019017,
+   "max_drawdown": 0.253585,
+   "sharpe": 0.028924,
+   "total_trades": 190,
+   "completed_orders": 394,
+   "traded_value": 576450.82,
+   "commission_paid": 2124.82,
+   "turnover": 51.990195,
+   "final_value": 11573.66
+  },
+  {
+   "rebalance": "monthly",
+   "cost_multiplier": 2,
+   "rebalance_events": 70,
+   "total_return": -0.220076,
+   "annual_return": -0.031531,
+   "max_drawdown": 0.344441,
+   "sharpe": -0.578139,
+   "total_trades": 190,
+   "completed_orders": 386,
+   "traded_value": 456904.92,
+   "commission_paid": 4104.73,
+   "turnover": 50.065878,
+   "final_value": 7799.24
+  },
+  {
+   "rebalance": "quarterly",
+   "cost_multiplier": 1,
+   "rebalance_events": 23,
+   "total_return": 0.146417,
+   "annual_return": 0.017824,
+   "max_drawdown": 0.147719,
+   "sharpe": 0.017148,
+   "total_trades": 71,
+   "completed_orders": 150,
+   "traded_value": 193272.95,
+   "commission_paid": 801.09,
+   "turnover": 18.204975,
+   "final_value": 11464.17
+  },
+  {
+   "rebalance": "quarterly",
+   "cost_multiplier": 2,
+   "rebalance_events": 23,
+   "total_return": -0.021428,
+   "annual_return": -0.002797,
+   "max_drawdown": 0.157405,
+   "sharpe": -0.251157,
+   "total_trades": 71,
+   "completed_orders": 147,
+   "traded_value": 169576.9,
+   "commission_paid": 1558.93,
+   "turnover": 17.268828,
+   "final_value": 9785.72
+  }
+ ]
+}
