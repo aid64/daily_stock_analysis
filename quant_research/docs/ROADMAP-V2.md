@@ -19,7 +19,7 @@
 
 ## 二、盘点：未做 / 被忽略 / 可做得更好
 
-> 2026-09-03 更新：G1-G4 已由 F1-F4 关闭（见下文 ✅）；G5/G6 未处理。
+> 2026-09-03 更新：G1-G5 已由 F1-F5 关闭（见下文 ✅）；G6 未处理。
 
 ### A. 声称了但没做（最优先——诚实性问题）
 
@@ -61,7 +61,7 @@
 | **F2** ✅ | holdout 代码隔离：`core/holdout.py` 提供 `assert_holdout_clean(window)`，被 run_grid/run_walk_forward/run_cb_backtest/run_overfit_audit 调用 | 触碰 2026-08-09+ 抛错（2026-09-03 已接线 4 个入口） |
 | **F3** ✅ | total_trades 口径修复：engine.py 同报 closed + total + completed_orders | 两段式 trades 不再为 0（2026-09-03：total_trades=开仓数，新增 closed_trades/open_trades/fills，胜率只按平仓回合计） |
 | **F4** ✅ | count_trials 过滤：experiments.py 增 status 字段（completed/failed/smoke），DSR N 只数 completed | N 可审计（2026-09-03：run_overfit_audit 默认自动取 N，报告含 status 明细防洗小；旧行视为 completed） |
-| **F5** | 核心层测试补齐：runner/adapter/panel/factors 各补 5-10 项单测 | 测试数 267→280+ |
+| **F5** ✅ | 核心层测试补齐：runner/adapter/panel/factors 各补 5-10 项单测 | 测试数 267→295（2026-09-03：tests/test_core_layers.py 28 项，含 warmup 250 下限、IC 截面语义、Panel 不可变性等契约固化） |
 
 ### 第二优先：补齐被忽略的证据（O1-O3，约 2 个工作日）
 
@@ -96,7 +96,7 @@
 
 ```
 第 1 周：F1 ✅（C2 三表）→ F2 ✅（holdout 隔离）→ F3 ✅（trades 口径）
-第 2 周：F4 ✅（N 过滤）→ F5（核心层测试）→ R-B（拆文件）
+第 2 周：F4 ✅（N 过滤）→ F5 ✅（核心层测试）→ R-B（拆文件）
 第 3 周：F6（滑点）→ F7（两因子）→ F8（止损带）
 之后：  C2 运行节奏（每季末三表/每月 PIT 增量）→ 2027Q2 C1 判定
 ```
