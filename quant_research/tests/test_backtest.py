@@ -237,6 +237,8 @@ class TestBacktestEngine:
             max_drawdown=0.15,
             calmar=0.33,
             total_trades=10,
+            closed_trades=7,
+            open_trades=3,
             win_rate=0.5,
             profit_factor=1.5,
         )
@@ -245,6 +247,7 @@ class TestBacktestEngine:
         assert "12,000.00" in s
         assert "夏普比率" in s
         assert "盈亏比" in s
+        assert "开仓交易: 10（平仓 7 / 持仓中 3）" in s
 
     def test_short_data_no_trade(self):
         """数据足以计算 SMA 但无交叉信号时不交易"""
@@ -523,8 +526,9 @@ class TestETFMomentumP2:
         主板 -10% 跌停——R2 broker 强制闸会拒单跌停日卖出，场景须保持
         物理可行；累计约 -17% 使价格跌破入场均价 -8% 止损线，bar76
         收盘触发）。调仓日均为周一，暴跌周内无调仓。
-        无止损 → 持仓到期末，total_trades=0；
-        有止损(-8%) → bar77 开盘平仓，total_trades=1。
+        无止损 → 持仓到期末，开仓 1 笔未平仓（total_trades=1,
+        closed_trades=0）；
+        有止损(-8%) → bar77 开盘平仓，closed_trades=1。
         """
         rets = [0.005] * 30 + [0.0005] * 45 + [-0.095, -0.095] + [0.0005] * 2
         bars = _make_shaped_bars(rets, start="2024-01-02")  # 2024-01-02 是周二
@@ -532,7 +536,10 @@ class TestETFMomentumP2:
         engine = BacktestEngine(cfg, logger=logging.getLogger("test"))
 
         result_plain = engine.run(ETFMomentum, dict(_SMALL_MOMENTUM), {"UP.SH": bars})
-        assert result_plain.total_trades == 0  # 一直持有未平仓
+        assert result_plain.total_trades == 1  # 开仓 1 笔
+        assert result_plain.closed_trades == 0  # 一直持有未平仓
+        assert result_plain.open_trades == 1
+        assert result_plain.win_rate == 0  # 无平仓回合 → 胜率不可得
 
         _RebalanceSpy.buy_fills = []
         _RebalanceSpy.sell_fills = []
@@ -541,7 +548,7 @@ class TestETFMomentumP2:
             dict(_SMALL_MOMENTUM, stop_loss_pct=-0.08),
             {"UP.SH": bars},
         )
-        assert result_stop.total_trades == 1
+        assert result_stop.closed_trades == 1
         sell_dates = [d for sym, d in _RebalanceSpy.sell_fills if sym == "UP.SH"]
         crash_next = bars["date"].iloc[77]  # 止损触发次日（bar77）
         for d in sell_dates:

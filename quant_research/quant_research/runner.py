@@ -157,6 +157,8 @@ def metric_row(result, fold: int, segment: str, params: dict) -> dict:
         "calmar": round(result.calmar, 6),
         "total_return": round(result.total_return, 6),
         "total_trades": result.total_trades,
+        "closed_trades": result.closed_trades,
+        "completed_orders": result.completed_orders,
         "turnover": round(result.turnover, 6),
         "final_value": round(result.final_value, 2),
     }

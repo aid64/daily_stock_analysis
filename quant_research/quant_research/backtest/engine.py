@@ -57,6 +57,7 @@ class OrderStatsAnalyzer(bt.Analyzer):
             "margin_orders": 0,
             "canceled_orders": 0,
         }
+        self._fills = []
         self._equity_values = []
 
     def next(self):
@@ -77,6 +78,19 @@ class OrderStatsAnalyzer(bt.Analyzer):
             else:
                 self._stats["sell_orders"] += 1
                 self._stats["sell_value"] += value
+            try:
+                fill_date = bt.num2date(order.executed.dt).date()
+            except (TypeError, ValueError):
+                fill_date = None
+            self._fills.append({
+                "date": fill_date,
+                "symbol": getattr(order.data, "_name", None),
+                "side": "buy" if order.isbuy() else "sell",
+                "size": float(order.executed.size or 0.0),
+                "price": price,
+                "value": value,
+                "commission": float(order.executed.comm or 0.0),
+            })
         elif status == order.Rejected:
             self._stats["rejected_orders"] += 1
         elif status == order.Margin:
@@ -86,6 +100,7 @@ class OrderStatsAnalyzer(bt.Analyzer):
 
     def get_analysis(self):
         analysis = dict(self._stats)
+        analysis["fills"] = list(self._fills)
         analysis["average_equity"] = (
             sum(self._equity_values) / len(self._equity_values)
             if self._equity_values else 0.0
@@ -107,6 +122,8 @@ class BacktestResult:
 
     # 交易统计
     total_trades: int = 0
+    closed_trades: int = 0
+    open_trades: int = 0
     won_trades: int = 0
     lost_trades: int = 0
     win_rate: float = 0.0
@@ -128,6 +145,7 @@ class BacktestResult:
     # 原始数据
     equity_curve: Optional[pd.Series] = None
     trades: list = field(default_factory=list)
+    fills: list = field(default_factory=list)
 
     def summary(self) -> str:
         """生成文本摘要"""
@@ -139,7 +157,7 @@ class BacktestResult:
             f"  夏普比率: {self.sharpe:.3f}\n"
             f"  最大回撤: {self.max_drawdown:.2%}\n"
             f"  Calmar: {self.calmar:.3f}\n"
-            f"  总交易: {self.total_trades}\n"
+            f"  开仓交易: {self.total_trades}（平仓 {self.closed_trades} / 持仓中 {self.open_trades}）\n"
             f"  成交订单: {self.completed_orders}\n"
             f"  成交额: {self.traded_value:,.2f}\n"
             f"  区间换手率: {self.turnover:.2f}x\n"
@@ -343,13 +361,21 @@ class BacktestEngine:
                         node = getattr(node, key, None)
                 return default if node is None else node
 
-            result.total_trades = int(analysis_value(trades_analysis, "total", "closed"))
-            if result.total_trades > 0:
+            # 口径拆分（ROADMAP-V2 F3）：两段式/调仓型策略持仓很少归零，
+            # 只报 closed 会让 total_trades 恒为 0、与 52x 换手矛盾。
+            # total_trades=开仓数（含未平仓），closed_trades=已平仓回合数，
+            # 胜率/盈亏等只基于 closed_trades；订单数另见 completed_orders。
+            closed = int(analysis_value(trades_analysis, "total", "closed") or 0)
+            opened = int(analysis_value(trades_analysis, "total", "total") or 0)
+            result.closed_trades = closed
+            result.open_trades = max(opened - closed, 0)
+            result.total_trades = opened if opened > 0 else closed
+            if closed > 0:
                 won = int(analysis_value(trades_analysis, "won", "total"))
                 lost = int(analysis_value(trades_analysis, "lost", "total"))
                 result.won_trades = won
                 result.lost_trades = lost
-                result.win_rate = won / result.total_trades if result.total_trades > 0 else 0
+                result.win_rate = won / closed if closed > 0 else 0
 
                 avg_profit = analysis_value(trades_analysis, "won", "pnl", "average") if won > 0 else 0
                 avg_loss = analysis_value(trades_analysis, "lost", "pnl", "average") if lost > 0 else 0
@@ -374,6 +400,7 @@ class BacktestEngine:
                 setattr(result, target, int(value) if field.endswith("orders") else float(value))
             average_equity = float(order_stats.get("average_equity", initial) or initial)
             result.turnover = result.traded_value / average_equity if average_equity > 0 else 0.0
+            result.fills = list(order_stats.get("fills") or [])
         except (AttributeError, TypeError, ValueError) as e:
             self.logger.warning(f"订单统计提取失败: {e!r}")
 

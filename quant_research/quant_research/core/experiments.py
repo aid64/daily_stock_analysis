@@ -50,6 +50,13 @@ class ExperimentRun:
     tags: dict = field(default_factory=dict)
     timestamp: str = ""
     git_sha: Optional[str] = None
+    status: str = "completed"
+
+
+# 运行状态：completed=产出有效结果；failed=运行崩溃/未产出；smoke=冒烟
+# （合成数据/连通性检查）。DSR 的 N 只数 completed——但注意诚实边界：
+# 一次"跑完且结果难看"的实验仍是 completed，禁止为缩小 N 标成 failed。
+VALID_STATUSES = ("completed", "failed", "smoke")
 
 
 def record_run(
@@ -58,11 +65,15 @@ def record_run(
     artifacts: Optional[Mapping[str, str]] = None,
     tags: Optional[Mapping[str, Any]] = None,
     runs_dir: Optional[Path] = None,
+    status: str = "completed",
 ) -> ExperimentRun:
     """注册一次运行：写 meta.json + 追加 index.jsonl，返回 run 对象
 
     params/metrics 必须可 JSON 序列化（不可序列化的值用 default=str 兜底）。
+    status 取值见 VALID_STATUSES；非法值直接拒绝（宁可崩不可静默混入 N）。
     """
+    if status not in VALID_STATUSES:
+        raise ValueError(f"status 须为 {VALID_STATUSES} 之一，收到 {status!r}")
     root = Path(runs_dir) if runs_dir else _default_runs_dir()
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     run_id = f"{ts}_{_params_hash(params)}"
@@ -75,6 +86,7 @@ def record_run(
         tags=dict(tags or {}),
         timestamp=datetime.now(timezone.utc).isoformat(),
         git_sha=_git_sha(),
+        status=status,
     )
 
     run_dir = root / run_id
@@ -91,8 +103,14 @@ def record_run(
 def list_runs(
     runs_dir: Optional[Path] = None,
     tags: Optional[Mapping[str, Any]] = None,
+    status: Optional[str] = None,
 ) -> list[dict]:
-    """按 index.jsonl 倒序返回注册记录；tags 过滤（子集匹配）"""
+    """按 index.jsonl 倒序返回注册记录；tags/status 过滤（子集匹配）
+
+    status=None 不过滤（展示用）；F4 之前的旧行无 status 字段，
+    视为 completed——这些是真实跑完并产出结果的注册，把旧行从 N 里
+    剔除会缩小 DSR 惩罚基数（让多重检验更容易通过），方向不诚实。
+    """
     root = Path(runs_dir) if runs_dir else _default_runs_dir()
     index = root / "index.jsonl"
     if not index.exists():
@@ -108,14 +126,42 @@ def list_runs(
             continue
         if tags and not all(row.get("tags", {}).get(k) == v for k, v in tags.items()):
             continue
+        if status is not None and row.get("status", "completed") != status:
+            continue
         rows.append(row)
     rows.sort(key=lambda r: r.get("run_id", ""), reverse=True)
     return rows
 
 
-def count_trials(runs_dir: Optional[Path] = None, tags: Optional[Mapping[str, Any]] = None) -> int:
-    """试验总数 N（诚实统计，供 DSR/HLZ 多重检验校正）"""
-    return len(list_runs(runs_dir, tags))
+def count_trials(
+    runs_dir: Optional[Path] = None,
+    tags: Optional[Mapping[str, Any]] = None,
+    status: Optional[str] = "completed",
+) -> int:
+    """试验总数 N（诚实统计，供 DSR/HLZ 多重检验校正）
+
+    默认只数 completed：failed（未产出结果）与 smoke（合成冒烟）不是
+    独立的候选策略试验；status=None 返回全部行数（审计对照用）。
+    """
+    return len(list_runs(runs_dir, tags, status=status))
+
+
+def trial_status_breakdown(
+    runs_dir: Optional[Path] = None,
+    tags: Optional[Mapping[str, Any]] = None,
+) -> dict[str, int]:
+    """按 status 分组的行数（审计报告里与 N 一并展示，防 N 被洗小）"""
+    rows = list_runs(runs_dir, tags)
+    breakdown: dict[str, int] = {"completed": 0, "failed": 0, "smoke": 0, "legacy": 0}
+    for row in rows:
+        status = row.get("status")
+        if status is None:
+            breakdown["legacy"] += 1
+        elif status in breakdown:
+            breakdown[status] += 1
+        else:
+            breakdown[status] = breakdown.get(status, 0) + 1
+    return breakdown
 
 
 def _default_runs_dir() -> Path:

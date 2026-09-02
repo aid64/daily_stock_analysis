@@ -1,11 +1,17 @@
-"""实验注册层（core.experiments）单测：run_id 稳定性、注册/列举/计数、标签过滤"""
+"""实验注册层（core.experiments）单测：run_id 稳定性、注册/列举/计数、标签过滤、状态过滤"""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
-from quant_research.core.experiments import count_trials, list_runs, record_run
+from quant_research.core.experiments import (
+    count_trials,
+    list_runs,
+    record_run,
+    trial_status_breakdown,
+)
 
 
 @pytest.fixture()
@@ -36,6 +42,15 @@ class TestRecordRun:
         run = record_run(params={"table": object()}, runs_dir=runs_dir)
         assert run.run_id  # default=str 兜底不抛
 
+    def test_invalid_status_rejected(self, runs_dir):
+        with pytest.raises(ValueError, match="status"):
+            record_run({"p": 1}, runs_dir=runs_dir, status="dropped")
+
+    def test_status_written_to_meta(self, runs_dir):
+        run = record_run({"p": 1}, runs_dir=runs_dir, status="smoke")
+        meta = json.loads((runs_dir / run.run_id / "meta.json").read_text(encoding="utf-8"))
+        assert meta["status"] == "smoke"
+
 
 class TestListAndCount:
     def test_list_reverse_order_and_filter(self, runs_dir):
@@ -52,3 +67,34 @@ class TestListAndCount:
     def test_empty_dir_returns_zero(self, runs_dir):
         assert count_trials(runs_dir) == 0
         assert list_runs(runs_dir) == []
+
+
+class TestStatusFilter:
+    """F4：DSR 的 N 只数 completed；failed/smoke 不算独立试验"""
+
+    def test_default_completed_and_filter(self, runs_dir):
+        record_run({"p": 1}, runs_dir=runs_dir)          # 默认 completed
+        record_run({"p": 2}, runs_dir=runs_dir, status="failed")
+        record_run({"p": 3}, runs_dir=runs_dir, status="smoke")
+        assert count_trials(runs_dir) == 1                # 只数 completed
+        assert count_trials(runs_dir, status=None) == 3   # 全部行
+        assert count_trials(runs_dir, status="failed") == 1
+        rows = list_runs(runs_dir, status="smoke")
+        assert len(rows) == 1 and rows[0]["status"] == "smoke"
+
+    def test_legacy_rows_without_status_count_as_completed(self, runs_dir):
+        record_run({"p": 1}, runs_dir=runs_dir)
+        # 手工注入一行 F4 之前的旧格式（无 status 字段）：
+        # 旧行是真实跑完的注册，剔除会缩小 DSR 惩罚基数 → 视为 completed
+        with (runs_dir / "index.jsonl").open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"run_id": "legacy_0001", "params": {"p": 0}, "tags": {}}) + "\n")
+        assert count_trials(runs_dir) == 2
+        assert count_trials(runs_dir, status=None) == 2
+
+    def test_breakdown(self, runs_dir):
+        record_run({"p": 1}, runs_dir=runs_dir)
+        record_run({"p": 2}, runs_dir=runs_dir, status="failed")
+        with (runs_dir / "index.jsonl").open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"run_id": "legacy_0002", "params": {}, "tags": {}}) + "\n")
+        breakdown = trial_status_breakdown(runs_dir)
+        assert breakdown == {"completed": 1, "failed": 1, "smoke": 0, "legacy": 1}

@@ -34,7 +34,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from quant_research.backtest import BacktestEngine, ETFMomentum
 from quant_research.config import load_config
-from quant_research.core.experiments import record_run
+from quant_research.core.experiments import count_trials, record_run, trial_status_breakdown
 from quant_research.core.overfit_audit import cscv_pbo, deflated_sharpe, hlz_t_stat
 from quant_research.runner import ETF_COMMISSION, parse_grid_spec, grid_combinations, sha256_file
 
@@ -50,15 +50,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--strategy-config", default=None)
     p.add_argument("--grid", action="append", required=True)
     p.add_argument("--max-combos", type=int, default=50)
-    p.add_argument("--n-trials", type=int, required=True,
-                   help="诚实统计的历史试验数 N（历史不同配置数 + 本批矩阵，DSR 输入）")
+    p.add_argument("--n-trials", type=int, default=None,
+                   help="诚实统计的历史试验数 N；省略时自动取 output/runs/index.jsonl "
+                        "中 status=completed 的行数（F4），显式传入则覆盖")
     p.add_argument("--route", default="etf_momentum")
     p.add_argument("--output", default=None)
     return p
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    from quant_research.core.holdout import assert_holdout_clean
     args = build_parser().parse_args(argv)
+    assert_holdout_clean(args.end, task="overfit_audit")
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
                         force=True)
@@ -75,6 +78,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     strat_cfg = load_strategy_config(strat_cfg_path, name="etf_momentum")
     base_params = dict(strat_cfg.params)
     base_params["rebalance_freq"] = strat_cfg.rebalance_freq
+
+    # F4：N 自动来自实验注册（只数 completed），--n-trials 显式传入则覆盖。
+    # N 来源与 status 明细一并写进报告，防止 N 被静默洗小。
+    if args.n_trials is not None:
+        n_trials, n_trials_source = args.n_trials, "cli_override"
+    else:
+        n_trials = count_trials()
+        n_trials_source = "experiments_index_completed"
+    status_breakdown = trial_status_breakdown()
+    if n_trials < 2:
+        print(f"试验数 N={n_trials} < 2，DSR 无意义——检查实验注册或显式传 --n-trials",
+              file=sys.stderr)
+        return 2
+    logger.info("N = %d（来源 %s），status 明细 %s", n_trials, n_trials_source, status_breakdown)
 
     feeds = pd.read_pickle(Path(args.snapshot))
     if not isinstance(feeds, dict) or not feeds:
@@ -134,13 +151,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     dsr = deflated_sharpe(
         sharpe=daily_sharpes[best_label],
         n_periods=len(matrix),
-        n_trials=args.n_trials,
+        n_trials=n_trials,
         sr_variance=sr_variance,
         skewness=float(best_ret.skew()),
         kurtosis=float(best_ret.kurt()),  # 超额峰度
     )
     logger.info("DSR(所选 %s) = %.4f（N=%d，SR 方差 %.2e）→ %s",
-                best_label, dsr, args.n_trials, sr_variance,
+                best_label, dsr, n_trials, sr_variance,
                 "无技能（噪声），路线关闭调参" if dsr < 0.5 else "通过主门槛")
 
     # PBO 诊断（明确降级：有限样本互补恒等式诅咒已实测，仅供横向参考）
@@ -153,7 +170,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     report = {
         "route": args.route,
-        "n_trials_honest": args.n_trials,
+        "n_trials_honest": n_trials,
+        "n_trials_source": n_trials_source,
+        "trial_status_breakdown": status_breakdown,
         "n_configs_in_matrix": int(matrix.shape[1]),
         "n_periods": int(matrix.shape[0]),
         "selected_config": best_label,
@@ -174,7 +193,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     record_run(
         params={"kind": "overfit_audit", "route": args.route,
                 "grid": {k: [str(v) for v in vs] for k, vs in grid.items()},
-                "n_trials": args.n_trials, "start": args.start, "end": args.end},
+                "n_trials": n_trials, "n_trials_source": n_trials_source,
+                "start": args.start, "end": args.end},
         metrics={"dsr": round(dsr, 4), "gate_pass": bool(dsr >= 0.5),
                  "n_configs": int(matrix.shape[1]), "n_periods": int(matrix.shape[0])},
         artifacts={"report": str(output)},

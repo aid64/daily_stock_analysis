@@ -19,6 +19,8 @@
 
 ## 二、盘点：未做 / 被忽略 / 可做得更好
 
+> 2026-09-03 更新：G1-G4 已由 F1-F4 关闭（见下文 ✅）；G5/G6 未处理。
+
 ### A. 声称了但没做（最优先——诚实性问题）
 
 | # | 缺口 | 证据 | 影响 |
@@ -55,11 +57,11 @@
 
 | ID | 任务 | 验收 |
 | --- | --- | --- |
-| **F1** | C2 三表产出实现：run_paper_tracking.py 增加季末 equity/commission/预测-实现快照写入 `output/paper_tracking/` | 每季末产出 3 个 CSV + 期末汇总 |
-| **F2** | holdout 代码隔离：`core/holdout.py` 提供 `assert_holdout_clean(window)`，被 run_grid/run_walk_forward/run_cb_backtest 调用 | 触碰 2026-08-09+ 抛错 |
-| **F3** | total_trades 口径修复：engine.py 同报 closed + total + completed_orders | 两段式 trades 不再为 0 |
-| **F4** | count_trials 过滤：experiments.py 增 status 字段（completed/failed/smoke），DSR N 只数 completed | N 可审计 |
-| **F5** | 核心层测试补齐：runner/adapter/panel/factors 各补 5-10 项单测 | 测试数 256→280+ |
+| **F1** ✅ | C2 三表产出实现：run_paper_tracking.py 增加季末 equity/commission/预测-实现快照写入 `output/paper_tracking/` | 每季末产出 3 个 CSV + 期末汇总（2026-09-03：--record → record_quarter 回放单季，逐单 fills 对账成本模型；PIT 未覆盖全季拒绝产出） |
+| **F2** ✅ | holdout 代码隔离：`core/holdout.py` 提供 `assert_holdout_clean(window)`，被 run_grid/run_walk_forward/run_cb_backtest/run_overfit_audit 调用 | 触碰 2026-08-09+ 抛错（2026-09-03 已接线 4 个入口） |
+| **F3** ✅ | total_trades 口径修复：engine.py 同报 closed + total + completed_orders | 两段式 trades 不再为 0（2026-09-03：total_trades=开仓数，新增 closed_trades/open_trades/fills，胜率只按平仓回合计） |
+| **F4** ✅ | count_trials 过滤：experiments.py 增 status 字段（completed/failed/smoke），DSR N 只数 completed | N 可审计（2026-09-03：run_overfit_audit 默认自动取 N，报告含 status 明细防洗小；旧行视为 completed） |
+| **F5** | 核心层测试补齐：runner/adapter/panel/factors 各补 5-10 项单测 | 测试数 267→280+ |
 
 ### 第二优先：补齐被忽略的证据（O1-O3，约 2 个工作日）
 
@@ -71,7 +73,7 @@
 
 ### 第三优先：C2 周期运行 + C1 决策（时间驱动）
 
-- C2 已启动（2026-09-02），F1 完成后进入"每季末一次三表 + 每月一次 PIT 增量"的运行节奏。
+- C2 已启动（2026-09-02）。F1 已落地：每季末运行 `py scripts/run_paper_tracking.py --record` 产出三表（首个可产出季度为 2026Q4，2026Q3 需等 PIT 覆盖到 09-30）。
 - 2027Q2（一个年报季+一个强赎周期）后做 C1 判定：继续转债 / 换池 / 工具化。
 
 ### 明确不做
@@ -93,8 +95,8 @@
 ## 五、执行顺序
 
 ```
-第 1 周：F1（C2 三表）→ F2（holdout 隔离）→ F3（trades 口径）
-第 2 周：F4（N 过滤）→ F5（核心层测试）→ R-B（拆文件）
+第 1 周：F1 ✅（C2 三表）→ F2 ✅（holdout 隔离）→ F3 ✅（trades 口径）
+第 2 周：F4 ✅（N 过滤）→ F5（核心层测试）→ R-B（拆文件）
 第 3 周：F6（滑点）→ F7（两因子）→ F8（止损带）
 之后：  C2 运行节奏（每季末三表/每月 PIT 增量）→ 2027Q2 C1 判定
 ```
