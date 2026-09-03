@@ -108,6 +108,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             result = BacktestEngine(
                 cfg, commission_overrides=ETF_COMMISSION,
                 logger=logging.getLogger(f"audit.{i}"),
+                record_fills=False,  # 审计只需收益矩阵，逐单明细省内存
             ).run(ETFMomentum, params, feeds)
         except Exception as exc:  # 单配置失败不拖垮审计
             logger.warning("配置 %s 失败: %r", label, exc)

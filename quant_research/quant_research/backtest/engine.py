@@ -42,7 +42,13 @@ class PandasBarsData(bt.feeds.PandasData):
 
 
 class OrderStatsAnalyzer(bt.Analyzer):
-    """记录成交订单级别的金额、费用和状态统计。"""
+    """记录成交订单级别的金额、费用和状态统计。
+
+    record_fills=False 时不保留逐单明细（大规模网格省内存），
+    聚合统计不受影响。
+    """
+
+    params = (("record_fills", True),)
 
     def start(self):
         self._stats = {
@@ -57,7 +63,7 @@ class OrderStatsAnalyzer(bt.Analyzer):
             "margin_orders": 0,
             "canceled_orders": 0,
         }
-        self._fills = []
+        self._fills = [] if self.p.record_fills else None
         self._equity_values = []
 
     def next(self):
@@ -82,15 +88,16 @@ class OrderStatsAnalyzer(bt.Analyzer):
                 fill_date = bt.num2date(order.executed.dt).date()
             except (TypeError, ValueError):
                 fill_date = None
-            self._fills.append({
-                "date": fill_date,
-                "symbol": getattr(order.data, "_name", None),
-                "side": "buy" if order.isbuy() else "sell",
-                "size": float(order.executed.size or 0.0),
-                "price": price,
-                "value": value,
-                "commission": float(order.executed.comm or 0.0),
-            })
+            if self._fills is not None:
+                self._fills.append({
+                    "date": fill_date,
+                    "symbol": getattr(order.data, "_name", None),
+                    "side": "buy" if order.isbuy() else "sell",
+                    "size": float(order.executed.size or 0.0),
+                    "price": price,
+                    "value": value,
+                    "commission": float(order.executed.comm or 0.0),
+                })
         elif status == order.Rejected:
             self._stats["rejected_orders"] += 1
         elif status == order.Margin:
@@ -100,7 +107,7 @@ class OrderStatsAnalyzer(bt.Analyzer):
 
     def get_analysis(self):
         analysis = dict(self._stats)
-        analysis["fills"] = list(self._fills)
+        analysis["fills"] = list(self._fills) if self._fills is not None else []
         analysis["average_equity"] = (
             sum(self._equity_values) / len(self._equity_values)
             if self._equity_values else 0.0
@@ -182,10 +189,14 @@ class BacktestEngine:
         config: AppConfig,
         logger: Optional[logging.Logger] = None,
         commission_overrides: Optional[dict] = None,
+        record_fills: bool = True,
     ):
         self.config = config
         self.logger = logger or logging.getLogger("backtest")
         self._commission_overrides = dict(commission_overrides) if commission_overrides else {}
+        # fills 逐单明细供 paper 三表/对账用；大规模网格逐配置回测可关
+        # （O(订单数) 内存，聚合统计 completed_orders/commission 不受影响）
+        self._record_fills = record_fills
         self._cerebro: Optional[bt.Cerebro] = None
 
     def _setup_broker(self, cerebro: bt.Cerebro) -> None:
@@ -221,7 +232,8 @@ class BacktestEngine:
         cerebro.addanalyzer(bt.analyzers.DrawDown, _name="drawdown")
         cerebro.addanalyzer(bt.analyzers.Returns, _name="returns")
         cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name="trades")
-        cerebro.addanalyzer(OrderStatsAnalyzer, _name="order_stats")
+        cerebro.addanalyzer(OrderStatsAnalyzer, _name="order_stats",
+                            record_fills=self._record_fills)
         cerebro.addanalyzer(bt.analyzers.TimeReturn, _name="timereturn", timeframe=bt.TimeFrame.Days)
         cerebro.addanalyzer(bt.analyzers.PyFolio, _name="pyfolio")
 
