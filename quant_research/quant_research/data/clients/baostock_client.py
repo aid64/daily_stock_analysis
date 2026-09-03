@@ -232,8 +232,3 @@ class BaostockClient(AbstractDataClient):
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
         return normalize_ohlc(df)
-
-
-def _to_symbol_or_empty(code: str) -> str:  # pragma: no cover
-    """占位函数（保留向后兼容，新代码请直接使用 _revert 内联逻辑）"""
-    return code

@@ -51,6 +51,14 @@
 | E3 | 滑点 0.1% 保守 | 转债日成交额亿级 | 用 ATR/分位数校准实际滑点 |
 | E4 | marker 声明未用 | network/slow 0 处 | 补 network 冒烟测试 marker |
 
+> 2026-09-03 更新：E1 ✅（R-B 拆分）；E2 ✅（死代码 `_to_symbol_or_empty` 零调用方，已删）；
+> E4 ✅（tests/test_network_smoke.py 2 项 network 冒烟，对准 PIT 真源 bond_zh_cov_value_analysis）；
+> E3 ✅关闭为"数据不支持"——免费源无逐笔/盘口，实际滑点无法校准，维持 F6 解析口径
+> （slip_cost = traded_value × 滑点率 + 万5~万20 敏感性阶梯）为最终口径；若未来接入
+> 行情级数据可重新校准。顺带发现：AkshareClient.get_convertible_bond_daily 委托股票
+> API，对转债代码不对口（PIT 增量实际走 bond_zh_cov_value_analysis，不受影响）——
+> 记录为已知局限，不在 C2 期内修。
+
 ## 三、未来计划（2026-09 → 12 月）
 
 ### 第一优先：把"声称的"做实（G1-G5，约 3-4 个工作日）
