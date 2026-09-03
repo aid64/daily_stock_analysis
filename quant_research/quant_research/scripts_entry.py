@@ -2,7 +2,7 @@
 
 提供：
     qr-download  -> quant_research.scripts_entry:download_main
-    qr-backtest  -> quant_research.scripts_entry:backtest_main（P2 启用）
+    qr-backtest  -> quant_research.scripts_entry:backtest_main（2026-09-03 接入真实回测入口）
 """
 
 from __future__ import annotations
@@ -18,9 +18,9 @@ def download_main(argv: Optional[Sequence[str]] = None) -> int:
 
 
 def backtest_main(argv: Optional[Sequence[str]] = None) -> int:
-    """回测入口（P2 启用）"""
-    print("Backtest 入口尚未实现，将在 P2 阶段启用", file=sys.stderr)
-    return 1
+    """回测入口（P2 已启用：统一走 scripts/run_backtest.py）"""
+    from scripts.run_backtest import main as _main
+    return _main(argv if argv is not None else sys.argv[1:])
 
 
 if __name__ == "__main__":

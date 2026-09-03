@@ -30,7 +30,8 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from quant_research.config import load_config
-from quant_research.core.experiments import record_run, load_strategy_config, AppConfig, StrategyConfig
+from quant_research.config import AppConfig, StrategyConfig, load_strategy_config
+from quant_research.core.experiments import record_run
 from quant_research.data import DataLoader
 from quant_research.backtest import (
     BacktestEngine,
