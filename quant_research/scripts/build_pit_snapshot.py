@@ -53,7 +53,21 @@ logger = logging.getLogger("build_pit_snapshot")
 
 
 def _default_universe() -> list[str]:
-    """从现有可转债日线缓存推导 universe（bars/{exchange}/{adj}/code.parquet）"""
+    """推导 assemble universe：优先 raw 缓存目录树（PIT 数据真源），
+    回退 bars/{exchange}/{adj}/code.parquet 日线缓存。
+
+    2026-09-03 修复：bars 缓存只有 307 只（早期子集），曾使 assemble-only
+    静默丢掉 550+ 只历史债券——universe 必须与实际读取数据的 raw 缓存
+    一致，否则重建会无声缩水。
+    """
+    raw_root = _PROJECT_ROOT / "data" / "pit" / "raw"
+    if raw_root.exists():
+        symbols = sorted(
+            normalize_cb_symbol(d.name) for d in raw_root.iterdir()
+            if d.is_dir() and (d / "meta.json").exists()
+        )
+        if symbols:
+            return symbols
     cache_root = _PROJECT_ROOT / "data" / "cache" / "bars"
     symbols: list[str] = []
     for p in cache_root.glob("*/none/*.parquet"):
