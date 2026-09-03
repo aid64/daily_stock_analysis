@@ -244,6 +244,14 @@ def _print_plan(pit_table: pd.DataFrame, capital: float) -> int:
     logger.info("最新调仓 %s: 目标 %s, buffer 队列 %s",
                 latest_key, positive, queue_zero)
 
+    # 诚实展示：调仓日缺席（候选不足 min_candidates）≠ 清仓决策，
+    # 执行层语义为"沿用上季持仓"（H2 预注册口径，2020Q2 曾实际发生）。
+    dates = pd.Series(pd.to_datetime(pit_table["as_of"].unique()))
+    qkey = dates.dt.year * 10 + ((dates.dt.month - 1) // 3 + 1)
+    all_q = sorted(set(dates.groupby(qkey).min().dt.strftime("%Y-%m-%d")))
+    year_ago = (pit_latest - pd.DateOffset(years=1)).strftime("%Y-%m-%d")
+    recent_absent = [d for d in all_q if d not in weights and d > year_ago]
+
     broker = PaperBroker(initial_cash=capital)
     broker.login()
 
@@ -256,13 +264,20 @@ def _print_plan(pit_table: pd.DataFrame, capital: float) -> int:
     for sym in sorted(latest_picks, key=lambda k: -latest_picks[k]):
         role = "持仓" if latest_picks[sym] > 0 else "buffer"
         print(f"  {sym}: weight={latest_picks[sym]:.2f} ({role})")
+    if recent_absent:
+        print()
+        print(f"注意: 近一年 {len(recent_absent)} 个调仓日无选债计划"
+              f"（过滤链后候选不足 min_candidates={PICK_PARAMS['min_candidates']}）:")
+        print(f"  {recent_absent}")
+        print("  口径: 这些季度未记录调仓 → 执行层沿用上季持仓，并非清仓信号。")
     print()
 
     record_run(
         params={"kind": "paper_tracking", "pit_latest": str(pit_latest.date()),
                 "latest_rebalance": latest_key,
                 "targets": latest_picks,
-                "capital": capital},
+                "capital": capital,
+                "recent_absent_rebalances": recent_absent},
         metrics={"n_targets": len(positive), "n_buffer": len(queue_zero)},
         tags={"kind": "paper_tracking"},
     )
