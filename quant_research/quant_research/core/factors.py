@@ -135,6 +135,35 @@ def ic_series(
     return pd.Series(values, dtype=float).sort_index()
 
 
+def ic_by_year(
+    factor_df: pd.DataFrame,
+    forward_returns_df: pd.DataFrame,
+    method: str = "rank",
+    min_symbols: int = 5,
+) -> pd.DataFrame:
+    """分年份 IC 稳定性表（诊断用）：逐年 mean IC / ICIR / t 值 / 方向
+
+    用途：检查因子是否被个别年份主导（如仅 2024 年有效）。诚实边界：
+    分年 t 值样本更小、多重比较更多，只看方向一致性与量级，不作为
+    因子入库门槛（门槛仍是全窗口 HLZ）。
+    """
+    ic = ic_series(factor_df, forward_returns_df, method=method, min_symbols=min_symbols)
+    if ic.empty:
+        return pd.DataFrame()
+    rows = []
+    for year, grp in ic.groupby(ic.index.year):
+        n, mean, std = len(grp), float(grp.mean()), float(grp.std())
+        rows.append({
+            "year": int(year),
+            "n_days": n,
+            "mean_ic": round(mean, 6),
+            "icir": round(mean / std, 6) if std > 0 else 0.0,
+            "t_stat": round(mean / std * (n ** 0.5), 4) if std > 0 else 0.0,
+            "mean_ic_positive": mean > 0,
+        })
+    return pd.DataFrame(rows)
+
+
 def evaluate_factor(
     panel: Panel,
     name: str,

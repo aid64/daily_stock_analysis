@@ -1,0 +1,29 @@
+{
+ "run_id": "20260903T014226_928c61af",
+ "params": {
+  "kind": "factor_diagnostics",
+  "factors": [
+   "double_low",
+   "ytm_proxy",
+   "premium_momentum_20"
+  ],
+  "periods": [
+   5,
+   10,
+   20
+  ],
+  "end": "2026-08-08"
+ },
+ "metrics": {
+  "n_rows": 18
+ },
+ "artifacts": {
+  "report": "D:\\daily_stock_analysis\\quant_research\\output\\factor_diagnostics.json"
+ },
+ "tags": {
+  "kind": "factor_diagnostics"
+ },
+ "timestamp": "2026-09-03T01:42:26.253273+00:00",
+ "git_sha": "965813dfd65e795c89e8c578f4d0658c016d7582",
+ "status": "completed"
+}

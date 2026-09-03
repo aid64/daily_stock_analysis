@@ -28,7 +28,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from quant_research.backtest.convertible import load_pit_snapshot
 from quant_research.core.experiments import record_run
-from quant_research.core.factors import evaluate_factor
+from quant_research.core.factors import FACTOR_REGISTRY, evaluate_factor, ic_by_year
 from quant_research.core.panel import Panel
 from quant_research.runner import sha256_file
 
@@ -52,6 +52,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 panel.dates.max().date(), len(panel.symbols))
 
     reports = {}
+    yearly = {}
     for name in FACTORS:
         report = evaluate_factor(panel, name, periods=PERIODS)
         reports[name] = report.to_dict(orient="records")
@@ -59,6 +60,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         logger.info("%s: RankIC 均值区间 [%.4f, %.4f], t 绝对值最大 %.2f",
                     name, rank_rows["mean_ic"].min(), rank_rows["mean_ic"].max(),
                     rank_rows["t_stat"].abs().max())
+        # 分年份稳定性（未验证项关闭，2026-09-03）：20 日窗口为主口径
+        fwd20 = panel.forward_returns(periods=20, universe=panel.symbols)
+        factor_df = FACTOR_REGISTRY[name].func(panel)
+        by_year = ic_by_year(factor_df, fwd20, method="rank")
+        yearly[name] = by_year.to_dict(orient="records")
+        if not by_year.empty:
+            share = by_year["mean_ic_positive"].mean()
+            logger.info("%s 分年(20d RankIC): 方向一致年份占比 %.0f%%, 区间 [%.4f, %.4f]",
+                        name, share * 100,
+                        by_year["mean_ic"].min(), by_year["mean_ic"].max())
 
     combined = pd.concat(
         [pd.DataFrame(rows) for rows in reports.values()], ignore_index=True)
@@ -72,8 +83,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "ytm_proxy 为零息近似，系统性低估真实 YTM，仅作截面排序因子",
             "premium_momentum_20 为联动差值代理（PIT 无正股价）",
             "HLZ 门槛 |t|>3：多因子报告仅作诊断，未过门槛不得据此调参入库",
+            "yearly 为 20 日窗口分年 RankIC：只看方向一致性与量级，"
+            "分年 t 值多重比较多，不作为门槛",
         ],
         "reports": reports,
+        "yearly_rank_20d": yearly,
     }, ensure_ascii=False, indent=1), encoding="utf-8")
     combined.to_csv(_PROJECT_ROOT / "output" / "factor_diagnostics.csv",
                     index=False, encoding="utf-8-sig")

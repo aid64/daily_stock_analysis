@@ -6,7 +6,8 @@
  "notes": [
   "ytm_proxy 为零息近似，系统性低估真实 YTM，仅作截面排序因子",
   "premium_momentum_20 为联动差值代理（PIT 无正股价）",
-  "HLZ 门槛 |t|>3：多因子报告仅作诊断，未过门槛不得据此调参入库"
+  "HLZ 门槛 |t|>3：多因子报告仅作诊断，未过门槛不得据此调参入库",
+  "yearly 为 20 日窗口分年 RankIC：只看方向一致性与量级，分年 t 值多重比较多，不作为门槛"
  ],
  "reports": {
   "double_low": [
@@ -211,6 +212,206 @@
     "t_stat": -12.0049,
     "coverage": 329.38,
     "higher_is_better": false
+   }
+  ]
+ },
+ "yearly_rank_20d": {
+  "double_low": [
+   {
+    "year": 2019,
+    "n_days": 231,
+    "mean_ic": -0.062415,
+    "icir": -0.285615,
+    "t_stat": -4.341,
+    "mean_ic_positive": false
+   },
+   {
+    "year": 2020,
+    "n_days": 243,
+    "mean_ic": -0.099865,
+    "icir": -0.518484,
+    "t_stat": -8.0824,
+    "mean_ic_positive": false
+   },
+   {
+    "year": 2021,
+    "n_days": 243,
+    "mean_ic": -0.150824,
+    "icir": -1.1036,
+    "t_stat": -17.2034,
+    "mean_ic_positive": false
+   },
+   {
+    "year": 2022,
+    "n_days": 242,
+    "mean_ic": -0.07681,
+    "icir": -0.616727,
+    "t_stat": -9.594,
+    "mean_ic_positive": false
+   },
+   {
+    "year": 2023,
+    "n_days": 242,
+    "mean_ic": -0.072852,
+    "icir": -0.769156,
+    "t_stat": -11.9653,
+    "mean_ic_positive": false
+   },
+   {
+    "year": 2024,
+    "n_days": 242,
+    "mean_ic": -0.024973,
+    "icir": -0.132464,
+    "t_stat": -2.0607,
+    "mean_ic_positive": false
+   },
+   {
+    "year": 2025,
+    "n_days": 243,
+    "mean_ic": 0.000257,
+    "icir": 0.002367,
+    "t_stat": 0.0369,
+    "mean_ic_positive": true
+   },
+   {
+    "year": 2026,
+    "n_days": 124,
+    "mean_ic": 0.001264,
+    "icir": 0.007213,
+    "t_stat": 0.0803,
+    "mean_ic_positive": true
+   }
+  ],
+  "ytm_proxy": [
+   {
+    "year": 2019,
+    "n_days": 231,
+    "mean_ic": -0.001769,
+    "icir": -0.008751,
+    "t_stat": -0.133,
+    "mean_ic_positive": false
+   },
+   {
+    "year": 2020,
+    "n_days": 243,
+    "mean_ic": 0.006117,
+    "icir": 0.02143,
+    "t_stat": 0.3341,
+    "mean_ic_positive": true
+   },
+   {
+    "year": 2021,
+    "n_days": 243,
+    "mean_ic": 0.141981,
+    "icir": 0.578014,
+    "t_stat": 9.0103,
+    "mean_ic_positive": true
+   },
+   {
+    "year": 2022,
+    "n_days": 242,
+    "mean_ic": 0.143598,
+    "icir": 0.503896,
+    "t_stat": 7.8388,
+    "mean_ic_positive": true
+   },
+   {
+    "year": 2023,
+    "n_days": 242,
+    "mean_ic": 0.101098,
+    "icir": 0.534434,
+    "t_stat": 8.3138,
+    "mean_ic_positive": true
+   },
+   {
+    "year": 2024,
+    "n_days": 242,
+    "mean_ic": 0.109748,
+    "icir": 0.586586,
+    "t_stat": 9.1251,
+    "mean_ic_positive": true
+   },
+   {
+    "year": 2025,
+    "n_days": 243,
+    "mean_ic": 0.135372,
+    "icir": 1.316063,
+    "t_stat": 20.5154,
+    "mean_ic_positive": true
+   },
+   {
+    "year": 2026,
+    "n_days": 124,
+    "mean_ic": 0.122402,
+    "icir": 0.784003,
+    "t_stat": 8.7303,
+    "mean_ic_positive": true
+   }
+  ],
+  "premium_momentum_20": [
+   {
+    "year": 2019,
+    "n_days": 211,
+    "mean_ic": -0.042212,
+    "icir": -0.167992,
+    "t_stat": -2.4402,
+    "mean_ic_positive": false
+   },
+   {
+    "year": 2020,
+    "n_days": 243,
+    "mean_ic": -0.06619,
+    "icir": -0.423134,
+    "t_stat": -6.596,
+    "mean_ic_positive": false
+   },
+   {
+    "year": 2021,
+    "n_days": 243,
+    "mean_ic": -0.067242,
+    "icir": -0.629606,
+    "t_stat": -9.8146,
+    "mean_ic_positive": false
+   },
+   {
+    "year": 2022,
+    "n_days": 242,
+    "mean_ic": 0.041966,
+    "icir": 0.302409,
+    "t_stat": 4.7044,
+    "mean_ic_positive": true
+   },
+   {
+    "year": 2023,
+    "n_days": 242,
+    "mean_ic": -0.052923,
+    "icir": -0.497782,
+    "t_stat": -7.7437,
+    "mean_ic_positive": false
+   },
+   {
+    "year": 2024,
+    "n_days": 242,
+    "mean_ic": 0.018663,
+    "icir": 0.16506,
+    "t_stat": 2.5677,
+    "mean_ic_positive": true
+   },
+   {
+    "year": 2025,
+    "n_days": 243,
+    "mean_ic": 0.003117,
+    "icir": 0.031779,
+    "t_stat": 0.4954,
+    "mean_ic_positive": true
+   },
+   {
+    "year": 2026,
+    "n_days": 124,
+    "mean_ic": 0.011059,
+    "icir": 0.081457,
+    "t_stat": 0.9071,
+    "mean_ic_positive": true
    }
   ]
  }
