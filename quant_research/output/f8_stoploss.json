@@ -1,0 +1,42 @@
+{
+ "task": "F8 quarterly stop-loss band (preregistered)",
+ "preregistration": "docs/f8-stoploss-preregistration.md",
+ "window": "2020-01-01..2025-12-31",
+ "fee_scenario": "real_huatai",
+ "pit_sha256": "f4643e822775b5233735c4fc9bfc5a70f678c618777ab999df1e90e1ae9d2df1",
+ "rows": [
+  {
+   "variant": "baseline",
+   "stop_loss_pct": null,
+   "total_return": 0.145724,
+   "annual_return": 0.017644,
+   "max_drawdown": 0.147719,
+   "sharpe": 0.014879,
+   "turnover": 18.196848,
+   "completed_orders": 150,
+   "commission_paid": 801.09,
+   "final_value": 11457.24
+  },
+  {
+   "variant": "stop_8pct",
+   "stop_loss_pct": -0.08,
+   "total_return": -0.045737,
+   "annual_return": -0.006001,
+   "max_drawdown": 0.168663,
+   "sharpe": -0.336452,
+   "turnover": 18.845566,
+   "completed_orders": 159,
+   "commission_paid": 842.52,
+   "final_value": 9542.63
+  }
+ ],
+ "gates": {
+  "dd_improvement_pp": -2.09,
+  "gate1_dd_ge_2pp": false,
+  "annual_loss_pp": 2.36,
+  "gate2_annual_loss_le_1_5pp": false,
+  "turnover_increase_pct": 3.57,
+  "gate3_turnover_le_50pct": true,
+  "verdict": "fail"
+ }
+}

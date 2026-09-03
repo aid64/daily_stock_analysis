@@ -73,7 +73,9 @@ def write_ic_report(pit_table: pd.DataFrame, out_path: Path) -> None:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    from quant_research.core.holdout import assert_holdout_clean
     args = build_parser().parse_args(argv)
+    assert_holdout_clean(args.end, task="cb_backtest")
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
                         force=True)

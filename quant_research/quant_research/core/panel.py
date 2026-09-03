@@ -86,6 +86,11 @@ class Panel:
     def premium_rate(self) -> pd.DataFrame:
         return self._panels.get("premium_rate", pd.DataFrame(index=self.dates))
 
+    @property
+    def static(self) -> pd.DataFrame:
+        """静态/低频字段表（index=symbol）：rating/list_date/maturity_date 等"""
+        return self._static
+
     def snapshot(self, as_of) -> pd.DataFrame:
         """单日截面长表：{symbol: price/premium_rate/静态字段}"""
         ts = pd.Timestamp(as_of).normalize()

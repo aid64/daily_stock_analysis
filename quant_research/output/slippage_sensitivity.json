@@ -1,0 +1,77 @@
+{
+ "task": "F6 slippage sensitivity (quarterly real-fee baseline)",
+ "window": "2020-01-01..2025-12-31",
+ "fee_scenario": "real_huatai",
+ "pick_params": {
+  "top_n": 5,
+  "min_rating": "AA-",
+  "max_premium": 20.0,
+  "exclude_new_days": 30,
+  "max_conv_value": 135.0,
+  "min_maturity_days": 365,
+  "min_candidates": 15
+ },
+ "pit_sha256": "f4643e822775b5233735c4fc9bfc5a70f678c618777ab999df1e90e1ae9d2df1",
+ "rows": [
+  {
+   "slippage_bp": 5.0,
+   "engine_total_return": 0.145724,
+   "net_total_return": 0.13606,
+   "annual_return": 0.017644,
+   "max_drawdown": 0.147719,
+   "sharpe": 0.014879,
+   "traded_value": 193272.95,
+   "commission_paid": 801.09,
+   "effective_rate_bp": 41.45,
+   "slippage_cost": 96.64,
+   "cost_total": 897.73,
+   "net_final_value": 11360.6,
+   "completed_orders": 150
+  },
+  {
+   "slippage_bp": 10.0,
+   "engine_total_return": 0.145724,
+   "net_total_return": 0.126396,
+   "annual_return": 0.017644,
+   "max_drawdown": 0.147719,
+   "sharpe": 0.014879,
+   "traded_value": 193272.95,
+   "commission_paid": 801.09,
+   "effective_rate_bp": 41.45,
+   "slippage_cost": 193.27,
+   "cost_total": 994.37,
+   "net_final_value": 11263.96,
+   "completed_orders": 150
+  },
+  {
+   "slippage_bp": 20.0,
+   "engine_total_return": 0.145724,
+   "net_total_return": 0.107069,
+   "annual_return": 0.017644,
+   "max_drawdown": 0.147719,
+   "sharpe": 0.014879,
+   "traded_value": 193272.95,
+   "commission_paid": 801.09,
+   "effective_rate_bp": 41.45,
+   "slippage_cost": 386.55,
+   "cost_total": 1187.64,
+   "net_final_value": 11070.69,
+   "completed_orders": 150
+  }
+ ],
+ "delta_vs_baseline": [
+  {
+   "slippage_bp": 5.0,
+   "net_total_return_pp": 0.97
+  },
+  {
+   "slippage_bp": 10.0,
+   "net_total_return_pp": 0.0
+  },
+  {
+   "slippage_bp": 20.0,
+   "net_total_return_pp": -1.93
+  }
+ ],
+ "disclosure": "引擎滑点在单价格 feed（open=high=low=close）上被 bar 高低价截断，恒不生效；本报告滑点为解析扣减（slip_cost = traded_value × 滑点率，期末净值直接扣减不复利）。回撤/夏普等其余指标未随滑点调整。"
+}

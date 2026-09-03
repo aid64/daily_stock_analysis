@@ -99,7 +99,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    from quant_research.core.holdout import assert_holdout_clean
     args = build_parser().parse_args(argv)
+    assert_holdout_clean(args.end, task="walk_forward")
+
     try:
         grid = parse_grid_spec(args.grid)
         combinations = grid_combinations(grid, args.max_combos)

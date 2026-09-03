@@ -74,6 +74,37 @@ def _factor_conv_value(panel: Panel) -> pd.DataFrame:
     return panel.price / (1.0 + panel.premium_rate / 100.0)
 
 
+@register_factor(
+    "ytm_proxy",
+    "到期收益率代理（F7）：零息近似 (100/price)^(1/剩余年数)-1，"
+    "无票息数据，低估真实 YTM；maturity_date 缺失/已到期为 NaN",
+    higher_is_better=True,
+)
+def _factor_ytm_proxy(panel: Panel) -> pd.DataFrame:
+    maturity = panel.static.get("maturity_date")
+    if maturity is None:
+        return pd.DataFrame(np.nan, index=panel.dates, columns=panel.symbols)
+    mat = pd.to_datetime(maturity, errors="coerce")          # index=symbol
+    mat_v = mat.reindex(panel.symbols).values
+    # 剩余年数 = (maturity - date)/365：未到期为正，已到期/NaT 为 NaN
+    remain = pd.DataFrame(
+        -np.subtract.outer(panel.dates.values, mat_v),
+        index=panel.dates, columns=panel.symbols,
+    ) / np.timedelta64(1, "D") / 365.0
+    years = remain.where(remain > 0)
+    return (100.0 / panel.price) ** (1.0 / years) - 1.0
+
+
+@register_factor(
+    "premium_momentum_20",
+    "联动差值代理（F7）：溢价率 20 日变化。溢价率下降 = 正股已涨而转债滞后"
+    "（债价滞后捕捉），预期转债补涨 → 因子值越小越优",
+    higher_is_better=False,
+)
+def _factor_premium_momentum(panel: Panel) -> pd.DataFrame:
+    return panel.premium_rate.diff(20)
+
+
 # ── IC 评估 ──────────────────────────────────────
 
 

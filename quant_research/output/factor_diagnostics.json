@@ -1,0 +1,217 @@
+{
+ "task": "F7 factor diagnostics (double_low / ytm_proxy / premium_momentum_20)",
+ "window": "2019-01-07..2026-08-08",
+ "holdout_start": "2026-08-09",
+ "pit_sha256": "f4643e822775b5233735c4fc9bfc5a70f678c618777ab999df1e90e1ae9d2df1",
+ "notes": [
+  "ytm_proxy 为零息近似，系统性低估真实 YTM，仅作截面排序因子",
+  "premium_momentum_20 为联动差值代理（PIT 无正股价）",
+  "HLZ 门槛 |t|>3：多因子报告仅作诊断，未过门槛不得据此调参入库"
+ ],
+ "reports": {
+  "double_low": [
+   {
+    "factor": "double_low",
+    "periods": 5,
+    "method": "rank",
+    "n_days": 1825,
+    "mean_ic": -0.049197,
+    "icir": -0.298974,
+    "t_stat": -12.7722,
+    "coverage": 338.5,
+    "higher_is_better": false
+   },
+   {
+    "factor": "double_low",
+    "periods": 5,
+    "method": "pearson",
+    "n_days": 1825,
+    "mean_ic": -0.035136,
+    "icir": -0.21524,
+    "t_stat": -9.195,
+    "coverage": 338.5,
+    "higher_is_better": false
+   },
+   {
+    "factor": "double_low",
+    "periods": 10,
+    "method": "rank",
+    "n_days": 1820,
+    "mean_ic": -0.055519,
+    "icir": -0.337287,
+    "t_stat": -14.3891,
+    "coverage": 338.5,
+    "higher_is_better": false
+   },
+   {
+    "factor": "double_low",
+    "periods": 10,
+    "method": "pearson",
+    "n_days": 1820,
+    "mean_ic": -0.041415,
+    "icir": -0.266248,
+    "t_stat": -11.3585,
+    "coverage": 338.5,
+    "higher_is_better": false
+   },
+   {
+    "factor": "double_low",
+    "periods": 20,
+    "method": "rank",
+    "n_days": 1810,
+    "mean_ic": -0.06485,
+    "icir": -0.391342,
+    "t_stat": -16.6493,
+    "coverage": 338.5,
+    "higher_is_better": false
+   },
+   {
+    "factor": "double_low",
+    "periods": 20,
+    "method": "pearson",
+    "n_days": 1810,
+    "mean_ic": -0.051145,
+    "icir": -0.332498,
+    "t_stat": -14.1458,
+    "coverage": 338.5,
+    "higher_is_better": false
+   }
+  ],
+  "ytm_proxy": [
+   {
+    "factor": "ytm_proxy",
+    "periods": 5,
+    "method": "rank",
+    "n_days": 1825,
+    "mean_ic": 0.064094,
+    "icir": 0.291877,
+    "t_stat": 12.469,
+    "coverage": 338.49,
+    "higher_is_better": true
+   },
+   {
+    "factor": "ytm_proxy",
+    "periods": 5,
+    "method": "pearson",
+    "n_days": 1825,
+    "mean_ic": 0.040024,
+    "icir": 0.14893,
+    "t_stat": 6.3623,
+    "coverage": 338.49,
+    "higher_is_better": true
+   },
+   {
+    "factor": "ytm_proxy",
+    "periods": 10,
+    "method": "rank",
+    "n_days": 1820,
+    "mean_ic": 0.075615,
+    "icir": 0.340257,
+    "t_stat": 14.5159,
+    "coverage": 338.49,
+    "higher_is_better": true
+   },
+   {
+    "factor": "ytm_proxy",
+    "periods": 10,
+    "method": "pearson",
+    "n_days": 1820,
+    "mean_ic": 0.045149,
+    "icir": 0.176103,
+    "t_stat": 7.5128,
+    "coverage": 338.49,
+    "higher_is_better": true
+   },
+   {
+    "factor": "ytm_proxy",
+    "periods": 20,
+    "method": "rank",
+    "n_days": 1810,
+    "mean_ic": 0.093607,
+    "icir": 0.415877,
+    "t_stat": 17.6931,
+    "coverage": 338.49,
+    "higher_is_better": true
+   },
+   {
+    "factor": "ytm_proxy",
+    "periods": 20,
+    "method": "pearson",
+    "n_days": 1810,
+    "mean_ic": 0.049831,
+    "icir": 0.202994,
+    "t_stat": 8.6362,
+    "coverage": 338.49,
+    "higher_is_better": true
+   }
+  ],
+  "premium_momentum_20": [
+   {
+    "factor": "premium_momentum_20",
+    "periods": 5,
+    "method": "rank",
+    "n_days": 1805,
+    "mean_ic": -0.024341,
+    "icir": -0.176849,
+    "t_stat": -7.5135,
+    "coverage": 329.38,
+    "higher_is_better": false
+   },
+   {
+    "factor": "premium_momentum_20",
+    "periods": 5,
+    "method": "pearson",
+    "n_days": 1805,
+    "mean_ic": -0.03659,
+    "icir": -0.250054,
+    "t_stat": -10.6236,
+    "coverage": 329.38,
+    "higher_is_better": false
+   },
+   {
+    "factor": "premium_momentum_20",
+    "periods": 10,
+    "method": "rank",
+    "n_days": 1800,
+    "mean_ic": -0.023477,
+    "icir": -0.168004,
+    "t_stat": -7.1278,
+    "coverage": 329.38,
+    "higher_is_better": false
+   },
+   {
+    "factor": "premium_momentum_20",
+    "periods": 10,
+    "method": "pearson",
+    "n_days": 1800,
+    "mean_ic": -0.037315,
+    "icir": -0.255308,
+    "t_stat": -10.8318,
+    "coverage": 329.38,
+    "higher_is_better": false
+   },
+   {
+    "factor": "premium_momentum_20",
+    "periods": 20,
+    "method": "rank",
+    "n_days": 1790,
+    "mean_ic": -0.020859,
+    "icir": -0.139586,
+    "t_stat": -5.9057,
+    "coverage": 329.38,
+    "higher_is_better": false
+   },
+   {
+    "factor": "premium_momentum_20",
+    "periods": 20,
+    "method": "pearson",
+    "n_days": 1790,
+    "mean_ic": -0.039721,
+    "icir": -0.283747,
+    "t_stat": -12.0049,
+    "coverage": 329.38,
+    "higher_is_better": false
+   }
+  ]
+ }
+}

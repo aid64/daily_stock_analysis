@@ -116,6 +116,12 @@ def pit_to_feeds(pit_table: pd.DataFrame, symbols: Sequence[str]) -> dict[str, p
     open/high/low/close 全部 = PIT 收盘价（诚实近似，见模块 docstring）；
     volume/amount 为常数占位（WeightTargetStrategy 不做流动性过滤）。
 
+    滑点语义（F6，2026-09-03）：单价格 feed 下 backtrader 的滑点被
+    bar 高/低价截断（slip 价 > high 时回落到 high = 原价），引擎内
+    滑点恒为 0。滑点成本必须解析扣减：slip_cost = traded_value × 滑点率
+    （见 scripts/run_slippage_sensitivity.py），勿依赖 engine 的
+    set_slippage_perc。真实 OHLC 品种（ETF/MWU）不受此影响。
+
     退市近似：已退市券的价格前向填充到 PIT 全区间末端——否则退市后
     价格线为 NaN，持仓被估值防御计为 0，净值塌方。前向填充使"到期/
     强赎按最后成交价退出"成为可执行的近似（下个调仓日整仓卖出），

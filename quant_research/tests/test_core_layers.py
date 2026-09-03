@@ -307,3 +307,56 @@ class TestFactors:
         report = evaluate_factor(factor_panel, "double_low", periods=(5,),
                                  universe=syms)
         assert (report["coverage"] == 5).all()  # universe 限 5 只 → 每日覆盖 5
+
+
+class TestF7Factors:
+    """F7：ytm_proxy（零息近似）与 premium_momentum_20（联动差值代理）"""
+
+    def _panel_with_maturity(self, prices, maturities, days=30):
+        dates = pd.bdate_range("2024-01-02", periods=days)
+        rows = []
+        for sym, price in prices.items():
+            rows.append(pd.DataFrame({
+                "as_of": dates, "symbol": sym,
+                "price": np.full(days, price),
+                "premium_rate": np.full(days, 10.0),
+                "rating": "AA", "list_date": dates[0],
+                "maturity_date": pd.Timestamp(maturities[sym]),
+            }))
+        return Panel(pd.concat(rows, ignore_index=True))
+
+    def test_ytm_proxy_zero_coupon_math(self):
+        panel = self._panel_with_maturity(
+            prices={"A.SH": 110.0, "B.SH": 90.0},
+            maturities={"A.SH": "2025-01-01", "B.SH": "2025-01-01"},
+            days=5,
+        )
+        y = compute_factor("ytm_proxy", panel)
+        # 一年整到期：ytm = 100/price - 1
+        assert y.iloc[0]["A.SH"] == pytest.approx(100.0 / 110.0 - 1.0)
+        assert y.iloc[0]["B.SH"] == pytest.approx(100.0 / 90.0 - 1.0)
+        # 越接近到期，|ytm| 越大（复利放大）
+        assert abs(y.iloc[-1]["A.SH"]) > abs(y.iloc[0]["A.SH"])
+
+    def test_ytm_proxy_expired_is_nan(self):
+        panel = self._panel_with_maturity(
+            prices={"A.SH": 110.0}, maturities={"A.SH": "2024-01-05"}, days=10)
+        y = compute_factor("ytm_proxy", panel)
+        # 期初未到期 → 有限值；到期后 → NaN
+        years0 = (pd.Timestamp("2024-01-05") - panel.dates[0]).days / 365
+        assert y.iloc[0]["A.SH"] == pytest.approx(
+            (100.0 / 110.0) ** (1.0 / years0) - 1.0)
+        assert np.isnan(y.iloc[-1]["A.SH"])
+
+    def test_ytm_proxy_without_maturity_column_all_nan(self):
+        panel = Panel(_long_table(days=5, extra_cols=False))
+        y = compute_factor("ytm_proxy", panel)
+        assert y.isna().all().all()
+
+    def test_premium_momentum_is_diff20(self):
+        panel = Panel(_long_table(days=30))
+        m = compute_factor("premium_momentum_20", panel)
+        expected = panel.premium_rate.diff(20)
+        pd.testing.assert_frame_equal(m, expected)
+        assert m.iloc[:20].isna().all().all()  # 前二十日无窗口
+        assert (m.iloc[20:] == 0).all().all()  # 恒定溢价 → 变化为 0
