@@ -122,3 +122,7 @@ daily_stock_analysis/docs/specs/
 
 # ── WorkBuddy AI 辅助文件 ────────────────────
 .workbuddy/
+
+# ── 本地工作区（AI 协作/任务追踪/agent 镜像，不入库）──
+.scratch/
+.agents/

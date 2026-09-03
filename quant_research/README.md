@@ -4,7 +4,7 @@
 
 ## 状态
 
-252 项测试全过。当前研究结论与下一步见 [`HANDOFF.md`](HANDOFF.md) 与 [`docs/ROADMAP.md`](docs/ROADMAP.md)。
+299 项离线测试 + 2 项网络冒烟全过。当前状态与运行节奏见 [`HANDOFF.md`](HANDOFF.md)；执行记录见 [`docs/ROADMAP-V2.md`](docs/ROADMAP-V2.md)（已闭环），深度审视见 [`docs/ROADMAP.md`](docs/ROADMAP.md)。
 
 ## 快速开始
 
@@ -13,8 +13,8 @@
 pip install -r requirements.lock.txt
 pip install -e .
 
-# 2) 测试
-py -m pytest -q
+# 2) 测试（离线套件；`-m network` 为数据源冒烟）
+py -m pytest -q -m "not network"
 
 # 3) 回测（两段式转债双低，季频，真实费率）
 py scripts/run_cb_backtest.py --pit data/pit/convertible_pit.parquet \
@@ -30,9 +30,9 @@ quant_research/
 │   ├── data/             # 多源数据客户端 (akshare/tushare/baostock/iFinD) + parquet 缓存
 │   ├── backtest/         # 引擎 (backtrader) / 转债选债 / 两段式回测 / RuleBook 强制闸
 │   ├── trade/            # PaperBroker / TDXJK / 执行器
-│   └── config/           # Hydra + pydantic 配置
+│   └── config/           # omegaconf + pydantic 配置
 ├── scripts/              # CLI 入口（回测 / 数据采集 / 审计 / paper tracking）
-├── tests/                # 252 项测试
+├── tests/                # 299 项测试（+2 network 冒烟）
 ├── data/                 # PIT 快照 + raw 缓存（gitignore，可重建）
 └── docs/                 # ROADMAP / 预注册文档
 ```

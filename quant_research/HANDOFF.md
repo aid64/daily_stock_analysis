@@ -1,7 +1,10 @@
-# quant_research 交接文档（2026-08-31 更新）
+# quant_research 交接文档（2026-09-03 更新）
 
 > 用途：新会话/新环境先读本文件，再按"快速恢复"验证环境。
-> 配套文档：**`docs/ROADMAP.md`（2026-09 路线图，下一步计划的唯一真源）**、`daily_stock_analysis/docs/quant_research_architecture_research.md`（6.2.7/6.2.8 为最新工程与研究结论）、`daily_stock_analysis/docs/CHANGELOG.md`、`PRIMARY_SOURCE_RESEARCH.md`。
+> 配套文档：**`docs/ROADMAP-V2.md`（缺口盘点与执行记录，F1-F8 已全部闭环）**、
+> `docs/ROADMAP-V2.2.md`（执行细节真源）、`docs/ROADMAP.md`（深度审视参考）、
+> `daily_stock_analysis/docs/quant_research_architecture_research.md`、
+> `daily_stock_analysis/docs/CHANGELOG.md`、`PRIMARY_SOURCE_RESEARCH.md`。
 
 ## 1. 项目定位
 
@@ -19,10 +22,12 @@
   6. **实验层** `core/experiments.py` + `runner.py`：run_id 注册、试验数 N 追溯、编排单一来源
 - 两段式转债回测 `backtest/two_stage.py`：PIT 全量池矩阵选债 → 仅被选券 feed 执行模拟（**precompute 候选并集已废除**）。
 
-## 2. 当前状态快照（2026-08-31）
+## 2. 当前状态快照（2026-09-03）
 
-- 全量测试：**252 passed**（`py -m pytest -q`，在 `quant_research/` 下执行）。
-- 全部工作已提交（本地领先 origin/main 39 个提交；GitHub 连接受本机代理阻断，推送/上游同步待网络恢复后先做差异审计）。
+- 全量测试：**299 passed + 2 network 冒烟**（`py -m pytest -q -m "not network"`，在 `quant_research/` 下执行）。
+- ROADMAP-V2 全链条闭环：F1-F8（C2 三表 / holdout 代码隔离 / trades 口径 / N 审计 / 核心层测试 / 滑点 / 因子诊断 / 止损带 fail）、R-B 拆分、盘点 G1-G6 与 E1-E4 全部关闭。
+- C2 paper tracking 已启动（2026-09-02）：每月 PIT 增量（最新至 2026-09-02），季末 `run_paper_tracking.py --record` 产出三表，首个可产出季度 2026Q3（需等 09-30 PIT）。
+- 当前 paper 组合 = 2025-10-09 的 5 只券沿用（2026Q1 起三季候选不足 min_candidates=15，口径见 h2-preregistration 第 6 节）。
 - 环境：Windows，Python 用 `py` 启动器（`python` 是坏桩）；工作目录 `d:\daily_stock_analysis\quant_research`。
 - 代码规范入口：仓库根 `AGENTS.md`。
 
@@ -37,13 +42,16 @@
 | 温度计门控（静态 170/140） | 预注册验证**不采纳** | OOS -13.66% vs 基线 +1.94%；静态阈值 regime 脆弱 |
 | 过拟合审计 | DSR 过门（非纯噪声）、HLZ 全不显著 | ETF DSR 0.6447 / CB DSR 0.7363；t ≤1.06/1.78 |
 
-**核心矛盾**：因子有信号，成本吃掉一切。下一阶段第一变量是**降换手**（预注册假设 H1，见 4.5 节与未来计划），不是新因子。
+**核心矛盾已收敛**：真实费率（万0.845+最低5）下季频基线 +14.57%（回撤 14.77%，换手 18.2x），
+H1 换手控制 fail、H2 频率结构在 2x 费率 fail / 真实费率 pass、F8 止损带 fail（whipsaw）。
+**下一阶段 = C2 paper 挂钟节奏**，2027Q2 凭证据做 C1 判定（双低因子 2025-26 分年 IC 归零失效，
+ytm_proxy 2021-26 稳健——分年证据见 `output/factor_diagnostics.json`）。
 
 ### 关键数据资产
 
 | 路径 | 说明 |
 | --- | --- |
-| `data/pit/convertible_pit.parquet` | 转债 PIT 快照（**全量池**）：624,637 行 / 849 只有效 / 8 列 schema / 每日中位 362 只候选 |
+| `data/pit/convertible_pit.parquet` | 转债 PIT 快照（**全量池**）：628,270 行 / 853 只有效 / 8 列 schema（2026-09-02） |
 | `data/pit/coverage.json` | 覆盖率审计：请求 854 / 有效 849 / coverage 99.41%，评级覆盖 100%，0 未来行，0 脏行 |
 | `data/universe_cb_full.txt` | 全量 universe（854 只，2019+ 上市全部发行券） |
 | `data/pit/raw/<代码>/{年份}.csv + meta.json` | 原始缓存（914 目录：iFinD 60 + AKShare 854；**重建成本最高**，支持 `--assemble-only` 离线重组） |
@@ -52,11 +60,11 @@
 | `output/runs/` | 实验注册（run_id + index.jsonl，试验数 N 机器追溯） |
 | `output/overfit_audit_*.json` | 两条路线的 DSR/HLZ/PBO 审计报告 |
 | `output/cb_two_stage_weights.csv`、`cb_factor_ic_report.csv` | 两段式选债计划与因子 IC 报告 |
-| `data/cache/bars/` | 转债日线本地 parquet（ETF hfq 缓存已清，ETF 快照走 akshare 链） |
+| `data/cache/bars/` | ETF 日线 parquet（仅作 assemble universe 回退源——2026-09-03 修复后 raw 目录树才是主 universe 源） |
 
 ## 3. 最新验证结论（务必先读，避免重复劳动）
 
-> **时效声明（2026-08-31）**：本节按时间顺序记录研究演进，**最下方（4.1-4.5）的批次更新**。当前有效基线以 2 节"研究结论速览"表和 4.5/4.6 节为准——特别是：候选并集 precompute 已被两段式回测废除（R5）、月频基线已从 -3.45% 演进为 -0.50%~+1.94%（R1b/R2 后）、双低因子 IC 显著是新增强结论。旧批次中的"当前基线"字样均指当时时点。
+> **时效声明（2026-09-03）**：2026-09-01 至 09-03 的 F1-F8 全部执行记录见 `docs/ROADMAP-V2.md`（含真实费率敏感性、滑点解析口径、分年因子证据、止损带预注册失败），本节以下为 08-31 前的历史批次。> 原 2026-08-31 声明：本节按时间顺序记录研究演进，**最下方（4.1-4.5）的批次更新**。当前有效基线以 2 节"研究结论速览"表和 4.5/4.6 节为准——特别是：候选并集 precompute 已被两段式回测废除（R5）、月频基线已从 -3.45% 演进为 -0.50%~+1.94%（R1b/R2 后）、双低因子 IC 显著是新增强结论。旧批次中的"当前基线"字样均指当时时点。
 
 ### 3.1 可转债 PIT（2026-08-18 重大更新：AKShare 补采完成）
 

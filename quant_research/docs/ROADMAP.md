@@ -1,6 +1,6 @@
 # quant_research 路线图（2026-09）
 
-> **主计划文档**。全仓两子项目的 90 天总览见根仓库 `.scratch/project-future-plan-20260831.md`（DSA 主项目可靠性/工作台/分支治理在此）；本文是 quant_research 的深度审视与计划，两者互补不重复。
+> **深度审视文档（参考）**：模块成熟度评级、外部调研带 URL。缺口盘点与执行记录见 `ROADMAP-V2.md`（已于 2026-09-03 全部执行完毕），执行细节见 `ROADMAP-V2.2.md`。 原 90 天总览计划：全仓两子项目的 90 天总览见根仓库 `.scratch/project-future-plan-20260831.md`（DSA 主项目可靠性/工作台/分支治理在此）。
 
 > 编制日期：2026-09-01　｜　范围：`D:\daily_stock_analysis\quant_research`
 > 依据：本地代码实读、数据产物实跑校验、252 项测试实跑、外部开源生态与社区调研
