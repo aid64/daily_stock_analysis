@@ -183,3 +183,148 @@ def list_positions_text(limit: int = 20) -> str:
     if len(rows) > limit:
         lines.append(f"  …（其余 {len(rows) - limit} 只省略）")
     return "\n".join(lines)
+
+
+def build_target_position_caps(
+    *,
+    account_id: Optional[int] = None,
+    opportunity_tiers: Optional[Dict[str, str]] = None,
+    stop_losses: Optional[Dict[str, float]] = None,
+    current_drawdown_pct: Optional[float] = None,
+    include_realtime: bool = True,
+    app_config=None,
+) -> Dict[str, Dict[str, Any]]:
+    """①-A：三层仓位管理（position_sizer）接到持仓快照上。
+
+    输入：PortfolioService 快照（每账户 total_equity + positions）。
+    输出：{symbol: target_value/target_quantity/target_pct/capped_by/...}。
+
+    与裸 PositionSizer 的差异（接线层的增量价值）：
+    - compute_batch 的 max_total_exposure 是逐标的独立 cap，各标的都触顶时
+      sum 仍可超限——此处做**全局二次裁剪**（等比例缩量，手数精度留给
+      操作单生成阶段的整数手算法）。
+    - entry_price 缺失（离线无实时价）回退 avg_cost；回退发生的标的在
+      输出中标记 price_fallback=True。
+    - 构造失败静默降级为空映射（持仓上下文缺失不拖垮主流程）。
+    """
+    try:
+        from src.services.position_sizer import build_position_sizer_from_config
+
+        service = _service()
+        snapshot = service.get_portfolio_snapshot(
+            account_id=account_id, cost_method="fifo",
+            include_realtime=include_realtime,
+        )
+        sizer = build_position_sizer_from_config(app_config)
+        tiers = opportunity_tiers or {}
+        stops = stop_losses or {}
+
+        outputs: Dict[str, Dict[str, Any]] = {}
+        for account in snapshot.get("accounts") or []:
+            # 净值语义：现金 + Σ(参考价×数量)。实时价可用时 = 真实净值；
+            # 离线（last_price=0 → 回退 avg_cost）= 成本估值净值，保证
+            # 盘前无实时价也能计算仓位上限。
+            cash = float(account.get("total_cash") or 0)
+            equity = cash
+            for position in account.get("positions") or []:
+                try:
+                    qty = float(position.get("quantity") or 0)
+                except (TypeError, ValueError):
+                    qty = 0.0
+                if qty <= 0:
+                    continue
+                ref = position.get("last_price")
+                try:
+                    ref = float(ref) if ref is not None else 0.0
+                except (TypeError, ValueError):
+                    ref = 0.0
+                if ref <= 0:
+                    try:
+                        ref = float(position.get("avg_cost") or 0)
+                    except (TypeError, ValueError):
+                        ref = 0.0
+                equity += ref * qty
+            if equity <= 0:
+                continue
+            candidates = []
+            metas = []
+            for position in account.get("positions") or []:
+                try:
+                    quantity = float(position.get("quantity") or 0)
+                except (TypeError, ValueError):
+                    quantity = 0.0
+                if quantity <= 0:
+                    continue
+                symbol = service._normalize_symbol_for_position(
+                    str(position.get("symbol") or "")
+                )
+                if not symbol:
+                    continue
+                entry = position.get("last_price")
+                try:
+                    entry = float(entry) if entry is not None else None
+                except (TypeError, ValueError):
+                    entry = None
+                price_fallback = False
+                if not entry or entry <= 0:
+                    try:
+                        entry = float(position.get("avg_cost") or 0)
+                    except (TypeError, ValueError):
+                        entry = 0.0
+                    price_fallback = entry > 0
+                if entry <= 0:
+                    continue
+                stop = stops.get(symbol)
+                candidates.append({
+                    "entry_price": entry,
+                    "stop_loss_price": float(stop) if stop is not None else None,
+                    "opportunity_tier": tiers.get(symbol),
+                })
+                metas.append((symbol, entry, price_fallback))
+
+            if not candidates:
+                continue
+
+            results = sizer.compute_batch(
+                account_equity=equity,
+                candidates=candidates,
+                current_drawdown_pct=current_drawdown_pct,
+            )
+            for (symbol, entry, price_fallback), result in zip(metas, results):
+                outputs[symbol] = {
+                    "account_id": account.get("account_id"),
+                    "equity": round(equity, 2),
+                    "target_value": round(result.final_value, 2),
+                    "target_quantity": result.final_quantity,
+                    "target_pct": round(result.final_pct_of_equity, 2),
+                    "capped_by": result.layer1_base.capped_by,
+                    "layer2_multiplier": result.layer2_net_worth.multiplier,
+                    "layer3_weight": result.layer3_opportunity.weight,
+                    "entry_price": entry,
+                    "price_fallback": price_fallback,
+                }
+
+        # 全局二次裁剪：总敞口 ≤ max_total_exposure_pct
+        max_total_pct = float(
+            getattr(app_config, "position_sizer_max_total_exposure_pct", 95.0)
+        ) if app_config is not None else 95.0
+        total_value = sum(o["target_value"] for o in outputs.values())
+        equity_ref = max((o["equity"] for o in outputs.values()), default=0.0)
+        cap_value = equity_ref * max_total_pct / 100.0
+        if equity_ref > 0 and total_value > cap_value:
+            scale = cap_value / total_value
+            for symbol, cap in outputs.items():
+                scaled_value = cap["target_value"] * scale
+                entry = cap["entry_price"]
+                cap["target_value"] = round(scaled_value, 2)
+                cap["target_quantity"] = (
+                    int(scaled_value / entry) if entry > 0 else 0
+                )
+                cap["target_pct"] = round(
+                    scaled_value / equity_ref * 100, 2
+                ) if equity_ref > 0 else 0.0
+                cap["capped_by"] = "global_total_exposure"
+        return outputs
+    except Exception as exc:  # noqa: BLE001 - 仓位上限缺失不拖垮主流程
+        logger.warning("build_target_position_caps failed: %r", exc)
+        return {}

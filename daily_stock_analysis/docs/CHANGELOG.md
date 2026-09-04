@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [新功能] 接线 position_sizer 三层仓位管理（此前零引用的孤儿模块）：新增 build_target_position_caps 把持仓快照接到风险预算/单票上限/总敞口三层约束上，含全局敞口二次裁剪与离线成本估值净值语义，为操作单生成器提供仓位上限。
 - [文档] 新增执行蓝图 EXECUTION-BLUEPRINT.md：半自动交易助手终局形态与五阶段执行顺序（布线→数据地基→账本→结构性砍除→慢线），含验收总表与执行注意事项；作为后续执行顺序的唯一真源。
 - [新功能] bot 新增 /持仓、/持仓登记、/清空持仓 命令：持仓登记落库（PortfolioService），查看与清空以对话完成，报告的持仓建议不再依赖口头描述。
 - [新功能] CLI/定时分析主链路注入真实持仓上下文（per-stock portfolio_context_map）：LLM 的"持仓者建议"基于真实数量与成本；无持仓或读取失败时静默降级，不影响分析流程。
