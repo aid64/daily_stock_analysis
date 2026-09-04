@@ -891,12 +891,23 @@ def run_full_analysis(
         market_context_summary = ""
         market_context_full_report = ""
         market_context_generated_during_stock = False
+        # P0-A：注入真实持仓上下文（per-stock），LLM 的持仓者建议不再基于空上下文；
+        # 无持仓/读取失败时为空映射，分析流程不受影响
+        try:
+            from src.services.portfolio_analysis_context import build_all_position_contexts
+            _portfolio_context_map = build_all_position_contexts()
+            if _portfolio_context_map:
+                logger.info("已注入持仓上下文：%d 只", len(_portfolio_context_map))
+        except Exception as _exc:  # noqa: BLE001 - 持仓上下文缺失不拖垮分析
+            logger.warning("portfolio context load failed: %r", _exc)
+            _portfolio_context_map = {}
         pipeline = StockAnalysisPipeline(
             config=config,
             max_workers=args.workers,
             query_id=query_id,
             query_source="cli",
             save_context_snapshot=save_context_snapshot,
+            portfolio_context_map=_portfolio_context_map or None,
             daily_market_context_enabled=should_use_daily_market_context,
             daily_market_context_allow_generate=should_use_daily_market_context,
         )

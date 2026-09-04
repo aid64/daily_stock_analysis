@@ -246,6 +246,7 @@ class StockAnalysisPipeline:
         analysis_skills: Optional[List[str]] = None,
         analysis_phase: str = "auto",
         portfolio_context: Optional[Dict[str, Any]] = None,
+        portfolio_context_map: Optional[Dict[str, Dict[str, Any]]] = None,
         daily_market_context_enabled: Optional[bool] = None,
         daily_market_context_allow_generate: bool = True,
     ):
@@ -269,6 +270,11 @@ class StockAnalysisPipeline:
         self.analysis_skills = list(analysis_skills) if analysis_skills is not None else None
         self.analysis_phase = analysis_phase or "auto"
         self.portfolio_context = dict(portfolio_context) if isinstance(portfolio_context, dict) else None
+        # P0-A：per-stock 持仓上下文映射 {normalize后的代码: context}，
+        # analyze_stock 按当前股票优先取用，实例级 portfolio_context 兜底
+        self.portfolio_context_map = (
+            dict(portfolio_context_map) if isinstance(portfolio_context_map, dict) else None
+        )
         self.daily_market_context_enabled = (
             bool(getattr(self.config, "daily_market_context_enabled", True))
             if daily_market_context_enabled is None
@@ -463,6 +469,16 @@ class StockAnalysisPipeline:
         stock_name = code
         try:
             portfolio_context = getattr(self, "portfolio_context", None)
+            context_map = getattr(self, "portfolio_context_map", None)
+            if isinstance(context_map, dict) and context_map:
+                per_stock = context_map.get(code)
+                if per_stock is None:
+                    try:
+                        per_stock = context_map.get(normalize_stock_code(code))
+                    except Exception:  # noqa: BLE001 - 归一失败回落实例级
+                        per_stock = None
+                if isinstance(per_stock, dict):
+                    portfolio_context = per_stock
             if not isinstance(portfolio_context, dict):
                 portfolio_context = None
             is_index = (
