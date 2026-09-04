@@ -24,6 +24,7 @@ from api.v1.schemas.stocks import (
     ExtractItem,
     KLineData,
     StockHistoryResponse,
+    StockProfileResponse,
     StockQuote,
 )
 from api.v1.schemas.history import WatchlistRequest, WatchlistResponse
@@ -33,6 +34,8 @@ from api.v1.schemas.common import ErrorResponse
 # - import_parser: 顶层 `import pandas as pd`，加载耗时 ~0.5-1s
 # - stock_service: 轻量（仅依赖 src.repositories.stock_repo），保留顶层方便类型注解
 from src.services.stock_service import StockService
+from src.services.stock_profile_service import InvalidStockProfileCode, StockProfileService
+from src.services.run_diagnostics import sanitize_diagnostic_text
 from src.services.stock_list_parser import split_stock_list
 from src.services.system_config_service import SystemConfigService
 from data_provider.base import normalize_stock_code
@@ -76,6 +79,9 @@ _STOCK_CODE_RE = re.compile(
     r"|\d{1,5}\.HK"                           # HK suffix format
     r"|HK\d{1,5}"                             # HK prefix format
     r"|\d{5}"                                 # bare 5-digit HK code
+    r"|\d{4,5}\.T"                            # Japan Yahoo suffix format
+    r"|\d{6}\.(?:KS|KQ)"                     # Korea Yahoo suffix format
+    r"|\d{4,6}\.(?:TW|TWO)"                  # Taiwan Yahoo suffix format
     r"|[A-Z]{1,5}(?:\.(?:US|[A-Z]))?"         # US ticker
     r")$",
     re.IGNORECASE,
@@ -410,6 +416,40 @@ def remove_from_watchlist(
         raise HTTPException(
             status_code=500,
             detail={"error": "internal_error", "message": f"从自选删除失败: {str(e)}"},
+        )
+
+
+@router.get(
+    "/{stock_code}/profile",
+    response_model=StockProfileResponse,
+    responses={
+        400: {"description": "股票代码无效", "model": ErrorResponse},
+        500: {"description": "服务器错误", "model": ErrorResponse},
+    },
+    summary="获取个股研究聚合档案",
+    description="按独立质量状态聚合行情、历史、研究产物、资讯、持仓关系和监控规则。",
+)
+def get_stock_profile(
+    stock_code: str,
+    history_days: int = Query(60, ge=1, le=365, description="日线历史天数"),
+) -> StockProfileResponse:
+    """Return partial profile data without failing on one optional block."""
+    _validate_and_normalize_stock_code(stock_code)
+    try:
+        return StockProfileResponse(
+            **StockProfileService().get_profile(stock_code, history_days=history_days)
+        )
+    except InvalidStockProfileCode:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_stock_code", "message": "股票代码与交易所不匹配"},
+        )
+    except Exception as exc:
+        sanitized = sanitize_diagnostic_text(str(exc), max_length=300) or "internal profile error"
+        logger.error("获取个股研究聚合档案失败: %s", sanitized)
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "internal_error", "message": "获取个股研究聚合档案失败"},
         )
 
 

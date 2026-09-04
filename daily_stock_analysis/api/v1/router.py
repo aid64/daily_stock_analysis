@@ -18,6 +18,7 @@ from api.v1.endpoints import (
     analysis,
     auth,
     backtest,
+    data,
     decision_signals,
     health,
     history,
@@ -109,6 +110,9 @@ router.include_router(
     strategy_autostop.router,
     prefix="/strategy-autostop",
     tags=["StrategyAutostop"]
+    data.router,
+    prefix="/data",
+    tags=["Data"]
 )
 
 router.include_router(

@@ -131,7 +131,9 @@ class Scheduler:
         self._daily_job: Optional[Any] = None
         self._daily_jobs: List[Any] = []
         self._background_tasks: List[Dict[str, Any]] = []
+        self._lifecycle_lock = threading.Lock()
         self._running = False
+        self._stop_requested = False
 
     def set_daily_task(self, task: Callable, run_immediately: bool = True):
         """
@@ -377,20 +379,34 @@ class Scheduler:
                 continue
             self._start_background_task(entry)
 
+    def _dispatch_background_tasks_if_running(self) -> bool:
+        """Dispatch due background tasks before a concurrent stop can return."""
+        with self._lifecycle_lock:
+            if not self._running or self.shutdown_handler.should_shutdown:
+                return False
+            self._run_background_tasks()
+            return True
+
     def run(self):
         """
         运行调度器主循环
 
         阻塞运行，直到收到退出信号
         """
-        self._running = True
+        with self._lifecycle_lock:
+            if self._stop_requested:
+                logger.info("调度器已停止，忽略迟到的启动请求")
+                return
+            self._running = True
         logger.info("调度器开始运行...")
         logger.info(f"下次执行时间: {self._get_next_run_time()}")
 
         while self._running and not self.shutdown_handler.should_shutdown:
             self._refresh_daily_schedule_if_needed()
             self.schedule.run_pending()
-            self._run_background_tasks()
+            # 上游 watchdog 语义（#2219）：并发 stop 时 dispatch 返回 False 退出循环
+            if not self._dispatch_background_tasks_if_running():
+                break
             time.sleep(_POLL_INTERVAL_SECONDS)
 
             # 整点心跳日志（限制为每小时最多一次）
@@ -411,7 +427,9 @@ class Scheduler:
     def stop(self) -> None:
         """停止调度器"""
         logger.info("调度器正在停止...")
-        self._running = False
+        with self._lifecycle_lock:
+            self._stop_requested = True
+            self._running = False
         self._cancel_daily_job()
 
 
