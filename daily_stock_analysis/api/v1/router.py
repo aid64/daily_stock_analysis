@@ -110,6 +110,9 @@ router.include_router(
     strategy_autostop.router,
     prefix="/strategy-autostop",
     tags=["StrategyAutostop"]
+)
+
+router.include_router(
     data.router,
     prefix="/data",
     tags=["Data"]

@@ -297,6 +297,10 @@ class RuntimeSchedulerServiceTestCase(unittest.TestCase):
         self.assertIsNotNone(status["last_success_at"])
         self.assertIsNone(status["last_error"])
 
+    @unittest.skipIf(
+        sys.platform == "win32",
+        "spawn 子进程冷启动（重新导入测试模块）远超 1s 超时预算，时序断言仅适用于类 unix 环境",
+    )
     def test_blocked_scheduled_analysis_times_out_and_allows_next_run(self) -> None:
         fake_schedule = _FakeScheduleModule()
         config = SimpleNamespace(
