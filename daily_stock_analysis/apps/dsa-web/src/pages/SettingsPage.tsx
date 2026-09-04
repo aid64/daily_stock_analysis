@@ -54,56 +54,6 @@ const NotificationTestPanel = lazy(() =>
   import('../components/settings/NotificationTestPanel').then((m) => ({ default: m.NotificationTestPanel })),
 );
 
-type DesktopWindow = Window & {
-  dsaDesktop?: {
-    version?: unknown;
-    getUpdateState?: () => Promise<RawDesktopUpdateState>;
-    checkForUpdates?: () => Promise<RawDesktopUpdateState>;
-    installDownloadedUpdate?: () => Promise<boolean>;
-    openReleasePage?: (releaseUrl?: string) => Promise<boolean>;
-    onUpdateStateChange?: (listener: (state: RawDesktopUpdateState) => void) => (() => void) | void;
-  };
-};
-
-type DesktopUpdateState = {
-  status?: string;
-  updateMode?: string;
-  currentVersion?: string;
-  latestVersion?: string;
-  releaseUrl?: string;
-  checkedAt?: string;
-  publishedAt?: string;
-  message?: string;
-  releaseName?: string;
-  tagName?: string;
-  downloadPercent?: number | null;
-  downloadedBytes?: number | null;
-  totalBytes?: number | null;
-};
-
-type RawDesktopUpdateState = {
-  status?: unknown;
-  updateMode?: unknown;
-  currentVersion?: unknown;
-  latestVersion?: unknown;
-  releaseUrl?: unknown;
-  checkedAt?: unknown;
-  publishedAt?: unknown;
-  message?: unknown;
-  releaseName?: unknown;
-  tagName?: unknown;
-  downloadPercent?: unknown;
-  downloadedBytes?: unknown;
-  totalBytes?: unknown;
-};
-
-type DesktopUpdateNotice = {
-  title: string;
-  message: string;
-  variant: 'error' | 'success' | 'warning';
-  actionLabel?: string;
-  actionKind?: 'release' | 'install';
-};
 
 const LLM_CHANNEL_EDITOR_RUNTIME_KEYS = new Set([
   'LITELLM_MODEL',
