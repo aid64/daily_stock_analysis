@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [新功能] Web 新增助手三页（/assistant/health、/assistant/compare、/assistant/stats）：运行健康五要素、模拟vs真实逐笔对比、信号后验统计；后端新增 /api/v1/assistant 视图端点（health-view/comparison/order-sheets）。
 - [新功能] /操作单 生成即记模拟账本（幂等）；bot 新增 /对比 命令：模拟 vs 真实成交逐笔对比（价格/费用/回填状态），量化信号可信度。
 - [新功能] 模拟账本 simulation_ledger：操作单生成时按限价假设成交记模拟侧（费率模型与 quant_research PaperBroker 数字对齐：佣金地板/卖出印花税/过户费，滑点按 F6 解析口径单列），与真实账本（PortfolioService）逐笔对比并渲染成交价偏差——量化"要不要信它"。
 - [新功能] 全市场扫描数据地基（market_scan_service）：每日全市场截面快照落库（东财主源+新浪降级，parquet 按日增量），零 LLM 规则漏斗（流动性/市值/估值带/ST 剔除/截断，参数读仓库根 mandate.yaml 声明文件），全市场 5555 → 候选池 300 真实验证。

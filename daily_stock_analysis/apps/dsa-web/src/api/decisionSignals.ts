@@ -416,3 +416,5 @@ export const decisionSignalsApi = {
     return toDecisionSignalFeedbackItem(response.data);
   },
 };
+
+export type { DecisionSignalOutcomeStatsResponse } from '../types/decisionSignals';

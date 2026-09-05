@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Activity, BarChart3, Bell, BriefcaseBusiness, Gauge, Home, LogOut, MessageSquareQuote, Search, Settings2 } from 'lucide-react';
+import { Activity, BarChart3, Bell, BriefcaseBusiness, Gauge, HeartPulse, Home, LogOut, MessageSquareQuote, Scale, Search, Settings2, TrendingUp } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { SCREENING_CONFIG_CHANGED_EVENT, SYSTEM_CONFIG_CHANGED_EVENT, screeningApi } from '../../api/screening';
 import { useAuth } from '../../contexts/AuthContext';
@@ -36,6 +36,9 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'backtest', labelKey: 'layout.nav.backtest', to: '/backtest', icon: BarChart3 },
   { key: 'alerts', labelKey: 'layout.nav.alerts', to: '/alerts', icon: Bell },
   { key: 'usage', labelKey: 'layout.nav.usage', to: '/usage', icon: Gauge },
+  { key: 'assistant-health', labelKey: 'layout.nav.assistantHealth', to: '/assistant/health', icon: HeartPulse },
+  { key: 'assistant-compare', labelKey: 'layout.nav.assistantCompare', to: '/assistant/compare', icon: Scale },
+  { key: 'assistant-stats', labelKey: 'layout.nav.assistantStats', to: '/assistant/stats', icon: TrendingUp },
   { key: 'settings', labelKey: 'layout.nav.settings', to: '/settings', icon: Settings2 },
 ];
 
