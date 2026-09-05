@@ -18,6 +18,7 @@ from bot.commands.chat import ChatCommand
 from bot.commands.research import ResearchCommand
 from bot.commands.strategies import StrategiesCommand
 from bot.commands.health import HealthCommand
+from bot.commands.compare import CompareCommand
 from bot.commands.history import HistoryCommand
 from bot.commands.order_sheet import OrderSheetCommand
 from bot.commands.portfolio import (
@@ -38,6 +39,7 @@ ALL_COMMANDS = [
     ResearchCommand,
     StrategiesCommand,
     HealthCommand,
+    CompareCommand,
     HistoryCommand,
     OrderSheetCommand,
     PortfolioCommand,
@@ -57,6 +59,7 @@ __all__ = [
     'ResearchCommand',
     'StrategiesCommand',
     'HealthCommand',
+    'CompareCommand',
     'HistoryCommand',
     'OrderSheetCommand',
     'PortfolioCommand',

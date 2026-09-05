@@ -54,20 +54,24 @@ class TestFeeModel:
         assert fees["stamp_duty"] == 0.0005  # 未声明的沿用基线
 
 
+def _make_sheet(tmp_path):
+    return generate_order_sheet(
+        trade_date=D,
+        current_positions={"SH113062": 10},
+        target_positions={"SH113062": 0, "SZ123089": 10},
+        t1_close_prices={"SH113062": 128.0, "SZ123089": 116.5},
+        available_cash=12000.0,
+        sheet_id=f"{D.isoformat()}_test01",
+    )
+
+
 class TestLedger:
     @pytest.fixture()
     def ledger(self, tmp_path):
         return SimulationLedger(ledger_path=tmp_path / "ledger.json")
 
     def _sheet(self, tmp_path):
-        return generate_order_sheet(
-            trade_date=D,
-            current_positions={"SH113062": 10},
-            target_positions={"SH113062": 0, "SZ123089": 10},
-            t1_close_prices={"SH113062": 128.0, "SZ123089": 116.5},
-            available_cash=12000.0,
-            sheet_id=f"{D.isoformat()}_test01",
-        )
+        return _make_sheet(tmp_path)
 
     def test_record_sheet_idempotent(self, ledger, tmp_path):
         sheet = self._sheet(tmp_path)
@@ -133,3 +137,33 @@ class PortfolioServiceStub:
     def list_trade_events(self, **kw):
         kw.setdefault("account_id", self._account_id)
         return self._svc.list_trade_events(**kw)
+
+
+class TestCompareCommand:
+    def test_compare_command_end_to_end(self, tmp_path, monkeypatch,
+                                        isolated_db):
+        from bot.commands.compare import CompareCommand
+        from src.services import order_sheet_service as oss
+        from src.services import simulation_ledger as sl_mod
+        from src.services.order_sheet_service import save_order_sheet
+
+        monkeypatch.setattr(sl_mod, "_LEDGER_PATH", tmp_path / "ledger.json")
+        monkeypatch.setattr(oss, "SHEETS_DIR", tmp_path / "sheets")
+        ledger = SimulationLedger(ledger_path=tmp_path / "ledger.json")
+        sheet = _make_sheet(tmp_path)
+        save_order_sheet(sheet)
+        ledger.record_sheet(sheet)
+        # 回填一笔真实卖出（另一只未回填）
+        service = PortfolioServiceStub(isolated_db, trade_date=D)
+        service.record_trade("SH113062", "buy", 127.0)  # 建仓
+        sell_day = PortfolioServiceStub(isolated_db, trade_date=D)
+        sell_day.record_trade("SH113062", "sell", 127.8)
+        monkeypatch.setattr(
+            CompareCommand.__module__ + ".CompareCommand",
+            "__init__", lambda self, **kw: None) if False else None
+
+        text = CompareCommand().execute(
+            type("M", (), {"platform": "test"})(), []).text
+        assert "模拟 2 笔" in text
+        assert "已回填 1" in text
+        assert "127.8" in text

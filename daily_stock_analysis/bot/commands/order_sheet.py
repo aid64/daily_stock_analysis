@@ -14,7 +14,11 @@
 from datetime import date
 from typing import List
 
+import logging
+
 from bot.commands.base import BotCommand
+
+logger = logging.getLogger(__name__)
 from bot.models import BotMessage, BotResponse
 
 
@@ -80,8 +84,14 @@ def _build_sheet_text() -> str:
         available_cash=cash,
     )
     from src.services.order_sheet_service import save_order_sheet
+    from src.services.simulation_ledger import SimulationLedger
 
     save_order_sheet(sheet)
+    # ③-A：操作单生成即记模拟成交（幂等），真实侧等用户回填后 /对比 查看
+    try:
+        SimulationLedger().record_sheet(sheet)
+    except Exception as exc:  # noqa: BLE001 - 账本失败不影响操作单展示
+        logger.warning("模拟账本记录失败: %r", exc)
     text = render_text(sheet)
     if stale_symbols:
         text += (
