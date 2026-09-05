@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [新功能] bot 新增 /健康 命令（运行健康视图）：CB 信号数据新鲜度、今日推送总线计数与摘要状态、当日操作单状态、活跃决策信号数、异常探测（契约缺失/解析失败/数据超 7 天），30 秒讲清系统运行状况。
 - [新功能] 每日摘要总线落地（NOTIFICATION_DAILY_DIGEST_ENABLED 由预留变真实实现）：非 system_error 静态推送写入当日 JSONL 总线（持久化去重，重启不丢），每日 NOTIFICATION_DIGEST_TIME 聚合为一条分级摘要（持仓相关>重要>其他），由 runtime_scheduler 注册后台任务到点发送；system_error 与 bot 会话回复不受影响。
 - [新功能] 转债信号桥（cb_signal_bridge）+ /操作单 命令：quant_research 以 current_plan.json 契约导出选债计划（含 T-1 收盘价，跨项目只走文件不 import），dsa 侧读取后经仓位上限/现金约束生成操作单；信号无报价（疑似强赎退市）显式示警，契约缺失诚实降级。
 - [新功能] 操作单生成器 order_sheet_service：目标持仓 diff → 人可照抄执行的具体限价操作单（限价=T-1收盘、开盘越界放弃、14:50 未成交撤单），含现金贪心分配、先卖后买、文件账本状态机（pending→filled/cancelled）与 bot 渲染格式；先卖后买、整数手与费用假设复用量化研究侧模型。

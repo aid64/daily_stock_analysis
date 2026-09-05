@@ -372,3 +372,26 @@ def _isolate_process_env():
         Config._BOOTSTRAP_RUNTIME_ENV_OVERRIDES_CAPTURED = False
     except Exception:  # pragma: no cover - src.config 未导入时无需处理
         pass
+
+
+@pytest.fixture()
+def isolated_db(monkeypatch, tmp_path: Path):
+    """隔离的 PortfolioService DB（DATABASE_PATH → tmp），防触碰真实库。
+
+    用法：测试签名加 isolated_db；配合 DatabaseManager.reset_instance()。
+    """
+    db_path = tmp_path / "isolated_test.db"
+    env_file = tmp_path / ".env"
+    env_file.write_text("", encoding="utf-8")
+    monkeypatch.setenv("ENV_FILE", str(env_file))
+    monkeypatch.setenv("DATABASE_PATH", str(db_path))
+    from src.config import Config
+    from src.storage import DatabaseManager
+
+    Config.reset_instance()
+    DatabaseManager.reset_instance()
+    yield db_path
+    DatabaseManager.reset_instance()
+    Config.reset_instance()
+    monkeypatch.delenv("ENV_FILE", raising=False)
+    monkeypatch.delenv("DATABASE_PATH", raising=False)
