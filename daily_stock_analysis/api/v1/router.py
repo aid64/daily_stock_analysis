@@ -14,6 +14,7 @@ from fastapi import APIRouter
 from api.v1.endpoints import (
     agent,
     alerts,
+    assistant,
     screening,
     analysis,
     auth,
@@ -92,6 +93,12 @@ router.include_router(
     alerts.router,
     prefix="/alerts",
     tags=["Alerts"]
+)
+
+router.include_router(
+    assistant.router,
+    prefix="/assistant",
+    tags=["Assistant"]
 )
 
 router.include_router(
