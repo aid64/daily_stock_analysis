@@ -1,4 +1,4 @@
-"""执行模块测试：PaperBroker / 离散优化 sizer / Executor / LiveMWU
+"""执行模块测试：PaperBroker / 离散优化 sizer / Executor
 
 全部使用合成数据与模拟账户，不依赖网络与实盘 DLL。
 """
@@ -19,7 +19,6 @@ from quant_research.trade import (
     Target,
 )
 from quant_research.trade.executor import Executor, ExecutorConfig, MarketClock
-from quant_research.trade.pipeline import LiveMWU
 from quant_research.backtest.mwu import build_experts
 
 
@@ -169,53 +168,3 @@ class TestExecutor:
 
 
 # ── 实盘 MWU 信号层 ──────────────────────────
-
-
-class TestLiveMWU:
-    """使用随时间推进的窗口模拟价格演化，验证 MWU 权重随胜负更新"""
-
-    N_WINDOW = 300
-
-    def _rolling(self, k: int, up: float = 0.005) -> dict:
-        """第 k 轮的行情窗口：UP 涨 / DOWN 跌 / BOND 防御资产下跌"""
-        n = self.N_WINDOW
-        start_up = k * 7
-        closes_up = 1.0 * (1.0 + up) ** np.arange(start_up, start_up + n)
-        start_down = k * 7
-        closes_down = 1.0 * (1.0 - up) ** np.arange(start_down, start_down + n)
-        start_bond = k * 7
-        closes_bond = 100.0 * (1.0 - 0.003) ** np.arange(start_bond, start_bond + n)
-        amount = np.full(min(20, n), 1e8)
-        return {
-            "UP.SH": (closes_up, amount),
-            "DOWN.SH": (closes_down, amount),
-            "BOND.SH": (closes_bond, amount),
-        }
-
-    def test_momentum_weights_update(self):
-        """动量赢、防御输 → 防御被罚权重降，动量相对上升"""
-        experts = build_experts({
-            "momentum": {"lookback": 5, "top_k": 1, "ma_filter": 10},
-            "mean_reversion": {"rsi_period": 2, "rsi_buy": 30, "ma_filter": 10, "top_k": 1},
-            "defensive": {"symbol": "BOND.SH"},
-        })
-        mwu = LiveMWU(experts, eta=0.3, loss_scale=0.05, share_alpha=0.0)
-        target = mwu.update(self._rolling(0))
-        # 上涨市：动量选中 UP.SH
-        assert "UP.SH" in target
-        w_mom0, w_def0 = mwu.weights["momentum"], mwu.weights["defensive"]
-        for k in range(1, 11):
-            mwu.update(self._rolling(k))
-        assert mwu.weights["defensive"] < w_def0
-        assert mwu.weights["momentum"] > w_mom0
-
-    def test_target_summary(self):
-        experts = build_experts({
-            "momentum": {"lookback": 5, "top_k": 1, "ma_filter": 10},
-            "mean_reversion": {"rsi_period": 2, "rsi_buy": 30, "ma_filter": 10, "top_k": 1},
-            "defensive": {"symbol": "BOND.SH"},
-        })
-        mwu = LiveMWU(experts, eta=0.1, loss_scale=0.05, share_alpha=0.02)
-        target = mwu.update(self._rolling(0))
-        assert target  # 非空
-        assert sum(mwu.weights.values()) == pytest.approx(1.0, rel=1e-6)

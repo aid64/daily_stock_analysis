@@ -47,7 +47,7 @@
 - 产品面过宽而非死代码（全量引用计数，零僵尸服务）。
 - 削减目标合计约 3.5 万行：配置三件套 14,755 行 / Agent 例行模式 ~11,000 行 / screening ~7,000 行 / run_diagnostics+run_flow ~3,000 行 / 桌面端+15 渠道+三语（自用各留一条）。
 - 孤儿三件：`position_sizer`（待接线）、`bot/platforms/discord.py`（实现+测试齐全但未注册，用户用飞书→冻结）、`src/agent/web_intent_*.py`（1,192 行半孤儿，resolver 从未落地→保留待第 ⑤ 阶段复用）。
-- 确认废弃：`quant_research/trade/broker.py` 的 TDXJKBroker（32 位 DLL、零使用、与手动下单冲突）、`trade/pipeline.py` LiveMWU（MWU 路线 OOS 判死）、`archive/` 目录。
+- ~~确认废弃~~（✅ 2026-09-06 已执行）：`quant_research/trade/broker.py` 的 TDXJKBroker、`trade/pipeline.py` LiveMWU、`scripts/run_live.py` 已移除（archive/ 无跟踪文件，跳过）；回溯见 tag pre-restructure-v1。
 
 上游关系：ZhuLinsen/daily_stock_analysis 活跃（v3.31.0 后仍每周合 PR），方向为 LLM 分析深化，与本终局重叠度低。**先砍后接会让每次上游合并变成冲突地狱**——这是"布线在前、砍除在后"排序的根本原因。
 
@@ -187,7 +187,7 @@ notify:
 
 | 砍除项 | 动作 | 预期行数 | 回归验证 |
 | --- | --- | --- | --- |
-| TDXJKBroker + run_live.py tdxjk 分支 + LiveMWU | QR 侧 git rm | ~800 | QR 299 测试全过 |
+| TDXJKBroker + run_live.py tdxjk 分支 + LiveMWU | QR 侧 git rm | ~800 | ✅ 已执行，QR 299 测试全过 |
 | archive/ | git rm | — | 无 |
 | Discord 平台 + 13 个未用 notification sender | 冻结（保留飞书 stream + 用户实际用的 1-2 渠道），先 deprecate 后删 | ~3,000 | notification 路由测试 |
 | Agent 多智能体**例行**模式 | 例行分析固定走 legacy 单调用链；Agent 模式仅保留 bot 交互入口 | ~11,000 路径摘除 | 单股分析输出契约不变（对比砍前后报告 diff） |
