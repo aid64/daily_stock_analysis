@@ -192,9 +192,10 @@ def generate_order_sheet(
             affordable = int(budget / price / lot) * lot if price > 0 else 0
             buy_qty = min(need_qty, max(affordable, 0))
             if buy_qty <= 0:
+                note = ("现金不足且账户未登记现金——若已转入请先 /持仓登记 记账"
+                        if current <= 0 else "现金不足，本轮未加仓")
                 holds.append(HoldLine(
-                    symbol=symbol, quantity=int(current),
-                    reason="现金不足，本轮未加仓"))
+                    symbol=symbol, quantity=int(current), reason=note))
                 continue
             est = buy_qty * price
             budget -= est
@@ -319,7 +320,8 @@ def render_text(sheet: OrderSheet) -> str:
             f" · {o.abandon_rule} · {o.cancel_rule}\n"
             f"  理由：{o.reason}（约 ¥{o.est_value:,.0f}）")
     for h in sheet.holds:
-        lines.append(f"· 持有 {h.symbol} {h.quantity}手 —— {h.reason}")
+        qty_text = f"{h.quantity}手" if h.quantity > 0 else "未持有"
+        lines.append(f"· 持有 {h.symbol} {qty_text} —— {h.reason}")
     if sheet.orders:
         lines.append(
             f"小计：买入 ¥{sheet.total_buy_value:,.0f} / 卖出 ¥{sheet.total_sell_value:,.0f}"

@@ -24,11 +24,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Dict, Optional, Sequence
 
 import pandas as pd
 
@@ -226,7 +227,47 @@ def record_quarter(
     return summary
 
 
-def _print_plan(pit_table: pd.DataFrame, capital: float) -> int:
+def export_current_plan(
+    pit_table: pd.DataFrame,
+    latest_picks: Dict[str, float],
+    latest_key: str,
+    capital: float,
+    out_dir: Optional[Path] = None,
+) -> Path:
+    """导出 current_plan.json 信号契约（①-C）：dsa 侧操作单生成器的唯一数据源。
+
+    契约 schema=cb_current_plan_v1：符号/权重/T-1收盘价/PIT末端/调仓日。
+    纯本地 PIT 读取，不发网络。跨项目只走此文件，不互相 import。
+    """
+    out = (out_dir or (STATE_DIR)) / "current_plan.json"
+    pit_latest = _latest_pit_date(pit_table)
+    latest_ts = pd.Timestamp(pit_latest)
+    targets: Dict[str, Dict[str, float]] = {}
+    for symbol in sorted(latest_picks):
+        rows = pit_table[pit_table["symbol"] == symbol]
+        rows = rows[rows["as_of"] == latest_ts]
+        t1_close = float(rows["price"].iloc[-1]) if len(rows) else 0.0
+        targets[symbol] = {
+            "weight": float(latest_picks[symbol]),
+            "t1_close": t1_close,
+        }
+    plan = {
+        "schema": "cb_current_plan_v1",
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "pit_end": str(pit_latest.date()),
+        "latest_rebalance": latest_key,
+        "capital_base": float(capital),
+        "targets": targets,
+    }
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        json.dumps(plan, ensure_ascii=False, indent=1), encoding="utf-8")
+    logger.info("信号契约已导出: %s（%d 个目标）", out, len(targets))
+    return out
+
+
+def _print_plan(pit_table: pd.DataFrame, capital: float,
+                quiet: bool = False) -> int:
     """单次调仓检查（原 --once / 默认 / --show-status 行为）"""
     pit_latest = _latest_pit_date(pit_table)
     logger.info("PIT 末端: %s", pit_latest.date())
@@ -252,25 +293,30 @@ def _print_plan(pit_table: pd.DataFrame, capital: float) -> int:
     year_ago = (pit_latest - pd.DateOffset(years=1)).strftime("%Y-%m-%d")
     recent_absent = [d for d in all_q if d not in weights and d > year_ago]
 
-    broker = PaperBroker(initial_cash=capital)
-    broker.login()
-
-    print()
-    print("=== 季频转债双低 paper tracking ===")
-    print(f"PIT 末端: {pit_latest.date()}  最新调仓日: {latest_key}")
-    print(f"本金: {capital:,.0f}  费率: 万0.845 + 最低5元（不免五）")
-    print()
-    print("目标持仓（含 buffer 队列）:")
-    for sym in sorted(latest_picks, key=lambda k: -latest_picks[k]):
-        role = "持仓" if latest_picks[sym] > 0 else "buffer"
-        print(f"  {sym}: weight={latest_picks[sym]:.2f} ({role})")
-    if recent_absent:
+    if not quiet:
+        broker = PaperBroker(initial_cash=capital)
+        broker.login()
         print()
-        print(f"注意: 近一年 {len(recent_absent)} 个调仓日无选债计划"
-              f"（过滤链后候选不足 min_candidates={PICK_PARAMS['min_candidates']}）:")
-        print(f"  {recent_absent}")
-        print("  口径: 这些季度未记录调仓 → 执行层沿用上季持仓，并非清仓信号。")
-    print()
+        print("=== 季频转债双低 paper tracking ===")
+        print(f"PIT 末端: {pit_latest.date()}  最新调仓日: {latest_key}")
+        print(f"本金: {capital:,.0f}  费率: 万0.845 + 最低5元（不免五）")
+        print()
+        print("目标持仓（含 buffer 队列）:")
+        for sym in sorted(latest_picks, key=lambda k: -latest_picks[k]):
+            role = "持仓" if latest_picks[sym] > 0 else "buffer"
+            print(f"  {sym}: weight={latest_picks[sym]:.2f} ({role})")
+        if recent_absent:
+            print()
+            print(f"注意: 近一年 {len(recent_absent)} 个调仓日无选债计划"
+                  f"（过滤链后候选不足 min_candidates={PICK_PARAMS['min_candidates']}）:")
+            print(f"  {recent_absent}")
+            print("  口径: 这些季度未记录调仓 → 执行层沿用上季持仓，并非清仓信号。")
+        print()
+
+    try:
+        export_current_plan(pit_table, latest_picks, latest_key, capital)
+    except Exception as exc:  # noqa: BLE001 - 导出失败不影响计划展示
+        logger.warning("current_plan.json 导出失败: %r", exc)
 
     record_run(
         params={"kind": "paper_tracking", "pit_latest": str(pit_latest.date()),
@@ -295,6 +341,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--quarter", default=None,
                    help="--record 的季度，格式 YYYYQn（默认：今天所在季度）")
     p.add_argument("--out-dir", default=str(STATE_DIR), help="三表输出目录")
+    p.add_argument("--export-plan", action="store_true",
+                   help="只导出 current_plan.json 信号契约（供 dsa 操作单生成器消费）")
     return p
 
 
@@ -304,6 +352,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", force=True)
     cfg = load_config()
     pit_table = load_pit_snapshot(args.pit)
+
+    if args.export_plan:
+        return _print_plan(pit_table, args.capital, quiet=True)
 
     if args.record:
         quarter = args.quarter or _quarter_of(date.today())

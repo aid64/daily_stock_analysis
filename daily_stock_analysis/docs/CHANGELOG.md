@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [新功能] 转债信号桥（cb_signal_bridge）+ /操作单 命令：quant_research 以 current_plan.json 契约导出选债计划（含 T-1 收盘价，跨项目只走文件不 import），dsa 侧读取后经仓位上限/现金约束生成操作单；信号无报价（疑似强赎退市）显式示警，契约缺失诚实降级。
 - [新功能] 操作单生成器 order_sheet_service：目标持仓 diff → 人可照抄执行的具体限价操作单（限价=T-1收盘、开盘越界放弃、14:50 未成交撤单），含现金贪心分配、先卖后买、文件账本状态机（pending→filled/cancelled）与 bot 渲染格式；先卖后买、整数手与费用假设复用量化研究侧模型。
 - [新功能] 接线 position_sizer 三层仓位管理（此前零引用的孤儿模块）：新增 build_target_position_caps 把持仓快照接到风险预算/单票上限/总敞口三层约束上，含全局敞口二次裁剪与离线成本估值净值语义，为操作单生成器提供仓位上限。
 - [文档] 新增执行蓝图 EXECUTION-BLUEPRINT.md：半自动交易助手终局形态与五阶段执行顺序（布线→数据地基→账本→结构性砍除→慢线），含验收总表与执行注意事项；作为后续执行顺序的唯一真源。
