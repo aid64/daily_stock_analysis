@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [新功能] 模拟账本 simulation_ledger：操作单生成时按限价假设成交记模拟侧（费率模型与 quant_research PaperBroker 数字对齐：佣金地板/卖出印花税/过户费，滑点按 F6 解析口径单列），与真实账本（PortfolioService）逐笔对比并渲染成交价偏差——量化"要不要信它"。
 - [新功能] 全市场扫描数据地基（market_scan_service）：每日全市场截面快照落库（东财主源+新浪降级，parquet 按日增量），零 LLM 规则漏斗（流动性/市值/估值带/ST 剔除/截断，参数读仓库根 mandate.yaml 声明文件），全市场 5555 → 候选池 300 真实验证。
 - [新功能] bot 新增 /健康 命令（运行健康视图）：CB 信号数据新鲜度、今日推送总线计数与摘要状态、当日操作单状态、活跃决策信号数、异常探测（契约缺失/解析失败/数据超 7 天），30 秒讲清系统运行状况。
 - [新功能] 每日摘要总线落地（NOTIFICATION_DAILY_DIGEST_ENABLED 由预留变真实实现）：非 system_error 静态推送写入当日 JSONL 总线（持久化去重，重启不丢），每日 NOTIFICATION_DIGEST_TIME 聚合为一条分级摘要（持仓相关>重要>其他），由 runtime_scheduler 注册后台任务到点发送；system_error 与 bot 会话回复不受影响。
