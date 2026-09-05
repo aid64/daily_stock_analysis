@@ -1,0 +1,38 @@
+# ============================================================
+# mandate.yaml — 半自动交易助手的参数声明（唯一真源）
+# ============================================================
+# 蓝图 ②-C：资金规模 / 风险约束 / 调仓节奏 / 漏斗过滤 / 通知偏好
+# 全部声明在此。改参数 = 改本文件，不需要改代码。
+# 纪律：参数取结构值或社区共识值，不做网格调参（预注册纪律）。
+# 消费方：position_sizer（①-A）、market_scan_service（②-B）、
+#         操作单生成器（①-B）。
+# ============================================================
+
+capital:
+  base: 10000            # 初始资金（元）——quant 侧 current_plan 的 capital_base 同源
+
+risk:
+  # 三层仓位管理（POSITION_SIZER_* 环境变量可覆盖，此处为声明基线）
+  max_single_position_pct: 25.0   # 单票上限（占净值 %）
+  max_total_exposure_pct: 95.0    # 总敞口上限（%）
+  risk_per_trade_pct: 2.0         # 单笔风险预算（%）
+  allocation:                     # 大类分配（操作单生成时校验）
+    convertible_bond: 0.6
+    stock: 0.4
+
+cadence:
+  convertible_bond_rebalance: quarterly   # 转债季频（已验证）
+  stock_rebalance: watch                  # 股票：观察模式（系统化策略未过预注册）
+
+filters:
+  # 全市场规则漏斗（②-B）：零 LLM，纯规则
+  min_amount: 30000000        # 日成交额下限（元）——流动性
+  min_market_cap: 2000000000  # 总市值下限（元）——20 亿，剔除微盘
+  pe_band: [0, 60]            # 市盈率-动态区间（0 起含亏损剔除前已过滤；负值剔除）
+  exclude_st: true            # 剔除 ST/*ST/退市整理
+  exclude_new_days: 60        # 剔除上市不足 60 日（次新）——需 list_date，快照缺省时跳过
+  target_pool_size: 300       # 漏斗输出候选池目标规模
+
+notify:
+  channels: [feishu]          # 自用渠道（第 ④ 阶段砍其余）
+  digest_time: "18:00"

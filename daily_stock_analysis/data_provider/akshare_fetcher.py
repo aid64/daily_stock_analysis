@@ -1123,6 +1123,111 @@ class AkshareFetcher(BaseFetcher):
             else:
                 return self._get_stock_realtime_quote_em(stock_code)
     
+    def get_full_market_snapshot(self, source: str = "auto") -> "pd.DataFrame":
+        """全市场 A 股截面快照（蓝图 ②-A 数据源）。
+
+        source="auto"：先东财（全列），失败/熔断降级新浪（无 PE/PB/市值，
+        漏斗对缺失列容错）。失败抛 RuntimeError。
+        """
+        if source in ("em", "auto"):
+            try:
+                return self._get_full_market_snapshot_em()
+            except Exception as exc:
+                if source == "em":
+                    raise
+                logger.warning("东财全市场快照失败，降级新浪: %r", exc)
+        return self._get_full_market_snapshot_sina()
+
+    def _get_full_market_snapshot_em(self) -> "pd.DataFrame":
+        import akshare as ak
+
+        circuit_breaker = get_realtime_circuit_breaker()
+        source_key = "akshare_em_full_market"
+        if not circuit_breaker.is_available(source_key):
+            raise RuntimeError("全市场快照数据源处于熔断状态")
+
+        current_time = time.time()
+        if (_realtime_cache['data'] is not None and
+                current_time - _realtime_cache['timestamp'] < _realtime_cache['ttl']):
+            df = _realtime_cache['data']
+        else:
+            last_error: Optional[Exception] = None
+            df = None
+            for attempt in range(1, 3):
+                try:
+                    self._set_random_user_agent()
+                    self._enforce_rate_limit()
+                    logger.info("[API调用] ak.stock_zh_a_spot_em() 全市场快照 (attempt %d/2)", attempt)
+                    df = ak.stock_zh_a_spot_em()
+                    circuit_breaker.record_success(source_key)
+                    break
+                except Exception as e:
+                    last_error = e
+                    circuit_breaker.record_failure(source_key)
+                    time.sleep(min(2 ** attempt, 5))
+            if df is None or len(df) == 0:
+                raise RuntimeError(f"全市场快照获取失败: {last_error!r}")
+            _realtime_cache['data'] = df
+            _realtime_cache['timestamp'] = current_time
+
+        out = self._normalize_spot_columns(df)
+        if len(out) == 0:
+            raise RuntimeError("全市场快照标准化后为空（列名映射或数据源变更？）")
+        return out
+
+    def _get_full_market_snapshot_sina(self) -> "pd.DataFrame":
+        """新浪备用源：ak.stock_zh_a_spot()，无 PE/PB/市值（漏斗容错）。"""
+        import akshare as ak
+
+        circuit_breaker = get_realtime_circuit_breaker()
+        source_key = "akshare_sina_full_market"
+        if not circuit_breaker.is_available(source_key):
+            raise RuntimeError("新浪备用源亦处于熔断状态")
+        last_error: Optional[Exception] = None
+        df = None
+        for attempt in range(1, 3):
+            try:
+                self._set_random_user_agent()
+                self._enforce_rate_limit()
+                logger.info("[API调用] ak.stock_zh_a_spot() 全市场快照(新浪) (attempt %d/2)", attempt)
+                df = ak.stock_zh_a_spot()
+                circuit_breaker.record_success(source_key)
+                break
+            except Exception as e:
+                last_error = e
+                circuit_breaker.record_failure(source_key)
+                time.sleep(min(2 ** attempt, 5))
+        if df is None or len(df) == 0:
+            raise RuntimeError(f"新浪全市场快照获取失败: {last_error!r}")
+        out = self._normalize_spot_columns(df)
+        if len(out) == 0:
+            raise RuntimeError("新浪快照标准化后为空（列名映射变更？）")
+        return out
+
+    @staticmethod
+    def _normalize_spot_columns(df: "pd.DataFrame") -> "pd.DataFrame":
+        """东财 spot 列名 → 标准化截面列（缺失列容错为 NaN）。"""
+        import pandas as pd
+
+        column_map = {
+            "代码": "code", "名称": "name", "最新价": "close", "昨收": "prev_close",
+            "今开": "open", "最高": "high", "最低": "low",
+            "成交量": "volume", "成交额": "amount",
+            "换手率": "turnover_rate", "量比": "volume_ratio",
+            "市盈率-动态": "pe", "市净率": "pb",
+            "总市值": "market_cap", "流通市值": "float_market_cap",
+            # 新浪备用源列名（无 pe/pb/市值 → NaN，漏斗容错）
+            "买入": "open",  # 新浪语义为买一档，仅作参考价
+        }
+        out = pd.DataFrame({
+            std: pd.to_numeric(df.get(src), errors="coerce")
+            if std != "code" and std != "name"
+            else df.get(src)
+            for src, std in column_map.items()
+        })
+        out = out[out["code"].notna()]
+        return out.reset_index(drop=True)
+
     def _get_stock_realtime_quote_em(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
         """
         获取普通 A 股实时行情数据（东方财富数据源）
