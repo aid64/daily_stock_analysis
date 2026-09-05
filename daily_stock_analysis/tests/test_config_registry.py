@@ -423,6 +423,7 @@ class TestSettingsHelpMetadata(unittest.TestCase):
         "NOTIFICATION_TIMEZONE",
         "NOTIFICATION_MIN_SEVERITY",
         "NOTIFICATION_DAILY_DIGEST_ENABLED",
+        "NOTIFICATION_DIGEST_TIME",
         # PR3 Phase 4: System Runtime
         "LOG_LEVEL",
         "DEBUG",

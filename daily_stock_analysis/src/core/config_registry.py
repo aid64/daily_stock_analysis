@@ -2934,6 +2934,31 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         ],
         "warning_codes": [],
     },
+    "NOTIFICATION_DIGEST_TIME": {
+        "title": "Notification Digest Time",
+        "description": "Daily digest send time in HH:MM. Requires NOTIFICATION_DAILY_DIGEST_ENABLED=true.",
+        "category": "notification",
+        "data_type": "string",
+        "ui_control": "text",
+        "is_sensitive": False,
+        "is_required": False,
+        "is_editable": True,
+        "default_value": "18:00",
+        "options": [],
+        "validation": {"pattern": r"^([01]\d|2[0-3]):[0-5]\d$"},
+        "display_order": 68,
+        "help_key": "settings.notification.digest_time",
+        "examples": [
+            "NOTIFICATION_DIGEST_TIME=18:00",
+        ],
+        "docs": [
+            {
+                "label": "通知渠道与路由",
+                "href": "https://github.com/ZhuLinsen/daily_stock_analysis/blob/main/docs/notifications.md",
+            },
+        ],
+        "warning_codes": [],
+    },
     "NOTIFICATION_QUIET_HOURS": {
         "title": "Notification Quiet Hours",
         "description": "Quiet window in HH:MM-HH:MM format. Supports overnight ranges. Empty disables quiet hours.",

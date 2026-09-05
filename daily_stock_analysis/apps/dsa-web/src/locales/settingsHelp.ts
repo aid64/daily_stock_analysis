@@ -1177,6 +1177,14 @@ const settingsHelpZhCN: SettingsHelpMap = {
     impact: ['影响通知推送频率和重复控制。'],
     notes: ['动态通知（如告警）有独立的触发和冷却逻辑。'],
   },
+  'settings.notification.digest_time': {
+    title: '每日摘要发送时间',
+    summary: 'NOTIFICATION_DAILY_DIGEST_ENABLED 开启时，每日在此时刻聚合发送一条摘要。',
+    usage: 'NOTIFICATION_DIGEST_TIME 使用 HH:MM 24 小时制。',
+    valueNotes: ['默认 18:00。'],
+    impact: ['影响每日摘要的发送时刻。'],
+    notes: ['需要 NOTIFICATION_DAILY_DIGEST_ENABLED=true。'],
+  },
   'settings.notification.quiet_hours': {
     title: '静默时段',
     summary: '在指定时间段内抑制通知推送。',
