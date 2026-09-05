@@ -608,6 +608,18 @@ class RuntimeSchedulerService:
         tasks: List[Dict[str, Any]] = []
         tasks.extend(self._current_agent_event_monitor_background_tasks(config))
         tasks.extend(self._current_market_monitor_background_tasks(config))
+        # ①-D 每日摘要：到点聚合总线为一条推送（开关读取 config）
+        try:
+            from src.services.notification_digest_service import (
+                digest_background_task,
+            )
+
+            digest_entry = digest_background_task(
+                config, config_provider=self._reload_config)
+            if not any(t["name"] == digest_entry["name"] for t in tasks):
+                tasks.append(digest_entry)
+        except Exception as exc:  # noqa: BLE001 - 摘要任务缺失不影响其他任务
+            logger.warning("digest task registration failed: %r", exc)
         tasks.extend(self._current_data_purge_background_tasks(config))
         return tasks
 

@@ -2703,6 +2703,34 @@ class NotificationService(
                 message="interactive context delivery failed; static channels skipped",
             )
 
+        # ①-D 每日摘要总线：开关开启时，非 system_error 的静态推送入总线
+        # 延迟到每日摘要（持仓相关置顶/重要/其他三级聚合）。
+        # system_error 与 bot 会话回复（上方 send_to_context 已返回）不受影响。
+        if (
+            route_type != "system_error"
+            and bool(getattr(self._config, "notification_daily_digest_enabled", False))
+            and not getattr(self, "_digest_bypass", False)
+        ):
+            try:
+                from src.services.notification_digest_service import append_to_bus
+
+                queued, _entry = append_to_bus(
+                    content=content, route_type=route_type, severity=severity,
+                    dedup_key=dedup_key, structured_payload=structured_payload)
+            except Exception as exc:  # noqa: BLE001 - 总线故障回退直发
+                logger.warning("digest bus append failed; falling back to direct send: %r", exc)
+            else:
+                status = "digest_queued" if queued else "digest_deduped"
+                logger.info("推送已入每日摘要总线（%s）: %s", status,
+                            (dedup_key or "hash")[:24])
+                results = [ChannelAttemptResult(channel="__digest_bus__",
+                                                success=True)]
+                return NotificationDispatchResult(
+                    dispatched=True, success=True, status=status,
+                    channel_results=results,
+                    message="queued for daily digest" if queued else "duplicate in digest bus",
+                )
+
         if not self._available_channels:
             if context_success:
                 logger.info("已通过消息上下文渠道完成推送（无其他通知渠道）")

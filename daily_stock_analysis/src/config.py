@@ -1133,6 +1133,7 @@ class Config:
     notification_timezone: str = ""
     notification_min_severity: str = ""
     notification_daily_digest_enabled: bool = False
+    notification_digest_time: str = '18:00'
 
     # 单股推送模式：每分析完一只股票立即推送，而不是汇总后推送
     single_stock_notify: bool = False
@@ -2204,6 +2205,7 @@ class Config:
                 os.getenv('NOTIFICATION_DAILY_DIGEST_ENABLED'),
                 default=False,
             ),
+            notification_digest_time=(os.getenv('NOTIFICATION_DIGEST_TIME') or '18:00').strip(),
             single_stock_notify=os.getenv('SINGLE_STOCK_NOTIFY', 'false').lower() == 'true',
             report_type=cls._parse_report_type(os.getenv('REPORT_TYPE', 'simple')),
             report_language=cls._parse_report_language(report_language_raw),
