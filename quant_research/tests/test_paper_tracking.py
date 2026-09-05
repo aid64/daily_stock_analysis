@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -134,3 +136,35 @@ class TestRecordQuarter:
         with pytest.raises(ValueError, match="尚无 PIT 数据"):
             record_quarter(pit, "2030Q1", 100000.0, _make_config(),
                            tmp_path, pick_params=_PICK_PARAMS)
+
+
+class TestExportPlan:
+    """①-C：current_plan.json 信号契约导出"""
+
+    def test_export_writes_contract_with_t1_close(self, tmp_path):
+        from scripts.run_paper_tracking import export_current_plan
+
+        pit = _make_pit({"SH113062": 0.001, "SZ123089": 0.002}, days=5)
+        picks = {"SH113062": 0.5, "SZ123089": 0.5}
+        out = export_current_plan(pit, picks, "2024-01-08", 10000.0,
+                                  out_dir=tmp_path)
+        plan = json.loads(out.read_text(encoding="utf-8"))
+        assert plan["schema"] == "cb_current_plan_v1"
+        assert plan["capital_base"] == 10000.0
+        assert plan["latest_rebalance"] == "2024-01-08"
+        assert abs(plan["targets"]["SH113062"]["weight"] - 0.5) < 1e-9
+        assert plan["targets"]["SH113062"]["t1_close"] > 0  # PIT 末端价
+        assert set(plan["targets"]) == {"SH113062", "SZ123089"}
+
+    def test_export_idempotent_overwrite(self, tmp_path):
+        from scripts.run_paper_tracking import export_current_plan
+
+        pit = _make_pit({"SH113062": 0.001}, days=5)
+        picks = {"SH113062": 1.0}
+        out1 = export_current_plan(pit, picks, "2024-01-08", 10000.0,
+                                   out_dir=tmp_path)
+        out2 = export_current_plan(pit, picks, "2024-01-08", 20000.0,
+                                   out_dir=tmp_path)
+        assert out1 == out2
+        plan = json.loads(out2.read_text(encoding="utf-8"))
+        assert plan["capital_base"] == 20000.0  # 覆盖而非追加
