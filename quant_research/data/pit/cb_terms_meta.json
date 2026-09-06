@@ -1,0 +1,10 @@
+{
+ "generated_at": "2026-09-06T23:15:11",
+ "n_basic": 1163,
+ "n_rate_ok": 1161,
+ "n_rate_exempt": 2,
+ "n_share_ok": 1096,
+ "n_call_events": 2948,
+ "n_share_rows": 109441,
+ "note": "meta rebuilt post-crash-fix (2026-09-06)"
+}
