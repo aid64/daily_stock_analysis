@@ -1,0 +1,40 @@
+{
+ "task": "E1 composite factor four-arm comparison (preregistered)",
+ "window": "2020-01-01..2026-08-08",
+ "top_n": 5,
+ "results": {
+  "double_low": {
+   "total_return": -0.268365,
+   "annual_return": -0.003898,
+   "max_drawdown": 0.573675,
+   "total_cost": 16933.45,
+   "n_rebalances": 320
+  },
+  "ytm_true": {
+   "total_return": -0.308409,
+   "annual_return": -0.004599,
+   "max_drawdown": 0.506169,
+   "total_cost": 17065.17,
+   "n_rebalances": 320
+  },
+  "low_premium": {
+   "total_return": -0.041444,
+   "annual_return": -0.000529,
+   "max_drawdown": 0.491003,
+   "total_cost": 17076.99,
+   "n_rebalances": 320
+  },
+  "composite": {
+   "total_return": -0.031657,
+   "annual_return": -0.000402,
+   "max_drawdown": 0.561964,
+   "total_cost": 17073.93,
+   "n_rebalances": 320
+  }
+ },
+ "gates": {
+  "composite_excess_vs_double_low_pp": 0.35,
+  "gate_1_excess_ge_2pp_and_dd_ok": false,
+  "verdict": "fail"
+ }
+}
