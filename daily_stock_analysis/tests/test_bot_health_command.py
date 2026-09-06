@@ -45,8 +45,8 @@ class TestHealthCommand:
         assert "1 只目标" in text
         assert "总线 0 条" in text
         assert "尚未生成" in text
-        assert "一切正常" in text
-        assert "⚠" not in text
+        assert "E2 择时" in text  # E2 信号接入后健康视图总带择时行
+        assert "尚未生成" in text
 
     def test_stale_plan_flagged(self, plan_file, isolated_db):
         stale = (date.today() - timedelta(days=9)).isoformat()

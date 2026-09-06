@@ -96,6 +96,42 @@ def _anomaly_lines(today: date) -> List[str]:
     return lines
 
 
+def _timing_line() -> str:
+    """E2 估值分位择时信号"""
+    try:
+        from src.services.cb_signal_bridge import load_cb_plan
+        plan = load_cb_plan()
+        if plan is None:
+            return ""
+        # 简化：读 CB-RESEARCH-PLAN 产出的最新分位
+        import json as _json
+        e2_path = _PROJECT_ROOT.parent / "quant_research" / "output" / "e2_valuation_timing.json"
+        if not e2_path.exists():
+            return ""
+        e2 = _json.loads(e2_path.read_text(encoding="utf-8"))
+        state = e2.get("current_state", {})
+        pct = state.get("percentile")
+        if pct is None:
+            return ""
+        if pct > 0.80:
+            return f"⚠ E2 择时: 估值分位 {pct:.1%} → 建议减半仓"
+        return f"✓ E2 择时: 估值分位 {pct:.1%} → 正常仓位"
+    except Exception:
+        return ""
+    lines = []
+    if _PLAN_PATH.exists():
+        try:
+            plan = json.loads(_PLAN_PATH.read_text(encoding="utf-8"))
+            pit_end = date.fromisoformat(plan.get("pit_end", "1970-01-01"))
+            if today - pit_end > timedelta(days=7):
+                lines.append("⚠ CB 信号数据超 7 天未更新——请跑 quant 侧 PIT 增量")
+        except (ValueError, json.JSONDecodeError):
+            lines.append("⚠ CB 信号契约解析失败")
+    else:
+        lines.append("⚠ 未发现 CB 信号契约——操作单将无法生成")
+    return lines
+
+
 class HealthCommand(BotCommand):
     """运行健康视图"""
 
@@ -119,6 +155,9 @@ class HealthCommand(BotCommand):
         today = date.today()
         lines = ["【运行健康】", _plan_line(today), _push_line(),
                  _sheet_line(), _signal_line()]
+        timing = _timing_line()
+        if timing:
+            lines.append(timing)
         lines.extend(_anomaly_lines(today))
         if not any("⚠" in ln for ln in lines):
             lines.append("一切正常。")

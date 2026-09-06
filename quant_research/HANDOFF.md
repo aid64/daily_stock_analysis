@@ -1,4 +1,4 @@
-# quant_research 交接文档（2026-09-06 更新）
+# quant_research 交接文档（2026-09-07 更新——CB-RESEARCH-PLAN 全部执行完毕）
 
 > 用途：新会话/新环境先读本文件，再按"快速恢复"验证环境。
 > 配套文档：**`docs/CB-RESEARCH-PLAN.md`（下一个研究周期的唯一真源：双低失效诊断 + 三实验接班计划）**、**`docs/ROADMAP-V2.md`（历史执行记录，F1-F8 已闭环）**、
@@ -27,8 +27,16 @@
 - 全量测试：**299 passed + 2 network 冒烟**（`py -m pytest -q -m "not network"`，在 `quant_research/` 下执行）。
 - ROADMAP-V2 全链条闭环；**蓝图阶段 ④ 已执行**：TDXJKBroker / LiveMWU / run_live.py 已移除（tag pre-restructure-v1 可回溯），PaperBroker/sizer/executor 保留为操作单引擎组件。
 - **跨项目信号契约**：`run_paper_tracking.py --export-plan` 产出 `output/paper_tracking/current_plan.json`（schema v1），dsa 侧 cb_signal_bridge 消费生成操作单——两项目集成只走此文件。
-- C2 paper tracking 运行中（2026-09-02 启动）：每月 PIT 增量（最新至 2026-09-02），季末 `--record` 三表，首个可产出季度 2026Q3。
-- 当前 paper 组合 = 2025-10-09 的 5 只券沿用（2026Q1 起三季候选不足 min_candidates=15）；**123089.SZ 已无 PIT 报价（疑似强赎/退市），操作单侧已显式示警**。
+- **CB-RESEARCH-PLAN 六个实验全部执行完毕**（2026-09-06/07）：
+  - D0: tushare 数据源接入（1163 只 / 4878 票息行 / 2948 强赎事件 / 109k 转股价）
+  - D1: ytm_true 全样本稳定正 IC（含双低死亡年 2021 +0.067）——期限维度有独立信号
+  - D2: 共线性递减（0.57→0.35）、残差 IC 全正、AA/A- 最强——越来越不像纯价格因子
+  - D3: 判定 crowding_silent（非结构死亡）——离散度在增加、无断点
+  - E1: 合成因子 **fail**——四臂全负，截面选债 alpha 消失
+  - **E2: 分位择时 pass**——回撤改善 31%，当前分位 95.1% → 减半仓信号
+  - E3: 下修博弈 **fail**——328 事件超额 -0.56%，下修是续命不是起死回生
+- **转债线最终状态**：截面选债 alpha 消失，但估值分位择时有效。操作 = 持有现有组合 + 估值 >80% 分位减半仓 + 等分位回落 <80% 后重新启用选债（届时合成因子可能重新生效）。
+- C2 paper tracking 运行中：每月 PIT 增量，季末 `--record` 三表。
 - 环境：Windows，Python 用 `py` 启动器（`python` 是坏桩）；工作目录 `d:\daily_stock_analysis\quant_research`。
 - 代码规范入口：仓库根 `AGENTS.md`。
 

@@ -11,15 +11,20 @@
 信号契约缺失时诚实降级为"信号源不可用"，不虚构操作。
 """
 
+import pandas as pd
 from datetime import date
 from typing import List
 
 import logging
 
+from pathlib import Path
+
 from bot.commands.base import BotCommand
 
 logger = logging.getLogger(__name__)
 from bot.models import BotMessage, BotResponse
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _build_sheet_text() -> str:
@@ -86,6 +91,28 @@ def _build_sheet_text() -> str:
     from src.services.order_sheet_service import save_order_sheet
     from src.services.simulation_ledger import SimulationLedger
 
+    # E2 择时信号：估值分位高位时提示减仓
+    timing_note = ""
+    try:
+        from quant_research.scripts.e2_valuation_timing import (
+            build_median_series, expanding_percentile,
+        )
+        from quant_research.backtest.convertible import load_pit_snapshot as _lps
+        _pit = _lps(_PROJECT_ROOT.parent / "quant_research" / "data" / "pit"
+                    / "convertible_pit.parquet")
+        _pit = _pit[_pit["as_of"] <= pd.Timestamp("2026-08-08")]
+        _median = build_median_series(_pit)
+        _pct = expanding_percentile(_median)
+        if not _pct.empty:
+            _cur = _pct.iloc[-1]
+            if _cur > 0.80:
+                timing_note = (
+                    f"\n⚠ E2 择时信号：估值分位 {_cur:.1%}（>80%）"
+                    "——建议减半仓，新增买入仅限防守标的"
+                )
+    except Exception:
+        pass  # 择时信号不可用不影响操作单
+
     save_order_sheet(sheet)
     # ③-A：操作单生成即记模拟成交（幂等），真实侧等用户回填后 /对比 查看
     try:
@@ -93,6 +120,8 @@ def _build_sheet_text() -> str:
     except Exception as exc:  # noqa: BLE001 - 账本失败不影响操作单展示
         logger.warning("模拟账本记录失败: %r", exc)
     text = render_text(sheet)
+    if timing_note:
+        text += timing_note
     if stale_symbols:
         text += (
             "\n⚠ 以下信号标的无报价（可能已强赎/退市），若仍持有请人工核实："
