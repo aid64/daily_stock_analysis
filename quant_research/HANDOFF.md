@@ -1,7 +1,7 @@
 # quant_research 交接文档（2026-09-06 更新）
 
 > 用途：新会话/新环境先读本文件，再按"快速恢复"验证环境。
-> 配套文档：**`docs/ROADMAP-V2.md`（缺口盘点与执行记录，F1-F8 已全部闭环）**、
+> 配套文档：**`docs/CB-RESEARCH-PLAN.md`（下一个研究周期的唯一真源：双低失效诊断 + 三实验接班计划）**、**`docs/ROADMAP-V2.md`（历史执行记录，F1-F8 已闭环）**、
 > `docs/ROADMAP-V2.2.md`（执行细节真源）、`docs/ROADMAP.md`（深度审视参考）、
 > `daily_stock_analysis/docs/quant_research_architecture_research.md`、
 > `daily_stock_analysis/docs/CHANGELOG.md`、`PRIMARY_SOURCE_RESEARCH.md`。
