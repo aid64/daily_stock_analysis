@@ -1,4 +1,4 @@
-# quant_research 交接文档（2026-09-03 更新）
+# quant_research 交接文档（2026-09-06 更新）
 
 > 用途：新会话/新环境先读本文件，再按"快速恢复"验证环境。
 > 配套文档：**`docs/ROADMAP-V2.md`（缺口盘点与执行记录，F1-F8 已全部闭环）**、
@@ -25,9 +25,10 @@
 ## 2. 当前状态快照（2026-09-03）
 
 - 全量测试：**299 passed + 2 network 冒烟**（`py -m pytest -q -m "not network"`，在 `quant_research/` 下执行）。
-- ROADMAP-V2 全链条闭环：F1-F8（C2 三表 / holdout 代码隔离 / trades 口径 / N 审计 / 核心层测试 / 滑点 / 因子诊断 / 止损带 fail）、R-B 拆分、盘点 G1-G6 与 E1-E4 全部关闭。
-- C2 paper tracking 已启动（2026-09-02）：每月 PIT 增量（最新至 2026-09-02），季末 `run_paper_tracking.py --record` 产出三表，首个可产出季度 2026Q3（需等 09-30 PIT）。
-- 当前 paper 组合 = 2025-10-09 的 5 只券沿用（2026Q1 起三季候选不足 min_candidates=15，口径见 h2-preregistration 第 6 节）。
+- ROADMAP-V2 全链条闭环；**蓝图阶段 ④ 已执行**：TDXJKBroker / LiveMWU / run_live.py 已移除（tag pre-restructure-v1 可回溯），PaperBroker/sizer/executor 保留为操作单引擎组件。
+- **跨项目信号契约**：`run_paper_tracking.py --export-plan` 产出 `output/paper_tracking/current_plan.json`（schema v1），dsa 侧 cb_signal_bridge 消费生成操作单——两项目集成只走此文件。
+- C2 paper tracking 运行中（2026-09-02 启动）：每月 PIT 增量（最新至 2026-09-02），季末 `--record` 三表，首个可产出季度 2026Q3。
+- 当前 paper 组合 = 2025-10-09 的 5 只券沿用（2026Q1 起三季候选不足 min_candidates=15）；**123089.SZ 已无 PIT 报价（疑似强赎/退市），操作单侧已显式示警**。
 - 环境：Windows，Python 用 `py` 启动器（`python` 是坏桩）；工作目录 `d:\daily_stock_analysis\quant_research`。
 - 代码规范入口：仓库根 `AGENTS.md`。
 
