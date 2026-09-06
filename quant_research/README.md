@@ -29,7 +29,7 @@ quant_research/
 │   ├── core/             # 数据面板 / 因子注册 / MWU 融合 / RuleBook / 过拟合审计 / 实验注册
 │   ├── data/             # 多源数据客户端 (akshare/tushare/baostock/iFinD) + parquet 缓存
 │   ├── backtest/         # 引擎 (backtrader) / 转债选债 / 两段式回测 / RuleBook 强制闸
-│   ├── trade/            # PaperBroker / TDXJK / 执行器
+│   ├── trade/            # PaperBroker / 整数手 sizer / 执行器
 │   └── config/           # omegaconf + pydantic 配置
 ├── scripts/              # CLI 入口（回测 / 数据采集 / 审计 / paper tracking）
 ├── tests/                # 299 项测试（+2 network 冒烟）

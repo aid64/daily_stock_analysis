@@ -60,7 +60,7 @@
 | 回测 | `backtest/mwu.py` | 432 | 专家信号 + 目标权重执行 | 🟢 |
 | 回测 | `backtest/engine.py` | 387 | backtrader 封装 | 🔴 依赖停更库 |
 | 回测 | `backtest/two_stage.py` | 213 | 两段式转债回测（R5 新基线） | 🟢 |
-| 执行 | `trade/broker.py` | 512 | AbstractBroker + PaperBroker + TDXJK(32位DLL) | 🟡 见 §1.8 |
+| 执行 | `trade/broker.py` | 234 | AbstractBroker + PaperBroker（TDXJK 已于 2026-09-06 移除，见蓝图 ④.1） | 🟡 见 §1.8 |
 | 执行 | `trade/executor.py` | 257 | 目标权重→真实持仓 | 🟡 |
 
 ### 1.4 数据资产（实测校验）
