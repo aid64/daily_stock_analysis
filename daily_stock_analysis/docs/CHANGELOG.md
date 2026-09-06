@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [修复] 恢复被意外覆盖的 .env.example（内容曾被写成执行蓝图全文）：从最近健康提交还原并重新套用 screening/AGENT_MODE 冻结标注；配套修复 run 补交的 evals 模块与 assistant 端点漏 add 问题，全仓 71 文件变更逐一审计确认污染面仅此一文件。
 - [文档] 蓝图阶段④砍除核实结论：screening（SCREENING_ENABLED 默认 false + 入口把关）与 Agent 多智能体例行模式（AGENT_MODE 默认 false 显式 opt-in）本就不在每日默认路径；.env.example 补冻结标注与成本警示，run_diagnostics/配置三件套收缩降级为按使用反馈再议。
 - [新功能] Web 新增助手三页（/assistant/health、/assistant/compare、/assistant/stats）：运行健康五要素、模拟vs真实逐笔对比、信号后验统计；后端新增 /api/v1/assistant 视图端点（health-view/comparison/order-sheets）。
 - [新功能] /操作单 生成即记模拟账本（幂等）；bot 新增 /对比 命令：模拟 vs 真实成交逐笔对比（价格/费用/回填状态），量化信号可信度。
