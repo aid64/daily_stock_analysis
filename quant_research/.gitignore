@@ -1,0 +1,3 @@
+
+# 运行时信号契约（每日重导出，不入库；current_plan.json 由 run_paper_tracking 生成）
+output/paper_tracking/
