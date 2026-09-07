@@ -1,163 +1,169 @@
-# 闭环修复计划（GLM-5.3F 执行指导）
+# 闭环修复计划 v2（GLM-5.3F 执行指导）
 
-> 版本：v1.0（2026-09-07 定稿）
-> 上游依据：全仓端到端诚实审计（2026-09-07，12 条断裂链路）
-> 效力：本文件是本轮修复的唯一真源；与 EXECUTION-BLUEPRINT.md（工程蓝图，①-⑤ 已闭环）和 CB-RESEARCH-PLAN.md（研究计划，D0-D3/E1-E3 已闭环）并列。
-> 纪律：每条修复完成后必须**端到端验证**（跑通 ≠ 代码存在）；未验证的项禁止标记完成。
-
----
-
-## 〇、审计结论与修复目标
-
-审计发现：半自动交易助手核心闭环四环断三环——
-
-| 环节 | 断裂状态 | 本计划修复后 |
-| --- | --- | --- |
-| 每日自动分析 | 只分析 000899（漏 002475） | F1 修复后覆盖全部持仓 |
-| 信号自动产出 | 纯手动，09-09 过期 | F4 修复后每日自动刷新 |
-| 操作单自动生成 | 纯手动，挂在无人能调的命令上 | F4 修复后每日推送 |
-| 手机发命令 | 完全无接收平台 | F2 修复后飞书双向 |
-| 下单后回填 | mark_order_filled 零调用点 | F3 修复后 bot 命令 + API |
-| E2 择时 | 硬编码冻结在 2026-08-08 | F5 修复后用 pit_end 动态计算 |
-
-**修复完成的标准**：用户手机上收到飞书推送的操作单 → 用户在飞书发 `/持仓登记` 回填 → `/对比` 看到真实 vs 模拟对照 → 每日 18:00 企微收到一条摘要。全程不需要碰电脑。
+> 版本：v2.0（2026-09-07 重写——基于用户核心反馈："我对电脑端完全看不到项目到底运行了还是没运行感到焦虑"）
+> 替代 v1.0（F1-F7 已部分完成：F2 飞书双向已验证 ✓ / F1 STOCK_LIST 已修 ✓）
+> 效力：本轮修复的唯一真源。纪律不变：**每条完成必须端到端验证**，未验证禁止标 ✅。
 
 ---
 
-## 一、平台决定：飞书（Stream 模式）
+## 〇、用户核心痛点（本轮设计的出发点）
 
-理由：feishu_stream.py 763 行最完整；个人版免费建应用即可；企微继续做推送兜底（双通道冗余）；dsa-web 文档主推。
+1. **看不到运行状态**——终端窗口一关服务就停，不知道系统是活着还是死了
+2. **不知道下一步该干嘛**——启动方式对非开发者不友好（要 cd 到目录、敲命令）
+3. **不确定消息会不会来**——推送和 bot 是"黑盒"，没有"系统活着"的可确认信号
 
-**用户需提供**（在飞书开放平台 https://open.feishu.cn 创建企业自建应用后获取）：
-- `FEISHU_APP_ID`
-- `FEISHU_APP_SECRET`
-
-应用需开通：机器人能力 + 消息接收（Stream 模式）。
+设计目标：**双击一个图标 → 浏览器打开一个页面 → 页面上明明白白写着"系统运行中"** → 飞书能收发消息。零终端、零命令行。
 
 ---
 
-## 二、修复任务清单（按依赖顺序执行）
-
-### F1 STOCK_LIST 同步持仓（5 分钟，一行配置 + 根治代码）
-
-**立即修复**：`.env` 的 `STOCK_LIST` 改为 `000899,002475`。
-
-**根治（可选，本轮不做）**：在 runtime_scheduler 注册一个持仓→STOCK_LIST 同步任务（读 PortfolioService 非零持仓 → 刷新 STOCK_LIST env），消除两套体系的静默脱节。本轮先手动同步，根治留给后续。
-
-**验收**：`py main.py --dry-run --stocks 000899,002475` 确认两只都进入分析队列。
-
-### F2 飞书 Stream 双向命令激活（30 分钟）
-
-前置：用户已提供 FEISHU_APP_ID + FEISHU_APP_SECRET。
-
-- `.env` 追加：`FEISHU_STREAM_ENABLED=true` + 凭据两行
-- 验证 `bot/platforms/feishu_stream.py` 的启动入口（`main.py:1335-1365` 附近）在 `--serve` 模式下被调用
-- 确认全部 16 个 bot 命令在飞书可用：help/status/analyze/market/batch/ask/chat/research/strategies/history/portfolio/portfolio_record/portfolio_clear/ordersheet/compare/health
-
-**验收**：飞书发 `/健康` 收到五要素回复；发 `/持仓` 看到当前两只持仓。
-
-### F3 回填成交入口（1 小时，本轮核心新代码）
-
-**bot 命令**：新增 `/成交回填` 命令（bot/commands/fill.py）：
+## 一、总体架构：服务常驻 + 单页可视化
 
 ```
-/成交回填 000899 卖出 100 11.50    → 标记操作单中 000899 卖出腿已成交
-/成交回填 002475 买入 100 56.50    → 标记买入腿已成交
+双击 启动助手.vbs（桌面快捷方式）
+  → 隐藏窗口启动 py main.py --serve（后台常驻，无黑框）
+  → 等待服务就绪（轮询 /api/v1/health 直到 200）
+  → 自动打开浏览器 http://127.0.0.1:8000/
+  → Web 首页顶部显示【系统运行中 ✓ 已运行 X 小时】
+  → 飞书机器人同时在线（同一服务进程内）
 ```
 
-逻辑：读当日操作单（`load_latest_sheet`）→ 找到匹配 symbol+direction 的 OrderLine → 调用 `mark_order_filled(sheet, symbol, actual_price, actual_quantity)` → 同时调 `PortfolioService.record_trade` 写真实账本 → 回复确认。
+配套：
+- 桌面第二个图标 `停止助手.vbs`：优雅停止服务
+- Web 首页加"运行状态"横幅（服务在跑 = 绿灯 + 运行时长；用户打开页面就能确认）
+- 每日 08:55 系统自动给飞书发一条"早安报"——用户在飞书上看到它 = 系统活着（心跳确认）
 
-**API 端点**：POST `/api/v1/assistant/order-sheets/fills`（body: `{symbol, direction, actual_price, actual_quantity?}`）→ 同上逻辑。供 Web 端后续使用。
+---
 
-**验收**：飞书发 `/成交回填` 后：① 操作单 JSON 状态从 pending→filled（或部分 filled）② `PortfolioService.list_trade_events` 出现该笔 ③ `/对比` 显示新回填的条目。
+## 二、任务清单（G 系列，按执行顺序）
 
-### F4 每日自动化任务链注册（1 小时）
+### G1 一键启动/停止脚本（30 分钟）★★★ 本轮核心
 
-在 `runtime_scheduler.py` 的 `_current_background_tasks` 新增一个任务 `daily_pipeline`：
+**新建 `scripts/start-assistant.ps1`**（PowerShell，被 VBS 调用）：
+1. 检查端口 8000 是否已被占用（`Test-NetConnection` 或 socket 探测）——已占用则直接打开浏览器（服务已在跑，幂等）
+2. 未占用 → `Start-Process py -ArgumentList "main.py","--serve" -WorkingDirectory <项目目录> -WindowStyle Hidden`（无窗口后台启动）
+3. 轮询 `http://127.0.0.1:8000/api/v1/health` 最多 90 秒直到 200（LLM 初始化慢，留足时间）
+4. 成功 → `Start-Process "http://127.0.0.1:8000/"`（打开浏览器）
+5. 失败 → 弹 Windows 消息框（`[System.Windows.Forms.MessageBox]`）提示"启动失败，查看 logs/assistant.log"
 
-- **触发**：每日 09:00（开盘后）执行一次；实现方式参照 digest 的轮询模式（每 5 分钟检查，到点执行一次，当日标记防重跑）
-- **串行执行**（子进程调 quant_research 侧脚本，遵守 domain.md 跨项目契约——不 import，走子进程）：
-  1. `py quant_research/scripts/update_pit_tail.py --limit 50`（增量更新，限制数量避免超时）
-  2. `py quant_research/scripts/build_pit_snapshot.py --assemble-only --start 2018`
-  3. `py quant_research/scripts/run_paper_tracking.py --export-plan`（刷新 current_plan.json）
-  4. dsa 侧调 `bot/commands/order_sheet.py` 的 `_build_sheet_text()` 生成操作单 → 落盘 + 模拟账本记录
-  5. 推送操作单文本到通知渠道（`NotificationService.send`，route_type=report）
-- **失败处理**：任一步骤失败 → 推送一条 system_error 告警（"自动化管线某步骤失败：XXX"），不中断其他后台任务
+**新建 `scripts/stop-assistant.ps1`**：
+- 找到监听 8000 端口的进程 PID（`Get-NetTCPConnection -LocalPort 8000`）→ `Stop-Process -Id <pid> -Force`
+- 弹确认框"助手已停止"
 
-同时注册 `market_snapshot` 任务：
-- **触发**：每日 15:30（收盘后）
-- **执行**：`market_scan_service.fetch_and_store_snapshot()`（幂等，当日已存在跳过）
-- **失败**：静默降级（新浪 fallback 已内置），不推送告警
+**新建桌面入口 `启动助手.vbs` / `停止助手.vbs`**（放在项目根，用户可发送到桌面快捷方式）：
+- VBS 隐藏 PowerShell 窗口执行对应 ps1（避免闪黑框）
 
-**验收**：启动 `--serve` 后等到 09:00（或临时改 digest 时间模式做 5 分钟内验证）→ 飞书/企微收到操作单推送 → `output/order_sheets/` 出现当日新 JSON → `current_plan.json` 的 `generated_at` 更新。
+**日志落盘**：服务 stdout/stderr 重定向到 `logs/assistant.log`（启动脚本里 `-RedirectStandardOutput`）。
 
-### F5 E2 择时信号解冻（15 分钟）
+**验收**：
+- 双击 `启动助手.vbs` → 无黑框 → ~30 秒后浏览器自动打开 Web 首页 → 页面能访问
+- 再双击一次 → 不重复启动，直接打开浏览器（幂等）
+- 双击 `停止助手.vbs` → 端口释放，飞书机器人离线
+- `logs/assistant.log` 有内容
 
-`bot/commands/order_sheet.py:103` 的硬编码 `pd.Timestamp("2026-08-08")` 改为读 `current_plan.json` 的 `pit_end` 字段（动态跟随 PIT 增量）：
+### G2 Web 首页运行状态横幅（30 分钟）
 
-```python
-# 改前
-_pit = _pit[_pit["as_of"] <= pd.Timestamp("2026-08-08")]
-# 改后
-pit_end = plan.get("pit_end")  # 从已加载的 plan 取
-_pit = _pit[_pit["as_of"] <= pd.Timestamp(pit_end)]
-```
+**后端**：`api/v1/endpoints/health.py` 或新建轻量端点 `GET /api/v1/runtime/status` 返回：
+- `running: true` + `started_at`（服务进程启动时间，写进 app.state）+ `uptime_seconds`
+- `feishu_stream_alive`（`get_feishu_stream_client()` 非 None 且线程存活）
+- `last_pipeline_run`（G4 的 daily_pipeline 最近一次执行时间与结果）
+- `last_digest_sent`（读 notification bus 的 digest_sent 标记）
 
-同时 `/健康` 的 `_timing_line()` 保持读静态 JSON（F4 的每日管线会刷新它——在 F4 步骤 3 后追加调用 `e2_valuation_timing.py` 的核心计算函数刷新 JSON）。
+**前端**：`HomePage.tsx` 顶部加横幅组件（复用现有 Card/Badge）：
+- 绿灯 `系统运行中 · 已运行 2h 15m · 飞书在线 ✓`
+- 红灯 `服务异常`（API 不通时前端自然显示错误态）
+- 附"上次管线 08:57 ✓ / 上次摘要 18:00 ✓"两行小字
 
-**验收**：`/操作单` 输出的分位数随 PIT 增量自动变化（不再是写死的 95.1%）。
+**验收**：启动服务 → 打开首页 → 看到绿灯和运行时长；`stop-assistant` 后刷新页面 → 无法访问（红灯态）。
 
-### F6 幽灵配置与残留清理（15 分钟）
+### G3 飞书早安报心跳（20 分钟）
 
-- `.env` 删除 `STRATEGY_SIGNAL_ENABLED=true` 段（代码无消费者）
-- `.env` 删除 `ALPHASIFT_ENABLED=true`（同上，测试已断言移除）
-- `src/config.py:3738-3746` 的"NOTIFICATION_DAILY_DIGEST_ENABLED 当前为预留配置"过时告警段删除（实现已落地）
-- `bot/__init__.py:20-24` 文档中不存在的 webhook 路由描述删除
-- `.env` 打开三个监控：`EVENT_ARBITRAGE_MONITOR_ENABLED=true`、`BOND_NEW_ISSUE_MONITOR_ENABLED=true`、`ETF_PREMIUM_MONITOR_ENABLED=true`
-- `simulation_ledger.py:27-29` 的 `parents[1]` 改 `parents[2]` + 迁移 `src/output/simulation_ledger/ledger.json` 合并到 `output/simulation_ledger/ledger.json`
-- `cb_signal_bridge.py` / `health.py` / `assistant.py` / `order_sheet.py` 四处的兄弟目录路径收敛为一个共享常量（放 `cb_signal_bridge.py`，其余 import），并支持 `CB_PLAN_PATH` env 覆盖
+在 `runtime_scheduler` 注册后台任务 `morning_heartbeat`：
+- 触发：每日 08:55（轮询模式，同 digest——每 5 分钟检查，到点发一次，当日标记防重发）
+- 内容（一条消息，直接走 NotificationService 静态渠道 = 企微 + 飞书若配了静态推送）：
+  ```
+  早安 · 系统运行中 ✓
+  运行时长 X 小时 · 飞书在线 ✓
+  今日操作单已生成（或：今日无操作）
+  估值分位 95.1% → 建议减半仓
+  ```
+- **实现注意**：推送走 NotificationService（企微 webhook），确保用户至少在一个渠道收到心跳。同时可调用飞书 stream 客户端直接发消息给创建者（如果 feishu stream 有主动发消息能力——查 feishu_stream.py 有无 send 方法，没有就只走企微）。
 
-**验收**：`py -m pytest -m "not network" -q` 全过；`grep -rn "STRATEGY_SIGNAL_ENABLED\|ALPHASIFT_ENABLED" src/` 零命中。
+**验收**：临时把触发时间改为 2 分钟后 → 等待 → 企微/飞书收到心跳消息 → 恢复 08:55。
 
-### F7 通知路由配置（5 分钟）
+### G4 每日自动化管线（从 v1 的 F4 移植，1 小时）
 
-`.env` 追加：
-```
-NOTIFICATION_REPORT_CHANNELS=wechat,feishu
-NOTIFICATION_ALERT_CHANNELS=wechat,feishu
-```
+在 `runtime_scheduler` 注册 `daily_pipeline` 任务（09:00 触发，轮询模式）：
+1. 子进程：`py quant_research/scripts/update_pit_tail.py --limit 50`
+2. 子进程：`py quant_research/scripts/build_pit_snapshot.py --assemble-only --start 2018`
+3. 子进程：`py quant_research/scripts/run_paper_tracking.py --export-plan`
+4. 内联：生成操作单（复用 `bot/commands/order_sheet.py` 的 `_build_sheet_text()` 逻辑——抽成服务层函数供 bot 和管线共用）+ 记模拟账本
+5. 推送操作单全文（NotificationService，route_type=report）
+6. 刷新 E2 择时 JSON（内联调 `e2_valuation_timing.py` 的核心计算，或子进程重跑脚本）
+7. 任一步失败 → 推 system_error 告警（"管线步骤 N 失败：XXX"），不中断其他任务
+8. 每步结果写 `output/pipeline_status.json`（G2 的 last_pipeline_run 数据源）
 
-（具体渠道名以 notification_routing.py 的合法值为准，执行时先核对再写入。）
+**执行时间与 G3 心跳配合**：心跳 08:55（说"今日操作单生成中"）→ 管线 09:00 → 操作单推送 ~09:05。
+
+**验收**：临时改触发时间为 2 分钟后 → 等待 → 收到操作单推送 + `output/order_sheets/` 出现当日 JSON + `pipeline_status.json` 记录成功 → 恢复 09:00。
+
+### G5 成交回填入口（从 v1 的 F3 移植，1 小时）
+
+**bot 命令** `/成交回填 代码 方向 数量 价格`：
+- 读当日操作单 → 匹配 symbol+direction → `mark_order_filled()` → 同时 `PortfolioService.record_trade()` 写真实账本 → 回复确认
+- 无匹配腿时给出明确错误（"操作单中没有 000899 的买入腿"）
+
+**API 端点** `POST /api/v1/assistant/order-sheets/fills`（同逻辑，供 Web 用）。
+
+**验收**：飞书发 `/成交回填 002475 买入 100 56.50` → 操作单 JSON 状态变化 + PortfolioService 出现该笔 + `/对比` 显示新条目。
+
+### G6 E2 择时解冻 + 幽灵配置清理（从 v1 的 F5/F6 移植，30 分钟）
+
+- `order_sheet.py:103` 硬编码 `2026-08-08` → 改读 `current_plan.json` 的 `pit_end`
+- `.env` 删 `STRATEGY_SIGNAL_ENABLED` / `ALPHASIFT_ENABLED` 幽灵段
+- `config.py:3738-3746` 过时的"digest 预留配置"告警删除
+- `bot/__init__.py:20-24` 不存在的 webhook 路由文档删除
+- `.env` 打开三监控（EVENT_ARBITRAGE / BOND_NEW_ISSUE / ETF_PREMIUM = true）
+- `simulation_ledger.py` `parents[1]`→`parents[2]` + 合并迁移 `src/output/.../ledger.json` 到 `output/.../ledger.json`
+- `cb_signal_bridge` 路径常量收敛 + 支持 `CB_PLAN_PATH` env 覆盖（4 处重复定义合一）
+
+**验收**：`py -m pytest -m "not network" -q` 全过；`/操作单` 的分位数随 PIT 动态变化。
+
+### G7 通知路由 + 收尾（15 分钟）
+
+- `.env` 配 `NOTIFICATION_REPORT_CHANNELS` / `NOTIFICATION_ALERT_CHANNELS`（先核对 notification_routing.py 合法渠道名）
+- CHANGELOG 记录全部 G 项
+- HANDOFF.md / CLOSURE-FIX-PLAN 状态表回填
+- `.gitignore` 加 `logs/`
 
 ---
 
 ## 三、执行顺序与依赖
 
 ```
-F6 清理（先做，避免脏状态干扰后续验证）
- → F1 STOCK_LIST（立即见效）
- → F5 E2 解冻（F4 依赖它）
- → F3 回填入口（独立，可与 F4 并行）
- → F4 每日管线（依赖 F5；最复杂）
- → F2 飞书激活（依赖用户提供凭据——执行者先做 F1/F5/F3/F4/F6/F7，
-    凭据到位后最后接 F2）
- → F7 通知路由（随时，最后收尾）
+G6 清理（先做，避免脏状态）
+ → G1 一键启动（核心体验，立即解决焦虑）
+ → G2 运行状态横幅（依赖服务可访问）
+ → G4 每日管线（G2 显示其状态）
+ → G3 早安心跳（依赖 G4 的管线状态输出）
+ → G5 成交回填（独立）
+ → G7 收尾
 ```
+
+G1 完成后用户即可双击图标使用——这是最快消除焦虑的一步，优先做。
 
 ---
 
-## 四、GLM-5.3F 执行注意事项（本轮特有）
+## 四、GLM-5.3F 执行注意事项（v2 特有）
 
-1. **每条修复的验收不是"代码编译过"而是"端到端跑通"**——F3 要在飞书或本地 dispatcher 真正调一次 `/成交回填` 看到 JSON 状态变化；F4 要真的等到/触发一次管线执行。
-2. **跨项目契约**：F4 步骤 1-3 必须走子进程（`subprocess.run`），不能 import quant_research——两个项目独立运行（domain.md）。
-3. **tushare 频率**：F4 步骤 1 的 update_pit_tail 用东财接口不走 tushare（tushare 只用于条款快照 D0），无频率风险。
-4. **测试隔离**：F3 的测试必须用 `isolated_db` fixture（tests/conftest.py），绝不能碰 `data/stock_analysis.db` 真库。
-5. **操作单幂等**：F4 步骤 4 生成操作单前先 `load_latest_sheet(today)`——当日已有 pending 单则跳过重新生成，只做推送。
-6. **模拟账本路径迁移**（F6）：迁移时保留两份历史（合并 entries 而不是覆盖），以 `output/` 版本为准。
-7. **通用注意事项**：见 EXECUTION-BLUEPRINT.md 第九节（py 启动器/测试禁并发/rename 黑洞/真库隔离/CRLF/commit 后 stat 核对）。
-8. **CHANGELOG**：每条 F 项完成后加一行（扁平格式，`[修复]`/`[新功能]`/`[chore]`）。
-9. **提交粒度**：每个 F 项独立 commit（F6 清理可以和 F1 合并），英文 message，无 Co-Authored-By。
-10. **验收后回填本文件状态表**（下方），未验证的项禁止标 ✅。
+1. **PowerShell/VBS 在 Git Bash 里写文件注意编码**——ps1 用 UTF-8 with BOM（含中文注释时必须），VBS 用 GBK/ANSI（wscript 不认 UTF-8 无 BOM）。写完用 `powershell -File` 实测执行。
+2. **端口探测用 `Get-NetTCPConnection -LocalPort 8000 -State Listen`**（Windows 专用，比 Test-NetConnection 快且无输出噪声）。
+3. **`--serve` 的 host/port**：确认 main.py --serve 默认绑定（127.0.0.1:8000 还是 0.0.0.0）——G1/G2 用同一地址，别猜，读代码确认。如果默认端口不是 8000，全部文档和脚本跟着改。
+4. **后台启动进程的生命周期**：`Start-Process` 启动的 py 进程独立于 PowerShell 窗口存活（正确）；但**不要用 `&` 后台 job**（会随 PowerShell 退出而死）。
+5. **G4 跨项目子进程**：`subprocess.run([sys.executable, ...])` 用绝对路径的脚本路径；cwd 设 quant_research/（脚本内部有相对路径假设）；timeout=600 秒（update_pit_tail 拉 50 只可能慢）。
+6. **G3 心跳的飞书直发**：先查 feishu_stream.py 有无主动发消息方法（grep send/reply）——只有收到消息后的 reply 的话，心跳只走企微（宁简单勿过度工程）。
+7. **日志轮转**：assistant.log 简单按日切（启动脚本启动前 rename 昨日文件），不引 logging 框架轮转——服务内部日志已由自身管理。
+8. **G2 的 started_at**：在 FastAPI lifespan 里 `app.state.started_at = time.time()`，端点从 app.state 读——不要依赖进程 PID 探测。
+9. 通用纪律见 EXECUTION-BLUEPRINT.md 第九节；**commit 后 `git show --stat` 核对**（v1 犯过漏 add 错）。
 
 ---
 
@@ -165,20 +171,18 @@ F6 清理（先做，避免脏状态干扰后续验证）
 
 | 任务 | 状态 | 验收证据 |
 | --- | --- | --- |
-| F1 STOCK_LIST 同步 | ⏳ | |
-| F2 飞书 Stream 激活 | ⏳ 等凭据 | |
-| F3 成交回填入口 | ⏳ | |
-| F4 每日自动化管线 | ⏳ | |
-| F5 E2 择时解冻 | ⏳ | |
-| F6 幽灵配置清理 | ⏳ | |
-| F7 通知路由配置 | ⏳ | |
+| G1 一键启动/停止 | ⏳ | |
+| G2 运行状态横幅 | ⏳ | |
+| G3 早安心跳 | ⏳ | |
+| G4 每日管线 | ⏳ | |
+| G5 成交回填 | ⏳ | |
+| G6 解冻+清理 | ⏳ | |
+| G7 路由+收尾 | ⏳ | |
+| （v1 遗产）F1 STOCK_LIST | ✅ 已完成 | .env=000899,002475 |
+| （v1 遗产）F2 飞书双向 | ✅ 已验证 | 用户实测 /健康 收到回复 |
 
 ---
 
-## 六、用户侧待办（需要你做的）
+## 六、用户侧零待办
 
-| # | 事项 | 说明 |
-| --- | --- | --- |
-| 1 | **提供飞书凭据**（F2 的前置） | 到 https://open.feishu.cn → 创建企业自建应用 → 添加机器人能力 → 开启 Stream 模式 → 把 App ID 和 App Secret 发给我 |
-| 2 | 确认每日管线时间 | 默认 09:00 跑管线 / 15:30 拍快照 / 18:00 发摘要——要改时间告诉我 |
-| 3 | F1 完成后核对 .env | 确认 STOCK_LIST=000899,002475 与你的实际持仓一致 |
+v1 需要用户提供飞书凭据——已提供并验证通过。**本轮 G1-G7 全部由执行者完成，用户不需要做任何配置。** 唯一可选：把 `启动助手.vbs` 发送到桌面创建快捷方式（G1 验收时会演示）。
