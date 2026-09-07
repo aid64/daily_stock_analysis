@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [文档] 新增 DESKTOP-OVERHAUL-PLAN.md：桌面端彻底大修计划（G0 前置 + D1-D8）——main.js 模块化拆分、托盘常驻与状态灯、SSE 通知桥（桌面系统通知与手机推送双路并存）、后端崩溃自动重启、单实例锁；吸收并替代 CLOSURE-FIX-PLAN v2 的 G1。
 - [文档] CLOSURE-FIX-PLAN 重写为 v2（G1-G7）：核心变化是围绕用户痛点重设计——一键启动/停止桌面入口（无终端）、Web 首页运行状态横幅（看得见系统活着）、飞书早安心跳、每日管线自动跑；v1 的 F1/F2 已完成并标记。
 - [文档] 新增 CLOSURE-FIX-PLAN.md：基于全仓端到端审计的 12 条断裂链路修复计划（F1-F7），含平台决定（飞书 Stream）、执行顺序、逐项验收标准与 GLM-5.3F 执行注意事项。
 - [文档] 新增 quant_research/docs/CB-RESEARCH-PLAN.md：基于三路独立调研（双低失效考古/YTM 因子与死亡判定方法论/接班候选面）与本地 PIT 实证的转债策略诊断与接班研究计划（D1-D3 诊断线 + E1-E3 实验线，全部预注册、N 计入 registry）。
