@@ -14,7 +14,9 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+import asyncio
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 
 router = APIRouter()
 
@@ -168,3 +170,61 @@ def assistant_order_sheets(limit: int = 10) -> Dict[str, Any]:
             except (json.JSONDecodeError, OSError):
                 continue
     return {"sheets": sheets[:limit]}
+
+
+# ── P4: SSE 通知流（桌面端主进程订阅 → Windows 系统通知弹出）──────────
+
+
+@router.get("/stream/notifications")
+async def stream_notifications(request: Request) -> StreamingResponse:
+    """免鉴权通知流（SSE）：本机 127.0.0.1 绑定，桌面端主进程订阅。
+
+    数据源：notification bus 当日 JSONL 新增行。
+    事件格式：data: {"title": "...", "body": "...", "severity": "..."}
+
+
+    心跳：每 30 秒发送 `: keepalive
+
+` 防超时。
+    """
+    from src.services.notification_digest_service import _bus_path
+
+    async def _generator():
+        last_mtime = 0.0
+        last_line_count = 0
+        bus_file = _bus_path()
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                if bus_file.exists():
+                    mtime = bus_file.stat().st_mtime
+                    if mtime != last_mtime:
+                        last_mtime = mtime
+                        lines = bus_file.read_text(encoding="utf-8").splitlines()
+                        new_lines = lines[last_line_count:]
+                        last_line_count = len(lines)
+                        for line in new_lines:
+                            if line.strip():
+                                try:
+                                    entry = json.loads(line)
+                                    payload = json.dumps({
+                                        "title": entry.get("route_type", "info"),
+                                        "body": line[:200],
+                                        "severity": entry.get("severity", "info"),
+                                    }, ensure_ascii=False)
+                                    yield f"data: {payload}\n\n"
+                                except json.JSONDecodeError:
+                                    pass
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                pass
+            yield ": keepalive\n\n"
+            await asyncio.sleep(5)
+
+    return StreamingResponse(
+        _generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

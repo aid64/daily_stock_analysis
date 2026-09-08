@@ -56,7 +56,7 @@ function startHealthMonitor() {
   if (healthMonitorInterval) clearInterval(healthMonitorInterval);
   healthMonitorInterval = setInterval(async () => {
     try {
-      const port = backendPort || 8000;
+      const port = 8000;
       const res = await new Promise((resolve, reject) => {
         http.get(`http://127.0.0.1:${port}/api/v1/health`, (r) => {
           r.resume();
@@ -87,6 +87,55 @@ function showMainWindow() {
   }
 }
 
+// ── P4: 主进程 SSE 订阅（后端通知流 → Windows 系统通知弹出）──
+let sseAbortController = null;
+let sseRetryCount = 0;
+
+function subscribeBackendNotifications(port) {
+  if (sseAbortController) sseAbortController.abort(); // 防重复
+  sseAbortController = new AbortController();
+  const url = `http://127.0.0.1:${port}/api/v1/assistant/stream/notifications`;
+
+  fetch(url, { signal: sseAbortController.signal })
+    .then((response) => {
+      if (!response.ok) throw new Error(`SSE ${response.status}`);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      function read() {
+        reader.read().then(({ done, value }) => {
+          if (done) { setTimeout(() => subscribeBackendNotifications(port), 5000); return; }
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                showDesktopNotification(
+                  data.title || '通知',
+                  data.body || ''
+                );
+              } catch (_) { /* 非 JSON 行忽略 */ }
+            }
+          }
+          read();
+        }).catch(() => {
+          setTimeout(() => subscribeBackendNotifications(port), 5000);
+        });
+      }
+      read();
+    })
+    .catch((err) => {
+      if (!intentionalStop && !isQuittingApp && sseRetryCount < 5) {
+        sseRetryCount++;
+        logLine(`[SSE] connection failed: ${err.message}`);
+        setTimeout(() => subscribeBackendNotifications(port), 10000);
+      }
+    });
+}
+
+// ── P3: 托盘三态图标
 // ── P3: 托盘三态图标（纯色 ICO，运行时生成）──
 const TRAY_ICONS = {};
 
@@ -2492,6 +2541,8 @@ app.whenReady().then(() => {
   createWindow();
   // P2: 启动稳态健康监控
   startHealthMonitor();
+  // P4: 订阅后端 SSE 通知流 → Windows 系统通知弹出
+  subscribeBackendNotifications(8000);
 });
 
 app.on('activate', () => {
