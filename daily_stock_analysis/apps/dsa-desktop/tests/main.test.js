@@ -19,14 +19,39 @@ function loadMainModule(t, options = {}) {
     whenReady: () => ({ then: () => undefined }),
     on: () => undefined,
     quit: () => undefined,
+    setAppUserModelId: () => undefined,
+    requestSingleInstanceLock: () => true,
     ...(options.app || {}),
   };
   const fakeDialog = {
     showMessageBox: async () => ({ response: 0 }),
     ...(options.dialog || {}),
   };
+  const fakeNativeImage = {
+    createFromBitmap: () => ({ toDataURL: () => 'data:image/png;base64,x' }),
+    createFromDataURL: () => ({ toDataURL: () => 'data:image/png;base64,x' }),
+  };
+  function FakeTray() {
+    this.setImage = () => undefined;
+    this.setToolTip = () => undefined;
+    this.setContextMenu = () => undefined;
+    this.on = () => undefined;
+  }
+  function FakeNotification(opts) {
+    this.on = () => undefined;
+    this.show = () => undefined;
+  }
+  FakeNotification.isSupported = () => false;
+  const fakeNotification = FakeNotification;
+  const fakeTrayClass = FakeTray;
   const fakeShell = {
     openExternal: async () => true,
+  };
+  const fakeTray = {
+    setImage: () => undefined,
+    setToolTip: () => undefined,
+    setContextMenu: () => undefined,
+    on: () => undefined,
   };
   const fakeIpcMain = {
     handle: (channel, handler) => {
@@ -65,12 +90,17 @@ function loadMainModule(t, options = {}) {
       return {
         app: fakeApp,
         BrowserWindow: fakeBrowserWindow,
+        Tray: fakeTray,
+        Notification: { isSupported: () => false },
         dialog: fakeDialog,
         ipcMain: fakeIpcMain,
         shell: fakeShell,
+        nativeImage: fakeNativeImage,
+        Tray: fakeTrayClass,
+        Notification: fakeNotification,
         nativeTheme: fakeNativeTheme,
         // PR1：main.js 调用 Menu.setApplicationMenu(null) 隐藏默认菜单栏
-        Menu: { setApplicationMenu: () => undefined },
+        Menu: { setApplicationMenu: () => undefined, buildFromTemplate: () => [] },
       };
     }
     if (request === 'http' && options.http) {
@@ -1485,6 +1515,8 @@ test('createWindow startup path does not throw ReferenceError after restore resu
       whenReady: fakeWhenReady,
       on: () => undefined,
       quit: () => undefined,
+      setAppUserModelId: () => undefined,
+      requestSingleInstanceLock: () => true,
     },
     electronUpdater: {
       autoDownload: true,

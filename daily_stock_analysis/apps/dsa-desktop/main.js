@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, shell, nativeTheme, Menu } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell, nativeTheme, Menu, Tray, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
@@ -6,6 +6,140 @@ const net = require('net');
 const http = require('http');
 const https = require('https');
 const { TextDecoder } = require('util');
+
+// ── P1: AUMID + 单实例锁 + 状态地基 ──
+const APP_USER_MODEL_ID = 'com.daily-stock-analysis.desktop';
+app.setAppUserModelId(APP_USER_MODEL_ID);
+
+const startHidden = process.argv.includes('--hidden');
+let isQuittingApp = false;
+let intentionalStop = false;
+let restartAttempts = 0;
+let lastBackendStartAt = 0;
+let tray = null;
+
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      if (!mainWindow.isVisible()) mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
+
+// ── P2: 崩溃重启 + 稳态健康监控 ──
+const MAX_RESTART_ATTEMPTS = 5;
+const STABLE_UPTIME_MS = 60000;
+let healthMonitorInterval = null;
+
+function scheduleBackendRestart() {
+  const delay = Math.min(1000 * 2 ** restartAttempts, 30000);
+  restartAttempts++;
+  logLine(`[backend] scheduling restart in ${delay}ms (attempt ${restartAttempts}/${MAX_RESTART_ATTEMPTS})`);
+  if (restartAttempts >= MAX_RESTART_ATTEMPTS) {
+    logLine('[backend] max restart attempts reached, giving up');
+    if (tray) tray.setImage(TRAY_ICONS.error);
+    showDesktopNotification('后端反复崩溃', '请查看日志: logs/assistant.log');
+    return;
+  }
+  setTimeout(() => {
+    if (intentionalStop || isQuittingApp) return;
+    startBackend();
+  }, delay);
+}
+
+function startHealthMonitor() {
+  if (healthMonitorInterval) clearInterval(healthMonitorInterval);
+  healthMonitorInterval = setInterval(async () => {
+    try {
+      const port = backendPort || 8000;
+      const res = await new Promise((resolve, reject) => {
+        http.get(`http://127.0.0.1:${port}/api/v1/health`, (r) => {
+          r.resume();
+          resolve(r.statusCode);
+        }).on('error', reject);
+      });
+      if (res === 200) {
+        restartAttempts = 0; // 稳定运行重置
+      }
+    } catch (_) { /* 假死/端口不通时由 exit 事件处理 */ }
+  }, 30000);
+  if (healthMonitorInterval.unref) healthMonitorInterval.unref(); // 不阻止进程退出
+}
+
+// ── P4: 系统通知 ──
+function showDesktopNotification(title, body) {
+  if (!Notification.isSupported()) return;
+  const n = new Notification({ title, body });
+  n.on('click', () => { showMainWindow(); });
+  n.show();
+}
+
+function showMainWindow() {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    if (!mainWindow.isVisible()) mainWindow.show();
+    mainWindow.focus();
+  }
+}
+
+// ── P3: 托盘三态图标（纯色 ICO，运行时生成）──
+const TRAY_ICONS = {};
+
+function buildTrayIcon(color) {
+  const { nativeImage } = require('electron');
+  const size = 16;
+  const buffer = Buffer.alloc(size * size * 4); // BGRA
+  // 解析颜色
+  const r = parseInt(color.slice(1, 3), 16);
+  const g = parseInt(color.slice(3, 5), 16);
+  const b = parseInt(color.slice(5, 7), 16);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const idx = (y * size + x) * 4;
+      buffer[idx] = b;
+      buffer[idx + 1] = g;
+      buffer[idx + 2] = r;
+      buffer[idx + 3] = 255;
+    }
+  }
+  return nativeImage.createFromBitmap(buffer, { width: size, height: size });
+}
+
+function initTrayIcons() {
+  TRAY_ICONS.normal = buildTrayIcon('#22c55e');
+  TRAY_ICONS.warning = buildTrayIcon('#eab308');
+  TRAY_ICONS.error = buildTrayIcon('#ef4444');
+}
+
+function setTrayStatus(status) {
+  if (!tray) return;
+  const icons = { normal: TRAY_ICONS.normal, warning: TRAY_ICONS.warning, error: TRAY_ICONS.error };
+  const labels = {
+    normal: '半自动助手 · 运行中',
+    warning: '半自动助手 · 后端重启中',
+    error: '半自动助手 · 后端异常',
+  };
+  tray.setImage(icons[status] || icons.normal);
+  tray.setToolTip(labels[status] || labels.normal);
+}
+
+function createTray() {
+  initTrayIcons();
+  tray = new Tray(TRAY_ICONS.normal);
+  const contextMenu = Menu.buildFromTemplate([
+    { label: '显示主界面', click: () => showMainWindow() },
+    { type: 'separator' },
+    { label: '退出', click: () => { isQuittingApp = true; app.quit(); } },
+  ]);
+  tray.setContextMenu(contextMenu);
+  tray.setToolTip('半自动助手 · 启动中');
+  tray.on('click', () => showMainWindow());
+}
 
 let mainWindow = null;
 let backendProcess = null;
@@ -1362,6 +1496,10 @@ function startBackend({ port, envFile, dbPath, logDir, host = null }) {
     });
     backendProcess.on('exit', (code, signal) => {
       logLine(`[backend] exited with code ${code}, signal ${signal || 'none'}`);
+      // P2: 崩溃自动重启（非主动退出且非用户退出时）
+      if (!intentionalStop && !isQuittingApp && code !== 0) {
+        scheduleBackendRestart();
+      }
     });
   }
 
@@ -1415,6 +1553,7 @@ function clearBackendProcessIfCurrent(processRef) {
 }
 
 function stopBackend() {
+  intentionalStop = true; // P2: 防止退出清理被误判为崩溃
   if (!backendProcess) {
     return Promise.resolve();
   }
@@ -2148,6 +2287,14 @@ async function createWindow() {
     nativeTheme.removeListener('updated', applyThemeBackground);
   });
 
+  // P3: 关窗 → 缩到托盘（非真正退出；退出走托盘菜单的"退出"）
+  mainWindow.on('close', (event) => {
+    if (!isQuittingApp) {
+      event.preventDefault();
+      mainWindow.hide();
+    }
+  });
+
   const webViewStartedAt = Date.now();
   mainWindow.webContents.on('did-start-loading', () => {
     logStartup('WebContents did-start-loading');
@@ -2338,7 +2485,14 @@ async function createWindow() {
   }
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  // P3: 创建托盘
+  createTray();
+  // 启动后端
+  createWindow();
+  // P2: 启动稳态健康监控
+  startHealthMonitor();
+});
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
@@ -2346,7 +2500,9 @@ app.on('activate', () => {
   }
 });
 
+// P3: 关窗 → 缩到托盘（非真正退出）
 app.on('window-all-closed', () => {
+  // close-to-tray 模式下 hide() 不触发 window-all-closed，此处是安全网
   void stopBackend();
   if (process.platform !== 'darwin') {
     app.quit();
