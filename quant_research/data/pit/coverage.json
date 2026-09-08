@@ -1,7 +1,7 @@
 {
-  "total_rows": 628270,
+  "total_rows": 628482,
   "invalid_as_of_rows": 0,
-  "distinct_dates": 1858,
+  "distinct_dates": 1862,
   "distinct_symbols": 853,
   "requested_symbols": 900,
   "missing_symbols": [
@@ -56,12 +56,12 @@
   "universe_coverage": 0.9478,
   "future_rows": 0,
   "pre_window_rows": 0,
-  "valid_rows": 628270,
-  "dates_covered": 1858,
+  "valid_rows": 628482,
+  "dates_covered": 1862,
   "symbols_per_date": {
     "min": 1,
     "max": 536,
-    "mean": 338.14
+    "mean": 337.53
   },
   "rating_coverage": 1.0,
   "bad_price_rows": 0,
@@ -225,7 +225,7 @@
     },
     "110075.SH": {
       "first_observed": "2020-11-03",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "110076.SH": {
       "first_observed": "2020-11-25",
@@ -233,7 +233,7 @@
     },
     "110077.SH": {
       "first_observed": "2020-12-17",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "110079.SH": {
       "first_observed": "2021-04-23",
@@ -245,7 +245,7 @@
     },
     "110081.SH": {
       "first_observed": "2021-08-20",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "110082.SH": {
       "first_observed": "2021-11-23",
@@ -257,19 +257,19 @@
     },
     "110084.SH": {
       "first_observed": "2022-01-18",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "110085.SH": {
       "first_observed": "2022-03-18",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "110086.SH": {
       "first_observed": "2022-05-23",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "110087.SH": {
       "first_observed": "2022-07-19",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "110088.SH": {
       "first_observed": "2022-10-20",
@@ -281,7 +281,7 @@
     },
     "110090.SH": {
       "first_observed": "2022-10-28",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "110091.SH": {
       "first_observed": "2023-01-06",
@@ -289,11 +289,11 @@
     },
     "110092.SH": {
       "first_observed": "2023-02-07",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "110093.SH": {
       "first_observed": "2023-04-20",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "110094.SH": {
       "first_observed": "2023-08-14",
@@ -301,7 +301,7 @@
     },
     "110095.SH": {
       "first_observed": "2023-09-08",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "110096.SH": {
       "first_observed": "2024-09-03",
@@ -309,35 +309,35 @@
     },
     "110097.SH": {
       "first_observed": "2024-11-15",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "110098.SH": {
       "first_observed": "2025-01-20",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "110099.SH": {
       "first_observed": "2025-10-30",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "110100.SH": {
       "first_observed": "2026-02-12",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "110101.SH": {
       "first_observed": "2026-07-16",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "110102.SH": {
       "first_observed": "2026-08-05",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "110103.SH": {
       "first_observed": "2026-08-13",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "111000.SH": {
       "first_observed": "2021-06-17",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "111001.SH": {
       "first_observed": "2021-12-06",
@@ -345,15 +345,15 @@
     },
     "111002.SH": {
       "first_observed": "2021-12-30",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "111003.SH": {
       "first_observed": "2022-04-19",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "111004.SH": {
       "first_observed": "2022-04-25",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "111005.SH": {
       "first_observed": "2022-07-25",
@@ -373,7 +373,7 @@
     },
     "111009.SH": {
       "first_observed": "2022-12-01",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "111010.SH": {
       "first_observed": "2022-12-07",
@@ -385,7 +385,7 @@
     },
     "111012.SH": {
       "first_observed": "2023-02-07",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "111013.SH": {
       "first_observed": "2023-05-05",
@@ -393,11 +393,11 @@
     },
     "111014.SH": {
       "first_observed": "2023-07-13",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "111015.SH": {
       "first_observed": "2023-08-02",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "111016.SH": {
       "first_observed": "2023-08-15",
@@ -405,11 +405,11 @@
     },
     "111017.SH": {
       "first_observed": "2023-09-08",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "111018.SH": {
       "first_observed": "2024-01-15",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "111019.SH": {
       "first_observed": "2024-05-14",
@@ -417,15 +417,15 @@
     },
     "111020.SH": {
       "first_observed": "2024-08-15",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "111021.SH": {
       "first_observed": "2024-08-15",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "111022.SH": {
       "first_observed": "2025-07-14",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "111023.SH": {
       "first_observed": "2025-07-22",
@@ -433,11 +433,11 @@
     },
     "111024.SH": {
       "first_observed": "2026-01-16",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "111025.SH": {
       "first_observed": "2026-07-21",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "113021.SH": {
       "first_observed": "2019-03-19",
@@ -525,7 +525,7 @@
     },
     "113043.SH": {
       "first_observed": "2020-12-28",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "113044.SH": {
       "first_observed": "2021-01-15",
@@ -537,7 +537,7 @@
     },
     "113046.SH": {
       "first_observed": "2021-04-12",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "113047.SH": {
       "first_observed": "2021-05-07",
@@ -545,11 +545,11 @@
     },
     "113048.SH": {
       "first_observed": "2021-05-31",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "113049.SH": {
       "first_observed": "2021-07-08",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "113050.SH": {
       "first_observed": "2021-07-01",
@@ -557,19 +557,19 @@
     },
     "113051.SH": {
       "first_observed": "2021-07-22",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "113052.SH": {
       "first_observed": "2022-01-14",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "113053.SH": {
       "first_observed": "2022-02-17",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "113054.SH": {
       "first_observed": "2022-03-23",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "113055.SH": {
       "first_observed": "2022-04-06",
@@ -577,7 +577,7 @@
     },
     "113056.SH": {
       "first_observed": "2022-04-14",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "113057.SH": {
       "first_observed": "2022-05-10",
@@ -585,11 +585,11 @@
     },
     "113058.SH": {
       "first_observed": "2022-04-26",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "113059.SH": {
       "first_observed": "2022-06-13",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "113060.SH": {
       "first_observed": "2022-07-08",
@@ -601,7 +601,7 @@
     },
     "113062.SH": {
       "first_observed": "2022-10-17",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "113063.SH": {
       "first_observed": "2022-11-24",
@@ -617,11 +617,11 @@
     },
     "113066.SH": {
       "first_observed": "2023-04-10",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "113067.SH": {
       "first_observed": "2023-08-18",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "113068.SH": {
       "first_observed": "2023-08-28",
@@ -633,7 +633,7 @@
     },
     "113070.SH": {
       "first_observed": "2025-02-13",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "113524.SH": {
       "first_observed": "2019-01-07",
@@ -977,7 +977,7 @@
     },
     "113610.SH": {
       "first_observed": "2020-12-22",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "113611.SH": {
       "first_observed": "2020-12-22",
@@ -993,11 +993,11 @@
     },
     "113615.SH": {
       "first_observed": "2021-01-14",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "113616.SH": {
       "first_observed": "2021-01-22",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "113618.SH": {
       "first_observed": "2021-02-04",
@@ -1029,7 +1029,7 @@
     },
     "113625.SH": {
       "first_observed": "2021-07-01",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "113626.SH": {
       "first_observed": "2021-07-21",
@@ -1037,7 +1037,7 @@
     },
     "113627.SH": {
       "first_observed": "2021-08-06",
-      "last_observed": "2026-09-02"
+      "last_observed": "2026-09-08"
     },
     "113628.SH": {
       "first_observed": "2021-09-17",
