@@ -177,11 +177,29 @@ function setTrayStatus(status) {
   tray.setToolTip(labels[status] || labels.normal);
 }
 
+function getLaunchAtLogin() {
+  return app.getLoginItemSettings({ args: ['--hidden'] }).openAtLogin;
+}
+
+function setLaunchAtLogin(enabled) {
+  if (!app.isPackaged) return false; // dev 模式注册 electron.exe，禁用
+  app.setLoginItemSettings({ openAtLogin: enabled, args: ['--hidden'] });
+  return getLaunchAtLogin();
+}
+
 function createTray() {
   initTrayIcons();
   tray = new Tray(TRAY_ICONS.normal);
   const contextMenu = Menu.buildFromTemplate([
     { label: '显示主界面', click: () => showMainWindow() },
+    { type: 'separator' },
+    {
+      label: '开机自启',
+      type: 'checkbox',
+      checked: getLaunchAtLogin(),
+      enabled: app.isPackaged,
+      click: (menuItem) => { setLaunchAtLogin(menuItem.checked); },
+    },
     { type: 'separator' },
     { label: '退出', click: () => { isQuittingApp = true; app.quit(); } },
   ]);
@@ -2168,6 +2186,10 @@ async function performDesktopUpdateCheck({ manual = false, notify = false } = {}
     desktopUpdateCheckInFlight = false;
   }
 }
+
+// P5: 开机自启 IPC（Web 设置页可调用）
+ipcMain.handle('desktop:get-launch-at-login', () => getLaunchAtLogin());
+ipcMain.handle('desktop:set-launch-at-login', (_event, enabled) => setLaunchAtLogin(Boolean(enabled)));
 
 ipcMain.handle('desktop:get-update-state', () => desktopUpdateState);
 ipcMain.handle('desktop:check-for-updates', () => performDesktopUpdateCheck({ manual: true }));

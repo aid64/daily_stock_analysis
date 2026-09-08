@@ -21,6 +21,9 @@ function loadMainModule(t, options = {}) {
     quit: () => undefined,
     setAppUserModelId: () => undefined,
     requestSingleInstanceLock: () => true,
+    getLoginItemSettings: () => ({ openAtLogin: false }),
+    setLoginItemSettings: () => undefined,
+    isPackaged: false,
     ...(options.app || {}),
   };
   const fakeDialog = {
@@ -1517,6 +1520,8 @@ test('createWindow startup path does not throw ReferenceError after restore resu
       quit: () => undefined,
       setAppUserModelId: () => undefined,
       requestSingleInstanceLock: () => true,
+      getLoginItemSettings: () => ({ openAtLogin: false }),
+      setLoginItemSettings: () => undefined,
     },
     electronUpdater: {
       autoDownload: true,

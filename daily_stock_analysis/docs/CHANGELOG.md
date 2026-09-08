@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [新功能] 桌面端 P5 开机自启：托盘菜单 checkbox 开关 + desktop:get/set-launch-at-login IPC（Web 设置页可调用），Electron 31 正确 args 处理（--hidden 启动直接进托盘，读写传相同 args），dev 模式禁用防误注册 electron.exe。
 - [新功能] 桌面端 P4 通知桥：后端新增免鉴权 SSE 通知流端点（/api/v1/assistant/stream/notifications，StreamingResponse + 5s 轮询 mtime 增量推送 + keepalive 心跳），主进程 fetch 流式订阅 → Windows 系统通知弹出（点击聚焦主窗口），断线退避重连（上限 5 次防挂起）；手机推送链路（企微/飞书 webhook）不变，双路并存。
 - [新功能] 桌面端大修（P1-P3）：AppUserModelID 设置、单实例锁、崩溃自动重启（指数退避+稳态重置）、稳态健康监控（30s 轮询+unref）、托盘常驻三态图标（关窗缩到托盘继续运行）、系统通知基础（Notification+点击聚焦）
 - [文档] 桌面端大修计划更新为 v2：基于 Electron 官方文档与参考项目（every-pdf 进程生命周期模式）调研修订——ICO 托盘三态、免鉴权 SSE 通知端点（照抄仓库内 analysis.py 先例）、every-pdf 式崩溃退避重启+稳态健康监控、Electron 31 正确的自启 args 处理；取消单文件拆分（测试绑定），改单文件分区改造（P1-P6 含已验证行号）。
