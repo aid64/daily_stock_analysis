@@ -622,6 +622,19 @@ class RuntimeSchedulerService:
                     tasks.append(digest_entry)
             except Exception as exc:  # noqa: BLE001 - 摘要任务缺失不影响其他任务
                 logger.warning("digest task registration failed: %r", exc)
+
+        # G4: 每日自动化管线（09:00 PIT 增量→信号导出→操作单→推送）
+        try:
+            from src.services.daily_pipeline_service import (
+                daily_pipeline_background_task,
+            )
+
+            pipeline_entry = daily_pipeline_background_task(
+                config, config_provider=self._reload_config)
+            if not any(t["name"] == pipeline_entry["name"] for t in tasks):
+                tasks.append(pipeline_entry)
+        except Exception as exc:  # noqa: BLE001 - 管线缺失不影响其他任务
+            logger.warning("pipeline task registration failed: %r", exc)
         tasks.extend(self._current_data_purge_background_tasks(config))
         return tasks
 

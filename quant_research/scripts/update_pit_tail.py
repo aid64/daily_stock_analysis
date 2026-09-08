@@ -25,9 +25,18 @@ _RAW_DIR = Path(__file__).resolve().parent.parent / "data" / "pit" / "raw"
 
 
 def _fetch_history(code: str) -> Optional[pd.DataFrame]:
+    import time
+
     import akshare as ak
 
-    df = ak.bond_zh_cov_value_analysis(symbol=code)
+    for attempt in range(3):
+        try:
+            df = ak.bond_zh_cov_value_analysis(symbol=code)
+            break
+        except Exception:  # noqa: BLE001 - 网络抖动重试（东财源间歇性 10054）
+            if attempt == 2:
+                return None
+            time.sleep(2 ** attempt)
     if df is None or df.empty:
         return None
     out = pd.DataFrame({
@@ -106,11 +115,17 @@ def main(argv: Optional[list[str]] = None) -> int:
             logger.info("进度 %d/%d（更新 %d, 已最新 %d, 失败 %d）",
                         i, len(sym_dirs), updated, skipped_current, failed)
         time.sleep(args.throttle)
-        if args.limit and updated >= args.limit:
+        # limit 计"处理过的 akshare 券"（含已最新/失败）——PIT 已最新时
+        # limit 也要能快速退出，防管线遍历全量 914 只超时
+        if args.limit and (updated + skipped_current + failed) >= args.limit:
             break
 
     logger.info("完成: 更新 %d, 已最新 %d, 失败 %d", updated, skipped_current, failed)
-    return 0 if not failed else 1
+    # 管线友好：只要有一只成功（或无需更新）就 rc=0；
+    # 全部失败才 rc=1（让 daily_pipeline 判定步骤失败并告警）
+    if updated == 0 and failed > 0 and failed > no_new:
+        return 1
+    return 0
 
 
 if __name__ == "__main__":

@@ -144,6 +144,30 @@ def assistant_comparison(
         ) from exc
 
 
+@router.post("/order-sheets/fills")
+def fill_order_sheet(body: Dict[str, Any]) -> Dict[str, Any]:
+    """回填成交（与 bot /成交回填 同源）。body: {symbol, direction, price, quantity?}"""
+    from bot.commands.fill import _do_fill
+
+    symbol = str(body.get("symbol", ""))
+    direction = str(body.get("direction", ""))
+    price = body.get("price")
+    quantity = body.get("quantity", 100)
+    if not symbol or direction not in ("buy", "sell") or not price:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_body",
+                    "message": "需要 symbol/direction(buy|sell)/price，quantity 可选"})
+    try:
+        message = _do_fill(symbol, direction, float(quantity), float(price))
+        return {"ok": True, "message": message}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "fill_failed", "message": str(exc)},
+        ) from exc
+
+
 @router.get("/order-sheets")
 def assistant_order_sheets(limit: int = 10) -> Dict[str, Any]:
     """近期操作单列表（状态机概览）"""

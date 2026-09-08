@@ -29,20 +29,26 @@ SUPPORTED_SCHEMA = "cb_current_plan_v1"
 
 
 def canonical_symbol(symbol: str) -> str:
-    """统一到 PortfolioService 存储形态（SH113062 / SZ123089）。
+    """统一到 PortfolioService 存储形态（SH113062 / SZ002475）。
 
     契约侧是 PIT 后缀形态（113062.SH），快照侧是前缀形态——不归一的话
     同一只债会被 diff 当成两个标的（先买入再"缺价持有"）。
+    股票裸码：6 开头沪、0/3 开头深（转债 11/12 开头优先判定）。
     """
     digits = "".join(ch for ch in symbol if ch.isdigit())
     if len(digits) != 6:
         return symbol.strip().upper()
-    if digits.startswith("1"):
+    if digits.startswith(("11", "12")):
         # 转债：11x/118 沪、12x 深
         return ("SH" if digits.startswith("11") else "SZ") + digits
     parts = symbol.split(".")
     if len(parts) == 2 and parts[1].upper() in ("SH", "SZ"):
         return f"{parts[1].upper()}{digits}"
+    # 股票裸码：6 沪 / 0、3 深
+    if digits.startswith("6"):
+        return "SH" + digits
+    if digits.startswith(("0", "3")):
+        return "SZ" + digits
     return symbol.strip().upper()
 
 
