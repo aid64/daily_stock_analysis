@@ -1607,7 +1607,10 @@ def main() -> int:
             start_serve = False
 
     if bot_clients_started:
+        logger.info("[Main] Starting bot stream clients...")
         start_bot_stream_clients(config)
+    else:
+        logger.info("[Main] Bot stream clients not started (start_serve=False)")
 
     # === 仅 Web 服务模式：不自动执行分析 ===
     if args.serve_only:
