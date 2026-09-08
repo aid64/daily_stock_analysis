@@ -3735,16 +3735,6 @@ class Config:
                 field="NOTIFICATION_MIN_SEVERITY",
             ))
 
-        if self.notification_daily_digest_enabled:
-            issues.append(ConfigIssue(
-                severity="warning",
-                message=(
-                    "NOTIFICATION_DAILY_DIGEST_ENABLED 当前为预留配置；"
-                    "P4 不会发送每日摘要或持久化摘要内容。"
-                ),
-                field="NOTIFICATION_DAILY_DIGEST_ENABLED",
-            ))
-
         has_feishu_app_id = bool((self.feishu_app_id or "").strip())
         has_feishu_app_secret = bool((self.feishu_app_secret or "").strip())
         has_feishu_app_credentials_complete = has_feishu_app_id and has_feishu_app_secret

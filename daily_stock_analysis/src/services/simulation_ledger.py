@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 _ROOT = Path(__file__).resolve().parents[2]      # 仓库根（mandate.yaml）
 _LEDGER_PATH = (
-    Path(__file__).resolve().parents[1] / "output" / "simulation_ledger"
+    Path(__file__).resolve().parents[2] / "output" / "simulation_ledger"
     / "ledger.json"
 )
 

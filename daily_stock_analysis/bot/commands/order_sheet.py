@@ -100,7 +100,10 @@ def _build_sheet_text() -> str:
         from quant_research.backtest.convertible import load_pit_snapshot as _lps
         _pit = _lps(_PROJECT_ROOT.parent / "quant_research" / "data" / "pit"
                     / "convertible_pit.parquet")
-        _pit = _pit[_pit["as_of"] <= pd.Timestamp("2026-08-08")]
+        # G6: 动态截断——跟随 current_plan 的 pit_end（PIT 增量后自动更新）
+        _pit_end = plan.get("pit_end") if plan else None
+        if _pit_end:
+            _pit = _pit[_pit["as_of"] <= pd.Timestamp(_pit_end)]
         _median = build_median_series(_pit)
         _pct = expanding_percentile(_median)
         if not _pct.empty:

@@ -245,6 +245,9 @@ def _load_runtime_scheduler_args() -> dict:
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
     """Initialize and release shared services for the app lifecycle."""
+    import time as _time
+
+    app.state.started_at = _time.time()  # runtime/status 端点的 uptime 基准
     from src.services.runtime_scheduler import (
         CLI_SCHEDULER_OWNER_ENV,
         RUNTIME_SCHEDULER_ARGS_ENV,

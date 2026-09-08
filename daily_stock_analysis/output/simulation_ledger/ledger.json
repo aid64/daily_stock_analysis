@@ -67,6 +67,142 @@
     "slippage": 1.48
    },
    "created_at": "2026-09-05T17:34:54"
+  },
+  {
+   "sheet_id": "2026-09-06_88d18b36",
+   "trade_date": "2026-09-06",
+   "symbol": "SZ123089",
+   "direction": "buy",
+   "quantity": 10,
+   "limit_price": 116.5,
+   "costs": {
+    "notional": 1165.0,
+    "commission": 5.0,
+    "stamp_duty": 0.0,
+    "transfer_fee": 0.0233,
+    "total": 5.0233,
+    "slippage": 1.165
+   },
+   "created_at": "2026-09-06T10:28:00"
+  },
+  {
+   "sheet_id": "2026-09-06_88d18b36",
+   "trade_date": "2026-09-06",
+   "symbol": "SH113691",
+   "direction": "buy",
+   "quantity": 10,
+   "limit_price": 148.0,
+   "costs": {
+    "notional": 1480.0,
+    "commission": 5.0,
+    "stamp_duty": 0.0,
+    "transfer_fee": 0.0296,
+    "total": 5.0296,
+    "slippage": 1.48
+   },
+   "created_at": "2026-09-06T10:28:00"
+  },
+  {
+   "sheet_id": "2026-09-09_b69315e0",
+   "trade_date": "2026-09-09",
+   "symbol": "SZ123089",
+   "direction": "buy",
+   "quantity": 10,
+   "limit_price": 116.5,
+   "costs": {
+    "notional": 1165.0,
+    "commission": 5.0,
+    "stamp_duty": 0.0,
+    "transfer_fee": 0.0233,
+    "total": 5.0233,
+    "slippage": 1.165
+   },
+   "created_at": "2026-09-09T01:39:18"
+  },
+  {
+   "sheet_id": "2026-09-09_b69315e0",
+   "trade_date": "2026-09-09",
+   "symbol": "SH113691",
+   "direction": "buy",
+   "quantity": 10,
+   "limit_price": 148.0,
+   "costs": {
+    "notional": 1480.0,
+    "commission": 5.0,
+    "stamp_duty": 0.0,
+    "transfer_fee": 0.0296,
+    "total": 5.0296,
+    "slippage": 1.48
+   },
+   "created_at": "2026-09-09T01:39:18"
+  },
+  {
+   "sheet_id": "2026-09-09_3124f04a",
+   "trade_date": "2026-09-09",
+   "symbol": "SZ123089",
+   "direction": "buy",
+   "quantity": 10,
+   "limit_price": 116.5,
+   "costs": {
+    "notional": 1165.0,
+    "commission": 5.0,
+    "stamp_duty": 0.0,
+    "transfer_fee": 0.0233,
+    "total": 5.0233,
+    "slippage": 1.165
+   },
+   "created_at": "2026-09-09T02:02:05"
+  },
+  {
+   "sheet_id": "2026-09-09_3124f04a",
+   "trade_date": "2026-09-09",
+   "symbol": "SH113691",
+   "direction": "buy",
+   "quantity": 10,
+   "limit_price": 148.0,
+   "costs": {
+    "notional": 1480.0,
+    "commission": 5.0,
+    "stamp_duty": 0.0,
+    "transfer_fee": 0.0296,
+    "total": 5.0296,
+    "slippage": 1.48
+   },
+   "created_at": "2026-09-09T02:02:05"
+  },
+  {
+   "sheet_id": "2026-09-09_f76740d0",
+   "trade_date": "2026-09-09",
+   "symbol": "SZ123089",
+   "direction": "buy",
+   "quantity": 10,
+   "limit_price": 116.5,
+   "costs": {
+    "notional": 1165.0,
+    "commission": 5.0,
+    "stamp_duty": 0.0,
+    "transfer_fee": 0.0233,
+    "total": 5.0233,
+    "slippage": 1.165
+   },
+   "created_at": "2026-09-09T02:15:54"
+  },
+  {
+   "sheet_id": "2026-09-09_f76740d0",
+   "trade_date": "2026-09-09",
+   "symbol": "SH113691",
+   "direction": "buy",
+   "quantity": 10,
+   "limit_price": 148.0,
+   "costs": {
+    "notional": 1480.0,
+    "commission": 5.0,
+    "stamp_duty": 0.0,
+    "transfer_fee": 0.0296,
+    "total": 5.0296,
+    "slippage": 1.48
+   },
+   "created_at": "2026-09-09T02:15:54"
   }
  ]
 }

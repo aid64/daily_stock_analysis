@@ -91,6 +91,41 @@ def _active_signals() -> Dict[str, Any]:
         return {"count": None, "error": str(exc)}
 
 
+@router.get("/runtime/status")
+def runtime_status() -> Dict[str, Any]:
+    """运行状态（Web 横幅 + 桌面托盘 tooltip 共用）。"""
+    import time as _time
+
+    from fastapi import Request as _Request  # noqa: F401
+
+    started_at = getattr(_request_app_state().state, "started_at", None)
+    uptime = _time.time() - started_at if started_at else None
+    try:
+        from bot.platforms.feishu_stream import get_feishu_stream_client
+        feishu_alive = get_feishu_stream_client() is not None
+    except Exception:  # noqa: BLE001
+        feishu_alive = False
+    pipeline = {}
+    pf = _PROJECT_ROOT / "output" / "pipeline_status.json"
+    if pf.exists():
+        try:
+            pipeline = json.loads(pf.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {
+        "running": True,
+        "uptime_seconds": round(uptime, 0) if uptime else None,
+        "feishu_stream_alive": feishu_alive,
+        "last_pipeline_run": pipeline.get("last_run"),
+        "last_pipeline_ok": pipeline.get("ok"),
+    }
+
+
+def _request_app_state():
+    from api.app import app
+    return app
+
+
 @router.get("/health-view")
 def assistant_health_view() -> Dict[str, Any]:
     """运行健康五要素（与 bot /健康 同源）"""

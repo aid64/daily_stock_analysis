@@ -15,13 +15,9 @@
 - handler.py: Webhook 处理器
 
 使用方式：
-1. 配置环境变量（各平台的 Token 等）
-2. 启动 WebUI 服务
-3. 在各平台配置 Webhook URL：
-   - 飞书: http://your-server/bot/feishu
-   - 钉钉: http://your-server/bot/dingtalk
-   - 企业微信: http://your-server/bot/wecom
-   - Telegram: http://your-server/bot/telegram
+1. 配置环境变量（Stream 模式凭据：FEISHU_APP_ID/SECRET 或 DINGTALK_*）
+2. 启动 WebUI 服务（py main.py --serve）——Stream 客户端随服务自动启动
+   （Webhook URL 模式已由 Stream 模式替代，无需在平台侧配置回调地址）
 
 支持的命令：
 - /analyze <股票代码>  - 分析指定股票
