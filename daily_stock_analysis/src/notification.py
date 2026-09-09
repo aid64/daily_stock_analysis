@@ -2703,11 +2703,12 @@ class NotificationService(
                 message="interactive context delivery failed; static channels skipped",
             )
 
-        # ①-D 每日摘要总线：开关开启时，非 system_error 的静态推送入总线
-        # 延迟到每日摘要（持仓相关置顶/重要/其他三级聚合）。
-        # system_error 与 bot 会话回复（上方 send_to_context 已返回）不受影响。
+        # ①-D 每日摘要总线：开关开启时，report 类静态推送入总线聚合到摘要；
+        # alert（盯盘告警/止损止盈）与 system_error 保持即时推送——盘中
+        # 止损信号延迟到收盘后等于没有盯盘（缺口修复 2026-09-09）。
+        # bot 会话回复（上方 send_to_context 已返回）不受影响。
         if (
-            route_type != "system_error"
+            route_type not in ("system_error", "alert")
             and bool(getattr(self._config, "notification_daily_digest_enabled", False))
             and not getattr(self, "_digest_bypass", False)
         ):

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [修复] 通知缺口修复（配置审计发现）：①每日摘要总线不再拦截 alert 类推送——盯盘告警/止损止盈/监控告警恢复即时推送（此前 digest 开启后全部延迟到 18:00，盘中止损信号收盘后才达）；②删除 .env 中三个无代码消费者的 tushare backup 死变量及误导性"三级 failover"注释；③ETF 溢价监控标的显式声明（511380 转债 ETF）。
 - [修复] G6 清理与解冻：E2 择时硬编码日期截断改为跟随 current_plan 的 pit_end 动态计算；删除 .env 幽灵配置（STRATEGY_SIGNAL/ALPHASIFT）与 config.py 过时的 digest 预留告警；simulation_ledger 路径层级修正（parents[1]→[2]）并合并历史分裂账本（8 条）；bot 文档 webhook URL 描述改为 Stream 模式说明；打开三个市场监控开关。
 - [新功能] G2 运行状态端点：GET /api/v1/assistant/runtime/status（uptime/飞书在线/管线最近执行），Web 横幅与桌面托盘 tooltip 共用数据源。
 - [新功能] G4 每日自动化管线：runtime_scheduler 注册 daily_pipeline 任务（09:00 轮询触发）——PIT 增量（子进程+网络重试）→ assemble → 信号导出 → 操作单生成（幂等）→ 推送，任一步失败推 system_error 告警；状态落 pipeline_status.json 供 Web 横幅；修复 update_pit_tail 的 --limit 语义（PIT 已最新时快速退出防超时）与网络抖动重试。
