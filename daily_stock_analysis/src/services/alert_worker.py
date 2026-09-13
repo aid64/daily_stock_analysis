@@ -218,6 +218,20 @@ class AlertWorker:
 
         return stats
 
+    _ALERT_TYPE_LABELS = {
+        ("price_cross", "below"): "跌破价位",
+        ("price_cross", "above"): "上穿价位",
+        ("price_change_percent", "down"): "跌幅超阈",
+        ("price_change_percent", "up"): "涨幅超阈",
+        ("volume_spike", ""): "成交量放大",
+        ("volume_spike", "up"): "成交量放大",
+    }
+
+    @classmethod
+    def _alert_kind_label(cls, alert_type: str, direction: str) -> str:
+        return cls._ALERT_TYPE_LABELS.get(
+            (alert_type, direction), f"{alert_type} {direction}".strip())
+
     @staticmethod
     def _legacy_alert_group_key(runtime_rule: RuntimeAlertRule) -> str:
         rule = runtime_rule.rule
@@ -245,8 +259,9 @@ class AlertWorker:
             f"触发：{'；'.join(dict.fromkeys(reasons))}\n"
             "建议：结合最新组合决策包人工确认；本消息仅预警，不自动下单。"
         )
+        kind = self._alert_kind_label(alert_type, direction)
         alert_text = NotificationBuilder.build_simple_alert(
-            title=f"Event Alert | {target}", content=content, alert_type="warning"
+            title=f"Event Alert | {target} {kind}", content=content, alert_type="warning"
         )
         notifier = self.notifier or NotificationService()
         logical_id = self._legacy_alert_group_key(first_rule)
@@ -726,7 +741,11 @@ class AlertWorker:
         from src.notification import NotificationBuilder, NotificationService
 
         notification_service = self.notifier or NotificationService()
-        title = f"Event Alert | {self._display_target(runtime_rule)}"
+        rule_type = str(getattr(getattr(runtime_rule.rule, "alert_type", None), "value",
+                                getattr(runtime_rule.rule, "alert_type", "alert"))).lower()
+        rule_dir = str(getattr(runtime_rule.rule, "direction", "") or "").lower()
+        title = (f"Event Alert | {self._display_target(runtime_rule)} "
+                 f"{self._alert_kind_label(rule_type, rule_dir)}")
         content = result.get("reason") or result.get("message") or runtime_rule.rule.description or "Alert triggered"
         diagnostics = self._diagnostics_payload(result.get("diagnostics"))
         visibility = diagnostics.get("analysis_visibility") if isinstance(diagnostics.get("analysis_visibility"), dict) else None
