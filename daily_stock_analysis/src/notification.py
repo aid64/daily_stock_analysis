@@ -1459,8 +1459,12 @@ class NotificationService(
                         ])
                     # 量能分析
                     if vol_data:
+                        # E-freeze：量比缺失时不再打印 "None"，状态自解释
+                        vr = vol_data.get('volume_ratio')
+                        vr_display = (f"{float(vr):g}" if isinstance(vr, (int, float)) and vr > 0
+                                      else "缺失")
                         report_lines.extend([
-                            f"**{labels['volume_label']}**: {labels['volume_ratio_label']} {vol_data.get('volume_ratio', 'N/A')} ({vol_data.get('volume_status', '')}) | "
+                            f"**{labels['volume_label']}**: {labels['volume_ratio_label']} {vr_display} ({vol_data.get('volume_status', '')}) | "
                             f"{labels['turnover_rate_label']} {vol_data.get('turnover_rate', 'N/A')}%",
                             f"💡 *{vol_data.get('volume_meaning', '')}*",
                             "",
@@ -1474,9 +1478,26 @@ class NotificationService(
                             ])
                         else:
                             chip_health = localize_chip_health(chip_data.get('chip_health', 'N/A'), report_language)
+                            # E-freeze：带标签的中文呈现（旧格式裸管道数字不可读：
+                            # "32.8 | 10.5964 | 16.81 警惕"），比例带 %、成本两位小数
+                            # 口径自适应：上下文包里是 0-1 小数，历史 payload
+                            # 可能是百分数（32.8）——按量级选择展示方式
+                            def _fmt_ratio(v):
+                                if not isinstance(v, (int, float)):
+                                    return v
+                                return f"{v:.1%}" if abs(v) <= 1 else f"{v:.1f}%"
+                            profit_ratio_raw = chip_data.get('profit_ratio', 'N/A')
+                            profit_display = _fmt_ratio(profit_ratio_raw)
+                            avg_cost_raw = chip_data.get('avg_cost', 'N/A')
+                            cost_display = (f"{float(avg_cost_raw):.2f}元"
+                                            if isinstance(avg_cost_raw, (int, float))
+                                            else avg_cost_raw)
+                            conc_raw = chip_data.get('concentration', 'N/A')
+                            conc_display = _fmt_ratio(conc_raw)
                             report_lines.extend([
-                                f"**{labels['chip_label']}**: {chip_data.get('profit_ratio', 'N/A')} | {chip_data.get('avg_cost', 'N/A')} | "
-                                f"{chip_data.get('concentration', 'N/A')} {chip_health}",
+                                f"**{labels['chip_label']}**: 获利盘 {profit_display}"
+                                f" · 平均成本 {cost_display}"
+                                f" · 90%集中度 {conc_display}（{chip_health}）",
                                 "",
                             ])
                     else:

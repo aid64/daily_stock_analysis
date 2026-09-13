@@ -2032,7 +2032,7 @@ class GeminiAnalyzer:
             "watch_conditions": ["观察条件1", "观察条件2"],
             "next_check_time": "下一次检查点或市场本地时间",
             "confidence_reason": "置信度理由，说明阶段和数据质量限制",
-            "data_limitations": ["阶段或数据质量限制1", "阶段或数据质量限制2"]
+            "data_limitations": ["限制的完整中文句子（示例：'技术数据为盘中叠加估算，可能与收盘数据存在差异'）——必须完整中文表述，禁止照抄 technical: partial 等原始枚举键值", "限制2"]
         },
 
         "signal_attribution": {
@@ -2220,7 +2220,7 @@ class GeminiAnalyzer:
             "watch_conditions": ["观察条件1", "观察条件2"],
             "next_check_time": "下一次检查点或市场本地时间",
             "confidence_reason": "置信度理由，说明阶段和数据质量限制",
-            "data_limitations": ["阶段或数据质量限制1", "阶段或数据质量限制2"]
+            "data_limitations": ["限制的完整中文句子（示例：'技术数据为盘中叠加估算，可能与收盘数据存在差异'）——必须完整中文表述，禁止照抄 technical: partial 等原始枚举键值", "限制2"]
         },
 
         "signal_attribution": {
