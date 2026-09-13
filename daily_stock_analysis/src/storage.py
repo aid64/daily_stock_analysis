@@ -599,6 +599,7 @@ class PortfolioTrade(Base):
     tax = Column(Float, default=0.0)
     note = Column(String(255))
     dedup_hash = Column(String(64), index=True)
+    payload_hash = Column(String(64))  # E2：INSERT 时应用层维护，防篡改可检测
     created_at = Column(DateTime, default=datetime.now, index=True)
 
     __table_args__ = (
@@ -620,6 +621,7 @@ class PortfolioCashLedger(Base):
     amount = Column(Float, nullable=False)
     currency = Column(String(8), nullable=False, default='CNY')
     note = Column(String(255))
+    payload_hash = Column(String(64))  # E2：INSERT 时应用层维护
     created_at = Column(DateTime, default=datetime.now, index=True)
 
     __table_args__ = (
@@ -1424,6 +1426,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
             self._ensure_schema_migration_record()
             self._ensure_intelligence_items_unique_index()
             self._ensure_backtest_summary_risk_columns()
+            self._ensure_portfolio_event_integrity()
 
             self._initialized = True
             logger.info(f"数据库初始化完成: {db_url}")
@@ -1442,6 +1445,119 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
             self._SessionLocal = None
             self.__class__._instance = None
             raise
+
+    def _ensure_portfolio_event_integrity(self) -> None:
+        """E2（RESEARCH-BROAD 批次）：真实账本事件完整性。
+
+        按 options-monitor 蓝图的SQLite 版落地（取舍已明示）：
+        1. payload_hash 由应用层 INSERT 时维护（SQLite 标准版无 sha256
+           函数，触发器方案不可行）——财务字段另有 UPDATE ABORT 兜底；
+        2. 财务字段 UPDATE 即 ABORT——金额/数量/日期/标的不可静默改写
+           （vnpy OrderValidity 语义的存储层化）；
+        3. DELETE 不禁止但强制留痕——修正流程（API delete_*）合法存在，
+           删除前镜像写入 portfolio_event_audit（该表自身 append-only）。
+        非 SQLite 引擎跳过（触发器不可用，账本仅本地使用）。
+        """
+        if not self._is_sqlite_engine:
+            logger.info("[event-integrity] 非 SQLite 引擎，跳过触发器安装")
+            return
+        ddl_statements = [
+            # 审计表：自身 append-only
+            """
+            CREATE TABLE IF NOT EXISTS portfolio_event_audit (
+                audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                table_name TEXT NOT NULL,
+                row_id INTEGER NOT NULL,
+                operation TEXT NOT NULL CHECK(operation IN ('DELETE', 'UPDATE')),
+                before_payload TEXT NOT NULL,
+                before_hash TEXT,
+                occurred_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+            """,
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_portfolio_event_audit_no_update
+            BEFORE UPDATE ON portfolio_event_audit
+            BEGIN
+                SELECT RAISE(ABORT, 'portfolio_event_audit is append-only');
+            END
+            """,
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_portfolio_event_audit_no_delete
+            BEFORE DELETE ON portfolio_event_audit
+            BEGIN
+                SELECT RAISE(ABORT, 'portfolio_event_audit is append-only');
+            END
+            """,
+        ]
+        # 财务字段禁改（note 等非财务字段不限制）
+        update_guard_trade = (
+            "CREATE TRIGGER IF NOT EXISTS trg_pt_no_financial_update "
+            "BEFORE UPDATE OF trade_date, symbol, side, quantity, price, fee, tax "
+            "ON portfolio_trades "
+            "BEGIN "
+            "SELECT RAISE(ABORT, 'portfolio_trades financial fields are immutable — "
+            "delete and re-register via API to correct'); "
+            "END"
+        )
+        update_guard_cash = (
+            "CREATE TRIGGER IF NOT EXISTS trg_pc_no_financial_update "
+            "BEFORE UPDATE OF event_date, direction, amount "
+            "ON portfolio_cash_ledger "
+            "BEGIN "
+            "SELECT RAISE(ABORT, 'portfolio_cash_ledger financial fields are immutable — "
+            "delete and re-register via API to correct'); "
+            "END"
+        )
+        # 删除强制留痕（各表 before-payload 列不同，分别定义）
+        delete_audit_trade = (
+            "CREATE TRIGGER IF NOT EXISTS trg_pt_delete_audited "
+            "BEFORE DELETE ON portfolio_trades "
+            "BEGIN "
+            "INSERT INTO portfolio_event_audit(table_name, row_id, operation, before_payload) "
+            "VALUES ('portfolio_trades', OLD.id, 'DELETE', "
+            "OLD.trade_date || '|' || OLD.symbol || '|' || OLD.side || '|' || "
+            "CAST(OLD.quantity AS TEXT) || '|' || CAST(OLD.price AS TEXT)); "
+            "END"
+        )
+        delete_audit_cash = (
+            "CREATE TRIGGER IF NOT EXISTS trg_pc_delete_audited "
+            "BEFORE DELETE ON portfolio_cash_ledger "
+            "BEGIN "
+            "INSERT INTO portfolio_event_audit(table_name, row_id, operation, before_payload) "
+            "VALUES ('portfolio_cash_ledger', OLD.id, 'DELETE', "
+            "OLD.event_date || '|' || OLD.direction || '|' || "
+            "CAST(OLD.amount AS TEXT)); "
+            "END"
+        )
+        session = self._SessionLocal()
+        try:
+            from sqlalchemy import text as _text
+            for stmt in ddl_statements:
+                session.execute(_text(stmt))
+            # payload_hash 列（幂等加列）
+            cols_trades = [r[1] for r in session.execute(
+                _text("PRAGMA table_info(portfolio_trades)")).fetchall()]
+            if cols_trades and "payload_hash" not in cols_trades:
+                session.execute(_text(
+                    "ALTER TABLE portfolio_trades ADD COLUMN payload_hash TEXT"))
+            cols_cash = [r[1] for r in session.execute(
+                _text("PRAGMA table_info(portfolio_cash_ledger)")).fetchall()]
+            if cols_cash and "payload_hash" not in cols_cash:
+                session.execute(_text(
+                    "ALTER TABLE portfolio_cash_ledger ADD COLUMN payload_hash TEXT"))
+            # 触发器安装（幂等：IF NOT EXISTS）
+            session.execute(_text(update_guard_trade))
+            session.execute(_text(delete_audit_trade))
+            session.execute(_text(update_guard_cash))
+            session.execute(_text(delete_audit_cash))
+            session.commit()
+            logger.info("[event-integrity] 真实账本完整性触发器已安装（payload_hash + "
+                        "财务字段禁改 + 删除审计）")
+        except Exception as exc:
+            session.rollback()
+            logger.warning("[event-integrity] 触发器安装失败（不影响启动）: %r", exc)
+        finally:
+            session.close()
 
     def _ensure_schema_migration_record(self) -> None:
         session = self._SessionLocal()

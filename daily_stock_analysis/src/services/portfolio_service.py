@@ -212,6 +212,11 @@ class PortfolioService:
             raise ValueError("symbol is required")
         trade_uid_norm = (trade_uid or "").strip() or None
         dedup_hash_norm = (dedup_hash or "").strip() or None
+        # E2：payload_hash 应用层维护（INSERT 时固定财务字段指纹，
+        # 事后改值可检测。SQLite 标准版无 sha256 函数，故在应用层计算）
+        payload_hash_norm = self._trade_payload_hash(
+            account_id=account_id, trade_date=trade_date, symbol=symbol,
+            side=side_norm, quantity=quantity, price=price, fee=fee)
         try:
             with self.repo.portfolio_write_session() as session:
                 account = self._require_active_account_in_session(session=session, account_id=account_id)
@@ -248,10 +253,34 @@ class PortfolioService:
                     tax=float(tax),
                     note=(note or "").strip() or None,
                     dedup_hash=dedup_hash_norm,
+                    payload_hash=payload_hash_norm,
                 )
                 return {"id": int(row.id)}
         except (DuplicateTradeUidError, DuplicateTradeDedupHashError) as exc:
             raise PortfolioConflictError(str(exc)) from exc
+
+    @staticmethod
+    def _trade_payload_hash(*, account_id: int, trade_date: date, symbol: str,
+                            side: str, quantity: float, price: float,
+                            fee: float) -> str:
+        """E2：事件指纹（canonical 字段 sha256）——事后改值可检测。"""
+        import hashlib
+
+        canonical = ("|".join([
+            str(account_id), trade_date.isoformat() if hasattr(trade_date, "isoformat") else str(trade_date),
+            symbol.strip().upper(), side.strip().lower(),
+            f"{float(quantity):g}", f"{float(price):g}", f"{float(fee):g}"]))
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _cash_payload_hash(*, account_id: int, event_date: date,
+                           direction: str, amount: float) -> str:
+        import hashlib
+
+        d = event_date.isoformat() if hasattr(event_date, "isoformat") else str(event_date)
+        canonical = "|".join([str(account_id), d, direction.strip().lower(),
+                              f"{float(amount):g}"])
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     def record_cash_ledger(
         self,
@@ -271,6 +300,9 @@ class PortfolioService:
         with self.repo.portfolio_write_session() as session:
             account = self._require_active_account_in_session(session=session, account_id=account_id)
             currency_norm = self._normalize_currency(currency or account.base_currency)
+            payload_hash_norm = self._cash_payload_hash(
+                account_id=account_id, event_date=event_date,
+                direction=direction_norm, amount=amount)
             row = self.repo.add_cash_ledger_in_session(
                 session=session,
                 account_id=account_id,
@@ -279,6 +311,7 @@ class PortfolioService:
                 amount=float(amount),
                 currency=currency_norm,
                 note=(note or "").strip() or None,
+                payload_hash=payload_hash_norm,
             )
             return {"id": int(row.id)}
 

@@ -318,6 +318,7 @@ class PortfolioRepository:
         tax: float,
         note: Optional[str] = None,
         dedup_hash: Optional[str] = None,
+        payload_hash: Optional[str] = None,
     ) -> PortfolioTrade:
         row = PortfolioTrade(
             account_id=account_id,
@@ -333,6 +334,7 @@ class PortfolioRepository:
             tax=tax,
             note=note,
             dedup_hash=dedup_hash,
+            payload_hash=payload_hash,
         )
         session.add(row)
         self._invalidate_account_cache_in_session(
@@ -362,6 +364,7 @@ class PortfolioRepository:
         amount: float,
         currency: str,
         note: Optional[str] = None,
+        payload_hash: Optional[str] = None,
     ) -> PortfolioCashLedger:
         row = PortfolioCashLedger(
             account_id=account_id,
@@ -370,6 +373,7 @@ class PortfolioRepository:
             amount=amount,
             currency=currency,
             note=note,
+            payload_hash=payload_hash,
         )
         session.add(row)
         self._invalidate_account_cache_in_session(
