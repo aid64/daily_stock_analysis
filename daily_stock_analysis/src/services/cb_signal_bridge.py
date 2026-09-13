@@ -25,7 +25,7 @@ DEFAULT_PLAN_PATH = (
     PROJECT_ROOT.parent / "quant_research" / "output" / "paper_tracking"
     / "current_plan.json"
 )
-SUPPORTED_SCHEMA = "cb_current_plan_v1"
+SUPPORTED_SCHEMAS = ("cb_current_plan_v1", "cb_current_plan_v2")
 
 
 def canonical_symbol(symbol: str) -> str:
@@ -71,7 +71,7 @@ def load_cb_plan(path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
     except (json.JSONDecodeError, OSError) as exc:
         logger.warning("CB 信号契约读取失败: %r", exc)
         return None
-    if plan.get("schema") != SUPPORTED_SCHEMA:
+    if plan.get("schema") not in SUPPORTED_SCHEMAS:
         logger.warning("CB 信号契约 schema 不支持: %r", plan.get("schema"))
         return None
     targets = plan.get("targets")

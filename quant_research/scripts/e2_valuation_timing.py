@@ -202,8 +202,10 @@ def main() -> int:
             "verdict": str(verdict),
         },
         "current_state": {
+            "as_of": str(percentile.index[-1])[:10] if not percentile.empty else None,
             "price_median": round(current_median, 2) if current_median else None,
             "percentile": round(current_pct, 3) if current_pct is not None else None,
+            "note": "窗口末端读数（WINDOW 截断），非今日实时分位；运行时动态重算见 dsa /健康",
         },
         "position_history": timed.get("position_multipliers", []),
     }

@@ -1,0 +1,89 @@
+{
+ "snapshot_id": "2026-09-11_9af45f28",
+ "generated_at": "2026-09-11T16:24:10",
+ "trade_date": "2026-09-11",
+ "plan": {
+  "pit_end": "2026-09-11",
+  "plan_generated_at": "2026-09-11T16:23:58",
+  "latest_rebalance": "2025-10-09",
+  "targets": {
+   "113062.SH": {
+    "weight": 0.25,
+    "t1_close": 128.75
+   },
+   "113631.SH": {
+    "weight": 0.25,
+    "t1_close": 133.748
+   },
+   "113691.SH": {
+    "weight": 0.25,
+    "t1_close": 145.136
+   },
+   "118031.SH": {
+    "weight": 0.25,
+    "t1_close": 118.93
+   }
+  },
+  "blocked": {
+   "123089.SZ": "强赎已实施（公告 2025-09-16，赎回 2025-10-15）"
+  },
+  "no_action_reason": null
+ },
+ "portfolio": {
+  "total_cash": -12390.0,
+  "positions": [
+   {
+    "symbol": "000899",
+    "quantity": 100.0,
+    "avg_cost": 11.16,
+    "last_price": 9.92,
+    "price_date": "2026-09-10"
+   },
+   {
+    "symbol": "002475",
+    "quantity": 200.0,
+    "avg_cost": 56.77,
+    "last_price": 54.45,
+    "price_date": "2026-09-10"
+   }
+  ]
+ },
+ "order_sheet": {
+  "sheet_id": "2026-09-11_c9020eef",
+  "status": "pending",
+  "orders": [],
+  "holds": [
+   {
+    "symbol": "SH118031",
+    "quantity": 0,
+    "reason": "现金不足且账户未登记现金——若已转入请先 /持仓登记 记账"
+   },
+   {
+    "symbol": "SH113062",
+    "quantity": 0,
+    "reason": "现金不足且账户未登记现金——若已转入请先 /持仓登记 记账"
+   },
+   {
+    "symbol": "SH113631",
+    "quantity": 0,
+    "reason": "现金不足且账户未登记现金——若已转入请先 /持仓登记 记账"
+   },
+   {
+    "symbol": "SH113691",
+    "quantity": 0,
+    "reason": "现金不足且账户未登记现金——若已转入请先 /持仓登记 记账"
+   }
+  ],
+  "fills": {}
+ },
+ "data_versions": {
+  "pit_path": "D:\\daily_stock_analysis\\quant_research\\data\\pit\\convertible_pit.parquet",
+  "pit_sha256": "eb0b5c726374b0013c6ed7750c4ab1f381353d64fb46b370b538a8d564c16fa0",
+  "pit_end": "2026-09-11",
+  "cross_section_bonds": 18
+ },
+ "quality": {
+  "fresh": true,
+  "warnings": []
+ }
+}

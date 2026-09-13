@@ -3041,8 +3041,8 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "warning_codes": [],
     },
     "NOTIFICATION_DAILY_DIGEST_ENABLED": {
-        "title": "Notification Daily Digest Enabled (Reserved)",
-        "description": "Reserved P4 flag. It is visible for compatibility but does not send daily digests yet.",
+        "title": "Notification Daily Digest Enabled",
+        "description": "Aggregate report notifications into one daily digest at NOTIFICATION_DIGEST_TIME.",
         "category": "notification",
         "data_type": "boolean",
         "ui_control": "switch",
@@ -3063,7 +3063,7 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
                 "href": "https://github.com/ZhuLinsen/daily_stock_analysis/blob/main/docs/notifications.md",
             },
         ],
-        "warning_codes": ["reserved_flag"],
+        "warning_codes": [],
     },
     "SCHEDULE_TIME": {
         "title": "Schedule Time",

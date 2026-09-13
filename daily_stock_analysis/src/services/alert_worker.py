@@ -146,6 +146,7 @@ class AlertWorker:
         monitor = EventMonitor()
         daily_cache: Dict[Any, Any] = {}
         self._analysis_visibility_cache = {}
+        pending_legacy_alerts: Dict[str, List[Tuple[RuntimeAlertRule, Dict[str, Any], Optional[int]]]] = {}
         for runtime_rule in runtime_rules:
             stats["evaluated"] += 1
             try:
@@ -194,14 +195,98 @@ class AlertWorker:
                                 ttl_seconds=cooldown_decision.fallback_ttl_seconds,
                             )
                         stats["notified"] += 1
-                elif self._should_notify(runtime_rule.key):
-                    dispatch = self._send_notification_safely(runtime_rule, result)
-                    stats["notification_attempts"] += self._record_notification_attempts_safely(trigger_id, dispatch)
-                    if bool(dispatch.success):
-                        self._mark_notified(runtime_rule.key)
-                        stats["notified"] += 1
+                elif runtime_rule.source == "legacy_env":
+                    # Keep every rule trigger in the audit table, but defer the
+                    # user-facing send until all rules have been evaluated so
+                    # crossed thresholds for one symbol become one alert.
+                    group_key = self._legacy_alert_group_key(runtime_rule)
+                    pending_legacy_alerts.setdefault(group_key, []).append(
+                        (runtime_rule, result, trigger_id)
+                    )
+
+        for group_key, grouped in pending_legacy_alerts.items():
+            if not self._should_notify(group_key):
+                continue
+            dispatch = self._send_aggregated_legacy_alert(grouped)
+            for _rule, _result, trigger_id in grouped:
+                stats["notification_attempts"] += self._record_notification_attempts_safely(
+                    trigger_id, dispatch
+                )
+            if bool(dispatch.success):
+                self._mark_notified(group_key)
+                stats["notified"] += 1
 
         return stats
+
+    @staticmethod
+    def _legacy_alert_group_key(runtime_rule: RuntimeAlertRule) -> str:
+        rule = runtime_rule.rule
+        target = str(getattr(rule, "stock_code", "") or runtime_rule.effective_target or "").strip().upper()
+        alert_type = str(getattr(getattr(rule, "alert_type", None), "value", getattr(rule, "alert_type", "alert"))).lower()
+        direction = str(getattr(rule, "direction", "") or "").lower()
+        return f"event_alert:{target}:{alert_type}:{direction}"
+
+    def _send_aggregated_legacy_alert(
+        self,
+        grouped: List[Tuple[RuntimeAlertRule, Dict[str, Any], Optional[int]]],
+    ) -> "NotificationDispatchResult":
+        from src.notification import NotificationBuilder, NotificationService
+
+        first_rule, first_result, _ = grouped[0]
+        target = str(getattr(first_rule.rule, "stock_code", "") or first_rule.effective_target or "").strip().upper()
+        alert_type = str(getattr(getattr(first_rule.rule, "alert_type", None), "value", getattr(first_rule.rule, "alert_type", "alert"))).lower()
+        direction = str(getattr(first_rule.rule, "direction", "") or "").lower()
+        thresholds = sorted({str(item[1].get("threshold")) for item in grouped if item[1].get("threshold") is not None})
+        current = first_result.get("observed_value")
+        reasons = [str(item[1].get("reason") or item[1].get("message") or "").strip() for item in grouped]
+        content = (
+            f"{target} 当前值 {current}，已触发 {len(grouped)} 条 {alert_type}/{direction} 规则。\n"
+            f"阈值：{', '.join(thresholds) or '见规则审计'}\n"
+            f"触发：{'；'.join(dict.fromkeys(reasons))}\n"
+            "建议：结合最新组合决策包人工确认；本消息仅预警，不自动下单。"
+        )
+        alert_text = NotificationBuilder.build_simple_alert(
+            title=f"Event Alert | {target}", content=content, alert_type="warning"
+        )
+        notifier = self.notifier or NotificationService()
+        logical_id = self._legacy_alert_group_key(first_rule)
+        payload = {
+            "artifact_type": "event_alert",
+            "logical_id": logical_id,
+            "symbols": [target],
+            "source": "alert_worker",
+            "priority": "high",
+        }
+        dispatch = notifier.send_with_results(
+            alert_text,
+            route_type="alert",
+            dedup_key=logical_id,
+            cooldown_key=logical_id,
+            structured_payload=payload,
+        )
+        # Alerts remain immediate, but a compact index is retained for the
+        # evening digest so the digest and the live channel describe one fact.
+        if bool(dispatch.success) and self.notifier is None:
+            self._index_alert_in_digest(alert_text, logical_id, payload)
+        return dispatch
+
+    @staticmethod
+    def _index_alert_in_digest(
+        alert_text: str,
+        logical_id: str,
+        payload: Dict[str, Any],
+    ) -> None:
+        try:
+            from src.services.notification_digest_service import append_to_bus
+            append_to_bus(
+                content=alert_text,
+                route_type="alert",
+                severity="warning",
+                dedup_key=logical_id,
+                structured_payload=payload,
+            )
+        except Exception as exc:  # noqa: BLE001 - index failure must not fail alert
+            logger.warning("[AlertWorker] Failed to index alert in digest bus: %s", exc)
 
     def _load_runtime_rules(self, config: Any) -> List[RuntimeAlertRule]:
         runtime_rules: List[RuntimeAlertRule] = []
@@ -658,8 +743,24 @@ class AlertWorker:
         if signal_excerpt:
             content = f"{content}\n\n{signal_excerpt}"
         alert_text = NotificationBuilder.build_simple_alert(title=title, content=content, alert_type="warning")
-
-        return notification_service.send_with_results(alert_text, route_type="alert")
+        logical_id = self._legacy_alert_group_key(runtime_rule)
+        payload = {
+            "artifact_type": "event_alert",
+            "logical_id": logical_id,
+            "symbols": [str(getattr(runtime_rule.rule, "stock_code", "") or runtime_rule.effective_target or "").upper()],
+            "source": "alert_worker",
+            "priority": "high",
+        }
+        dispatch = notification_service.send_with_results(
+            alert_text,
+            route_type="alert",
+            dedup_key=logical_id,
+            cooldown_key=logical_id,
+            structured_payload=payload,
+        )
+        if bool(dispatch.success) and self.notifier is None:
+            self._index_alert_in_digest(alert_text, logical_id, payload)
+        return dispatch
 
     def _send_notification_safely(self, runtime_rule: RuntimeAlertRule, result: Dict[str, Any]) -> "NotificationDispatchResult":
         try:

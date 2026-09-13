@@ -136,7 +136,8 @@ class TestLedger:
         assert sheet.status == "pending"
 
         mark_order_filled(sheet, "SH113062", 127.8)
-        assert sheet.status == "pending"  # 还有一单未回填
+        # 方案v2 批次A3：一腿足额、另一腿未动 → partially_filled（FIX 语义）
+        assert sheet.status == "partially_filled"
         mark_order_filled(sheet, "SZ123089", 116.8)
         assert sheet.status == "filled"  # 全部成交
 

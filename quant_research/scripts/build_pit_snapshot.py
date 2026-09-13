@@ -343,6 +343,23 @@ def main(argv: list[str] | None = None) -> int:
         & (pit["as_of"] <= pd.Timestamp(end))
     ]
     pit = pit.dropna(subset=["price", "premium_rate"])
+
+    # 部分日截面保护（FINAL-SOLUTION P0 复盘）：盘后增量只刷新一部分券时，
+    # 当日截面会残缺（曾跌到 18/283）——残缺截面会扭曲 E2 分位数与
+    # min_candidates 池判定。规则：尾部日期截面数 < 前一完整日截面数的
+    # 60% → 视为"增量进行中的部分日"，裁掉；等全量刷新/次日补齐后再入表。
+    day_counts = pit.groupby("as_of")["symbol"].nunique().sort_index()
+    while len(day_counts) >= 2:
+        last_date, last_n = day_counts.index[-1], int(day_counts.iloc[-1])
+        prev_n = int(day_counts.iloc[-2])
+        if last_n >= prev_n * 0.6:
+            break
+        logger.warning(
+            "部分日截面裁剪: %s 仅 %d 券（前一日 %d）——视为增量未完成，从 PIT 剔除",
+            pd.Timestamp(last_date).date(), last_n, prev_n)
+        pit = pit[pit["as_of"] < last_date]
+        day_counts = day_counts.iloc[:-1]
+
     pit = pit[
         [
             "as_of", "symbol", "price", "premium_rate", "rating", "list_date",

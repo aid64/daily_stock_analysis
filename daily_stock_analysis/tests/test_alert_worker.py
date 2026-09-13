@@ -1592,6 +1592,36 @@ class AlertWorkerTestCase(unittest.TestCase):
         self.assertEqual(len(self._triggers(status="triggered")), 2)
         self.assertEqual(self._notifications(channel="__cooldown__"), [])
 
+    def test_legacy_thresholds_for_one_direction_are_aggregated(self) -> None:
+        raw_rules = json.dumps([
+            {"stock_code": "000899", "alert_type": "price_cross", "direction": "below", "price": 10.87},
+            {"stock_code": "000899", "alert_type": "price_cross", "direction": "below", "price": 10.65},
+        ])
+        notifier = self._notifier()
+        worker = AlertWorker(
+            config_provider=lambda: self._config(raw_rules),
+            service=self.service,
+            notifier=notifier,
+        )
+
+        with patch(
+            "src.agent.events.EventMonitor._get_realtime_quote",
+            new=AsyncMock(return_value=SimpleNamespace(price=9.5)),
+        ):
+            stats = worker.run_once()
+
+        self.assertEqual(stats["triggered"], 2)
+        self.assertEqual(stats["notified"], 1)
+        notifier.send_with_results.assert_called_once()
+        text = notifier.send_with_results.call_args.args[0]
+        self.assertIn("已触发 2 条", text)
+        self.assertIn("10.65", text)
+        self.assertIn("10.87", text)
+        self.assertEqual(len(self._triggers(status="triggered")), 2)
+        kwargs = notifier.send_with_results.call_args.kwargs
+        self.assertEqual(kwargs["dedup_key"], "event_alert:000899:price_cross:below")
+        self.assertEqual(kwargs["structured_payload"]["symbols"], ["000899"])
+
     def test_legacy_rule_still_uses_fingerprint_suppression(self) -> None:
         raw_rules = '[{"stock_code":"600519","alert_type":"price_cross","direction":"above","price":1800}]'
         notifier = self._notifier()

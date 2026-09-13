@@ -2652,6 +2652,7 @@ class NotificationService(
         dedup_key: Optional[str] = None,
         cooldown_key: Optional[str] = None,
         structured_payload: Optional[Dict[str, Any]] = None,
+        test_mode: bool = False,
     ) -> NotificationDispatchResult:
         """
         Send a notification and return per-channel diagnostics.
@@ -2711,6 +2712,7 @@ class NotificationService(
             route_type not in ("system_error", "alert")
             and bool(getattr(self._config, "notification_daily_digest_enabled", False))
             and not getattr(self, "_digest_bypass", False)
+            and not test_mode
         ):
             try:
                 from src.services.notification_digest_service import append_to_bus
@@ -2899,6 +2901,7 @@ class NotificationService(
         dedup_key: Optional[str] = None,
         cooldown_key: Optional[str] = None,
         structured_payload: Optional[Dict[str, Any]] = None,
+        test_mode: bool = False,
     ) -> bool:
         """
         统一发送接口 - 向所有已配置的渠道发送。
@@ -2915,6 +2918,7 @@ class NotificationService(
             dedup_key=dedup_key,
             cooldown_key=cooldown_key,
             structured_payload=structured_payload,
+            test_mode=test_mode,
         )
         return bool(result.success)
 

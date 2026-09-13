@@ -66,6 +66,101 @@ def _sheet_line() -> str:
             f"（回填 {n_fills}）")
 
 
+def _snapshot_line() -> str:
+    """决策快照状态（FINAL-SOLUTION W3）：单一事实源的版本与新鲜度。"""
+    from src.services.decision_snapshot_service import load_latest_snapshot
+
+    snap = load_latest_snapshot()
+    if snap is None:
+        return "· 决策快照: 尚未生成（/操作单 或每日管线触发）"
+    generated = str(snap.get("generated_at") or "")[:16].replace("T", " ")
+    data = snap.get("data_versions") or {}
+    quality = snap.get("quality") or {}
+    flag = "✓" if quality.get("fresh") else "⚠"
+    return (f"{flag} 决策快照: {snap.get('snapshot_id')}（{generated}）"
+            f" · PIT 末端 {data.get('pit_end', '?')}"
+            f"（{data.get('cross_section_bonds', '?')} 券）")
+
+
+def _cash_line() -> str:
+    """现金登记提醒闭环（FINAL-SOLUTION W4）：现金=0 时买单无法给出张数。"""
+    try:
+        from src.services.portfolio_service import PortfolioService
+        from src.services.cb_signal_bridge import load_cb_plan
+
+        snapshot = PortfolioService().get_portfolio_snapshot(
+            cost_method="fifo", include_realtime=False)
+        cash = float(snapshot.get("total_cash") or 0)
+        plan = load_cb_plan() or {}
+        has_buy_targets = any(
+            float((v or {}).get("weight") or 0) > 0
+            for v in (plan.get("targets") or {}).values())
+        if cash < 0:
+            return (f"⚠ 可用现金: ¥{cash:,.2f}（为负——账户只有交易记录、"
+                    "没有资金入账记录）请通过 /持仓登记 补记入金")
+        if cash <= 0 and has_buy_targets:
+            return ("⚠ 可用现金: 未登记（¥0）——操作单买单无法给出具体张数，"
+                    "转入资金后请 /持仓登记 记账")
+        return f"✓ 可用现金: ¥{cash:,.2f}"
+    except Exception as exc:  # noqa: BLE001 - 现金查询失败不阻塞健康视图
+        return f"⚠ 可用现金查询失败: {exc}"
+
+
+def _coverage_line() -> str:
+    """Show analysis/alert coverage for current holdings and watchlist."""
+    try:
+        from src.config import get_config
+        from src.services.portfolio_service import PortfolioService
+        from src.agent.events import parse_event_alert_rules
+
+        cfg = get_config()
+        watched = {str(s).strip().upper() for s in (cfg.stock_list or []) if str(s).strip()}
+        snapshot = PortfolioService().get_portfolio_snapshot(
+            cost_method="fifo", include_realtime=False)
+        held = set()
+        for account in snapshot.get("accounts") or []:
+            for position in account.get("positions") or []:
+                if float(position.get("quantity") or 0) > 0:
+                    raw = str(position.get("symbol") or "").strip().upper()
+                    held.add("".join(ch for ch in raw if ch.isdigit()) or raw)
+        rules = parse_event_alert_rules(getattr(cfg, "agent_event_alert_rules_json", ""))
+        alerted = {str(r.get("stock_code") or "").strip().upper() for r in rules}
+        covered = sorted((held | watched) & alerted)
+        uncovered = sorted((held | watched) - alerted)
+        detail = f"已配置告警 {','.join(covered) or '无'}"
+        if uncovered:
+            detail += f"；未配置个性化阈值 {','.join(uncovered)}"
+        return "✓ 组合覆盖: " + detail
+    except Exception as exc:  # noqa: BLE001 - coverage is diagnostic only
+        return f"⚠ 组合覆盖查询失败: {exc}"
+
+
+def _risk_line() -> str:
+    """批次 D（方案 v2）：组合集中度风险——复用 PortfolioRiskService。"""
+    try:
+        from src.services.portfolio_risk_service import PortfolioRiskService
+
+        report = PortfolioRiskService().get_risk_report(include_realtime=False)
+        con = report.get("concentration") or {}
+        top_positions = con.get("top_positions") or []
+        alerts = [p for p in top_positions if p.get("is_alert")]
+        equity = float(con.get("total_market_value") or 0)
+        if alerts:
+            worst = alerts[0]
+            names = "、".join(
+                f"{p['symbol']} 占 {p['weight_pct']:.1f}%" for p in alerts[:2])
+            line = (f"⚠ 集中度: {names}（阈值 "
+                    f"{report['thresholds']['concentration_alert_pct']:.0f}%）"
+                    f"——单标的风险敞口过大")
+        else:
+            top = top_positions[0] if top_positions else None
+            line = (f"✓ 集中度: 最高 {top['symbol']} 占 {top['weight_pct']:.1f}%"
+                    if top else "✓ 集中度: 无持仓")
+        return f"{line} · 持仓市值 ¥{equity:,.0f}（不含现金）"
+    except Exception as exc:  # noqa: BLE001 - 风险行失败不影响健康视图
+        return f"⚠ 集中度查询失败: {exc}"
+
+
 def _signal_line() -> str:
     try:
         from src.services.decision_signal_service import DecisionSignalService
@@ -97,39 +192,38 @@ def _anomaly_lines(today: date) -> List[str]:
 
 
 def _timing_line() -> str:
-    """E2 估值分位择时信号"""
+    """E2 估值分位择时信号。
+
+    C2（OPTIMIZATION-PLAN-V2）：弃用静态 e2 JSON（其 current_state 是
+    研究窗口末端读数，与最新 PIT 偏差实测 6.3pp），改为按当前 PIT
+    动态重算 expanding 分位——与操作单 timing_note 同一算法同源。
+    """
     try:
+        import pandas as pd
         from src.services.cb_signal_bridge import load_cb_plan
+
         plan = load_cb_plan()
         if plan is None:
             return ""
-        # 简化：读 CB-RESEARCH-PLAN 产出的最新分位
-        import json as _json
-        e2_path = _PROJECT_ROOT.parent / "quant_research" / "output" / "e2_valuation_timing.json"
-        if not e2_path.exists():
+        pit_path = (_PROJECT_ROOT.parent / "quant_research" / "data" / "pit"
+                    / "convertible_pit.parquet")
+        if not pit_path.exists():
             return ""
-        e2 = _json.loads(e2_path.read_text(encoding="utf-8"))
-        state = e2.get("current_state", {})
-        pct = state.get("percentile")
-        if pct is None:
+        pit = pd.read_parquet(pit_path, columns=["as_of", "price"])
+        pit_end = plan.get("pit_end")
+        if pit_end:
+            pit = pit[pit["as_of"] <= pd.Timestamp(pit_end)]
+        median = pit.groupby("as_of")["price"].median().sort_index()
+        if median.empty:
             return ""
+        pct = float((median <= median.iloc[-1]).mean())
+        as_of = str(median.index[-1])[:10]
         if pct > 0.80:
-            return f"⚠ E2 择时: 估值分位 {pct:.1%} → 建议减半仓"
-        return f"✓ E2 择时: 估值分位 {pct:.1%} → 正常仓位"
-    except Exception:
-        return ""
-    lines = []
-    if _PLAN_PATH.exists():
-        try:
-            plan = json.loads(_PLAN_PATH.read_text(encoding="utf-8"))
-            pit_end = date.fromisoformat(plan.get("pit_end", "1970-01-01"))
-            if today - pit_end > timedelta(days=7):
-                lines.append("⚠ CB 信号数据超 7 天未更新——请跑 quant 侧 PIT 增量")
-        except (ValueError, json.JSONDecodeError):
-            lines.append("⚠ CB 信号契约解析失败")
-    else:
-        lines.append("⚠ 未发现 CB 信号契约——操作单将无法生成")
-    return lines
+            return (f"⚠ E2 择时: 估值分位 {pct:.1%}（截至 {as_of}）"
+                    "→ 建议减半仓")
+        return f"✓ E2 择时: 估值分位 {pct:.1%}（截至 {as_of}）→ 正常仓位"
+    except Exception as exc:  # noqa: BLE001 - 择时行失败不影响健康视图
+        return f"⚠ E2 择时计算失败: {exc}"
 
 
 class HealthCommand(BotCommand):
@@ -154,7 +248,8 @@ class HealthCommand(BotCommand):
     def execute(self, message: BotMessage, args: List[str]) -> BotResponse:
         today = date.today()
         lines = ["【运行健康】", _plan_line(today), _push_line(),
-                 _sheet_line(), _signal_line()]
+                 _sheet_line(), _cash_line(), _snapshot_line(),
+                 _coverage_line(), _risk_line(), _signal_line()]
         timing = _timing_line()
         if timing:
             lines.append(timing)

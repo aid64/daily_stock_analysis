@@ -54,11 +54,33 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--raw-dir", default=str(_RAW_DIR))
     parser.add_argument("--throttle", type=float, default=0.8, help="逐券间隔秒")
     parser.add_argument("--limit", type=int, default=None, help="最多更新 N 只（调试用）")
+    parser.add_argument("--symbols", default="",
+                        help="优先更新的券（逗号分隔）——不传则自动读上一期 current_plan.json 目标")
     args = parser.parse_args(argv)
 
     raw_dir = Path(args.raw_dir)
     updated, skipped_current, failed, no_new = 0, 0, 0, 0
     sym_dirs = sorted(d for d in raw_dir.iterdir() if d.is_dir())
+
+    # 优先队列：当前目标债必须当日有价，否则导出的 t1_close=0，
+    # dsa 操作单全线退化为"缺 T-1 收盘价人工处理"。滚动 limit 不保证
+    # 覆盖目标债，所以把上一期契约目标排到队首（limit 只约束其余券）。
+    priority_symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
+    if not priority_symbols:
+        plan_path = Path(__file__).resolve().parent.parent / "output" / "paper_tracking" / "current_plan.json"
+        try:
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            priority_symbols = [
+                str(s).upper() for s, payload in (plan.get("targets") or {}).items()
+                if payload and float(payload.get("weight") or 0) > 0
+            ]
+        except (OSError, ValueError, AttributeError, TypeError):
+            priority_symbols = []
+    head = [d for d in sym_dirs if d.name in set(priority_symbols)]
+    if head:
+        tail = [d for d in sym_dirs if d.name not in set(priority_symbols)]
+        sym_dirs = head + tail
+        logger.info("优先更新 %d 只: %s", len(head), ",".join(d.name for d in head))
     logger.info("raw 缓存 %d 只", len(sym_dirs))
 
     for i, sym_dir in enumerate(sym_dirs, 1):
@@ -115,10 +137,11 @@ def main(argv: Optional[list[str]] = None) -> int:
             logger.info("进度 %d/%d（更新 %d, 已最新 %d, 失败 %d）",
                         i, len(sym_dirs), updated, skipped_current, failed)
         time.sleep(args.throttle)
-        # limit 计"处理过的 akshare 券"（含已最新/失败）——PIT 已最新时
-        # limit 也要能快速退出，防管线遍历全量 914 只超时
-        if args.limit and (updated + skipped_current + failed) >= args.limit:
-            break
+        # limit 计"处理过的非优先券"——优先目标债不占 limit，也不触发退出，
+        # 保证契约目标全部更新完成后才进入滚动轮
+        if args.limit and sym_dir.name not in priority_symbols:
+            if (updated + skipped_current + failed) >= args.limit:
+                break
 
     logger.info("完成: 更新 %d, 已最新 %d, 失败 %d", updated, skipped_current, failed)
     # 管线友好：只要有一只成功（或无需更新）就 rc=0；

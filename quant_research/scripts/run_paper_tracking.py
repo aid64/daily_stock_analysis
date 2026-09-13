@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import sys
@@ -136,7 +137,13 @@ def record_quarter(
     weights = compute_cb_target_weights(
         pit_table, start=start_s, end=end_s, rebalance="Q", **pick_params)
     if not weights:
-        raise ValueError(f"{quarter} 内无调仓计划（{start_s}..{end_s}）")
+        # 季内无调仓计划（min_candidates 让位现金）≠ 数据错误：按该季
+        # fresh-replay 口径诚实记录为现金季度（平盘权益、零成交零费用），
+        # 而不是报错缺表——否则 2026 起三表永远缺季（FINAL-SOLUTION W2）。
+        logger.warning("%s 无调仓计划（候选池不足让位现金）——记录为现金季度", quarter)
+        return _record_cash_quarter(
+            pit_table, quarter, q_start, end_clip, capital, out_dir)
+
     symbols = sorted({s for picks in weights.values() for s in picks})
 
     pit_q = pit_table[(pit_table["as_of"] >= q_start) & (pit_table["as_of"] <= end_clip)]
@@ -227,6 +234,142 @@ def record_quarter(
     return summary
 
 
+def _record_cash_quarter(
+    pit_table: pd.DataFrame,
+    quarter: str,
+    q_start: pd.Timestamp,
+    end_clip: pd.Timestamp,
+    capital: float,
+    out_dir: Path,
+) -> dict:
+    """空调仓季度：平盘权益曲线 + 空成交表 + 零费用行（诚实让位现金）。"""
+    dates = sorted(pit_table.loc[
+        (pit_table["as_of"] >= q_start) & (pit_table["as_of"] <= end_clip),
+        "as_of"].unique())
+    eq_rows = pd.DataFrame({
+        "quarter": quarter,
+        "date": [pd.Timestamp(d).date() for d in dates],
+        "value": [round(capital, 2)] * len(dates),
+    })
+    _merge_quarter_rows(out_dir / EQUITY_CSV, quarter, eq_rows)
+    _merge_quarter_rows(
+        out_dir / FILLS_CSV, quarter,
+        pd.DataFrame(columns=["quarter", "date", "symbol", "side", "size",
+                              "price", "value", "commission",
+                              "planned_weight", "role"]))
+    _merge_quarter_rows(out_dir / COST_CSV, quarter, pd.DataFrame([{
+        "quarter": quarter,
+        "rebalance_date": None,
+        "capital": capital,
+        "traded_value": 0.0,
+        "completed_orders": 0,
+        "actual_commission": 0.0,
+        "modeled_commission": 0.0,
+        "commission_diff": 0.0,
+        "effective_rate_bp": 0.0,
+        "slippage_model": 0.0,
+        "final_value": round(capital, 2),
+        "pit_end": str(end_clip.date()),
+    }]))
+    logger.info("%s 现金季度已记录（%d 个交易日，权益平盘 %.2f）",
+                quarter, len(dates), capital)
+    return {
+        "quarter": quarter,
+        "rebalance_date": None,
+        "targets": {},
+        "n_fills": 0,
+        "traded_value": 0.0,
+        "actual_commission": 0.0,
+        "modeled_commission": 0.0,
+        "final_value": round(capital, 2),
+        "total_return": 0.0,
+        "max_drawdown": 0.0,
+        "pit_end": str(end_clip.date()),
+        "cash_quarter": True,
+    }
+
+
+def _load_lifecycle_tables() -> tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
+    """加载强赎事件与条款表；缺失时返回 (None, None)——阻断降级为不可用而非报错。"""
+    calls_p = _PROJECT_ROOT / "data" / "pit" / "cb_calls.parquet"
+    terms_p = _PROJECT_ROOT / "data" / "pit" / "cb_terms.parquet"
+
+    def _read(p: Path) -> Optional[pd.DataFrame]:
+        try:
+            return pd.read_parquet(p) if p.exists() else None
+        except Exception as exc:  # noqa: BLE001 - 生命周期表损坏不阻塞导出
+            logger.warning("生命周期表读取失败 %s: %s", p, exc)
+            return None
+
+    return _read(calls_p), _read(terms_p)
+
+
+def _lifecycle_blocks(
+    symbols: list[str],
+    pit_table: pd.DataFrame,
+    pit_latest: pd.Timestamp,
+) -> Dict[str, str]:
+    """导出前生命周期硬阻断：强赎实施/到期赎回/已到期/行情长期缺失。
+
+    背景（FINAL-SOLUTION-20260910 发现 3）：123089.SZ 于 2025-09-16 公告
+    强赎、2025-10-23 退市，但 PIT 价格在退市前一直"有效"，纯价格过滤
+    无法拦截——必须消费 cb_call 生命周期事件。历史回测不走本函数，
+    研究结果不受影响。
+    """
+    blocks: Dict[str, str] = {}
+    calls_df, terms_df = _load_lifecycle_tables()
+
+    if calls_df is not None and len(calls_df):
+        sub = calls_df[calls_df["ts_code"].isin(symbols)].copy()
+        if len(sub):
+            sub["ann_ts"] = pd.to_datetime(sub["ann_date"], errors="coerce")
+            sub["call_ts"] = pd.to_datetime(sub["call_date"], errors="coerce")
+            for symbol in symbols:
+                rows = sub[sub["ts_code"] == symbol].sort_values("ann_ts")
+                if rows.empty:
+                    continue
+                last = rows.iloc[-1]
+                state = str(last.get("is_call") or "")
+                # 实施强赎：call_date 已过 → 已退市；公告在近 60 天内 → 执行在即
+                if state == "公告实施强赎":
+                    if pd.notna(last["call_ts"]) and last["call_ts"] <= pit_latest:
+                        blocks[symbol] = (
+                            f"强赎已实施（公告 {last['ann_ts'].date()}，"
+                            f"赎回 {last['call_ts'].date()}）")
+                    elif pd.notna(last["ann_ts"]) and (
+                            pit_latest - last["ann_ts"]).days <= 60:
+                        blocks[symbol] = (
+                            f"已公告实施强赎（{last['ann_ts'].date()}），执行在即")
+                elif state == "公告到期赎回":
+                    blocks[symbol] = f"到期赎回（公告 {last['ann_ts'].date()}）"
+
+    # 已到期（cb_terms.maturity_date 早于 PIT 末端）
+    if terms_df is not None and len(terms_df):
+        mat = terms_df.set_index("ts_code")["maturity_date"]
+        for symbol in symbols:
+            if symbol in blocks:
+                continue
+            raw = mat.get(symbol)
+            m = pd.to_datetime(raw, errors="coerce") if raw is not None else pd.NaT
+            if pd.notna(m) and m <= pit_latest:
+                blocks[symbol] = f"已到期（{m.date()}）"
+
+    # 行情长期缺失：PIT 末行早于全局末端 N 天 → 疑似退市/停牌
+    tail = pit_table[pit_table["symbol"].isin(symbols)].groupby("symbol")["as_of"].max()
+    for symbol in symbols:
+        if symbol in blocks:
+            continue
+        last_seen = tail.get(symbol)
+        if last_seen is not None and (pit_latest - pd.Timestamp(last_seen)).days > _LIFECYCLE_STALE_DAYS:
+            blocks[symbol] = (
+                f"行情缺失自 {pd.Timestamp(last_seen).date()}"
+                f"（疑似退市/停牌）")
+    return blocks
+
+
+_LIFECYCLE_STALE_DAYS = 7
+
+
 def export_current_plan(
     pit_table: pd.DataFrame,
     latest_picks: Dict[str, float],
@@ -238,31 +381,75 @@ def export_current_plan(
 
     契约 schema=cb_current_plan_v1：符号/权重/T-1收盘价/PIT末端/调仓日。
     纯本地 PIT 读取，不发网络。跨项目只走此文件，不互相 import。
+    导出前做生命周期硬阻断（强赎/到期/行情缺失），命中者剔除并
+    记入 blocked；存续目标权重重新归一化（FINAL-SOLUTION 0.2 节）。
     """
     out = (out_dir or (STATE_DIR)) / "current_plan.json"
     pit_latest = _latest_pit_date(pit_table)
     latest_ts = pd.Timestamp(pit_latest)
-    targets: Dict[str, Dict[str, float]] = {}
-    for symbol in sorted(latest_picks):
+
+    blocks = _lifecycle_blocks(sorted(latest_picks), pit_table, pit_latest)
+    surviving = {s: w for s, w in latest_picks.items() if s not in blocks and w > 0}
+    if blocks:
+        logger.warning("生命周期阻断 %d 只: %s", len(blocks), blocks)
+    total_w = sum(surviving.values())
+
+    # E3（RESEARCH-BROAD 批次）：信号状态体系。目标三态：
+    #   executable     — 有有效价格，随 plan 下发（dsa 可生成限价单）
+    #   blocked        — 生命周期命中（强赎/到期/退市），带原因
+    #   manual_review  — 无有效价格（数据残缺），不虚构也不静默
+    # targets 只装 executable；blocked/manual_review 平行输出——
+    # 消除"current_plan 里出现的就是能买的"歧义。
+    targets: Dict[str, Dict[str, Any]] = {}
+    manual_review: Dict[str, str] = {}
+    for symbol in sorted(surviving):
         rows = pit_table[pit_table["symbol"] == symbol]
         rows = rows[rows["as_of"] == latest_ts]
         t1_close = float(rows["price"].iloc[-1]) if len(rows) else 0.0
+        if t1_close <= 0:
+            manual_review[symbol] = "无有效 T-1 收盘价——人工核实数据后重试"
+            continue
         targets[symbol] = {
-            "weight": float(latest_picks[symbol]),
+            "weight": float(surviving[symbol] / total_w) if total_w > 0 else 0.0,
             "t1_close": t1_close,
         }
+    # P0.3（FINAL-MODIFICATION-PLAN）：每个目标带价格日期/来源/数据版本，
+    # plan 带 schema 版本与 PIT 指纹——下游可校验"价格是哪天的、哪来的"。
+    pit_sha = hashlib.sha256()
+    try:
+        pit_sha.update(_PROJECT_ROOT.joinpath(
+            "data", "pit", "convertible_pit.parquet").read_bytes())
+        pit_sha_hex = pit_sha.hexdigest()[:16]
+    except OSError:
+        pit_sha_hex = "unknown"
+    for symbol in targets:
+        row = pit_table[pit_table["symbol"] == symbol]
+        row = row[row["as_of"] == latest_ts]
+        targets[symbol].update({
+            "price_date": str(pit_latest.date()) if len(row) else None,
+            "price_source": "pit_close",
+            "data_version": pit_sha_hex,
+            "signal_state": "executable",
+        })
     plan = {
-        "schema": "cb_current_plan_v1",
+        "schema": "cb_current_plan_v2",
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "pit_end": str(pit_latest.date()),
+        "pit_data_version": pit_sha_hex,
         "latest_rebalance": latest_key,
         "capital_base": float(capital),
         "targets": targets,
+        "blocked": blocks,
+        "manual_review": manual_review,
+        "no_action_reason": (
+            "全部目标被生命周期阻断（强赎/到期/退市）——让位现金，等待下期调仓"
+            if not targets and latest_picks else None),
     }
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(
         json.dumps(plan, ensure_ascii=False, indent=1), encoding="utf-8")
-    logger.info("信号契约已导出: %s（%d 个目标）", out, len(targets))
+    logger.info("信号契约已导出: %s（executable %d，blocked %d，manual_review %d）",
+                out, len(targets), len(blocks), len(manual_review))
     return out
 
 

@@ -1,0 +1,94 @@
+{
+ "snapshot_id": "2026-09-13_46f05f08",
+ "generated_at": "2026-09-13T11:38:43",
+ "trade_date": "2026-09-13",
+ "plan": {
+  "pit_end": "2026-09-13",
+  "plan_generated_at": "2026-09-13T08:00:00",
+  "latest_rebalance": "2026-07-01",
+  "targets": {
+   "113062.SH": {
+    "weight": 0.2,
+    "t1_close": 128.0
+   },
+   "123089.SZ": {
+    "weight": 0.2,
+    "t1_close": 116.5
+   },
+   "113691.SH": {
+    "weight": 0.2,
+    "t1_close": 148.0
+   }
+  },
+  "blocked": {},
+  "no_action_reason": null
+ },
+ "portfolio": {
+  "total_cash": 7730.0,
+  "positions": [
+   {
+    "symbol": "SH113062",
+    "quantity": 10.0,
+    "avg_cost": 127.0,
+    "last_price": 0.0,
+    "price_date": null
+   },
+   {
+    "symbol": "SH600519",
+    "quantity": 100.0,
+    "avg_cost": 10.0,
+    "last_price": 0.0,
+    "price_date": null
+   }
+  ]
+ },
+ "order_sheet": {
+  "sheet_id": "2026-09-13_117f4d04",
+  "status": "pending",
+  "orders": [
+   {
+    "direction": "buy",
+    "symbol": "SZ123089",
+    "quantity": 10,
+    "limit_price": 116.5,
+    "abandon_rule": "开盘>118.830 放弃",
+    "cancel_rule": "14:50 未成交撤单",
+    "est_value": 1165.0,
+    "reason": "新建仓至目标 10",
+    "round_trip_cost": 10.05,
+    "break_even_pct": 0.00862
+   },
+   {
+    "direction": "buy",
+    "symbol": "SH113691",
+    "quantity": 10,
+    "limit_price": 148.0,
+    "abandon_rule": "开盘>150.960 放弃",
+    "cancel_rule": "14:50 未成交撤单",
+    "est_value": 1480.0,
+    "reason": "新建仓至目标 10",
+    "round_trip_cost": 10.06,
+    "break_even_pct": 0.0068
+   }
+  ],
+  "holds": [
+   {
+    "symbol": "SH113062",
+    "quantity": 10,
+    "reason": "在目标持仓内"
+   }
+  ],
+  "fills": {}
+ },
+ "data_versions": {
+  "pit_path": "D:\\daily_stock_analysis\\quant_research\\data\\pit\\convertible_pit.parquet",
+  "pit_sha256": "4dc9c46c88f51c744d72c6a4ccaafeaaf3114dea82990ecae858025886ccd106",
+  "pit_end": "2026-09-10",
+  "cross_section_bonds": 283
+ },
+ "quality": {
+  "fresh": true,
+  "signal_available": true,
+  "warnings": []
+ }
+}

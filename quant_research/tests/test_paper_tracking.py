@@ -149,12 +149,16 @@ class TestExportPlan:
         out = export_current_plan(pit, picks, "2024-01-08", 10000.0,
                                   out_dir=tmp_path)
         plan = json.loads(out.read_text(encoding="utf-8"))
-        assert plan["schema"] == "cb_current_plan_v1"
+        assert plan["schema"] == "cb_current_plan_v2"
         assert plan["capital_base"] == 10000.0
         assert plan["latest_rebalance"] == "2024-01-08"
         assert abs(plan["targets"]["SH113062"]["weight"] - 0.5) < 1e-9
         assert plan["targets"]["SH113062"]["t1_close"] > 0  # PIT 末端价
         assert set(plan["targets"]) == {"SH113062", "SZ123089"}
+        # E3：信号状态体系（executable/blocked/manual_review 分层）
+        assert plan["targets"]["SH113062"]["signal_state"] == "executable"
+        assert plan["targets"]["SH113062"]["price_date"] is not None
+        assert plan["blocked"] == {} and plan["manual_review"] == {}
 
     def test_export_idempotent_overwrite(self, tmp_path):
         from scripts.run_paper_tracking import export_current_plan

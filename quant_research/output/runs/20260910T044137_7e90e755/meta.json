@@ -1,0 +1,44 @@
+{
+ "run_id": "20260910T044137_7e90e755",
+ "params": {
+  "kind": "paper_tracking_record",
+  "quarter": "2025Q4",
+  "capital": 10000.0,
+  "pick_params": {
+   "top_n": 5,
+   "min_rating": "AA-",
+   "max_premium": 20.0,
+   "exclude_new_days": 30,
+   "max_conv_value": 135.0,
+   "min_maturity_days": 365,
+   "min_candidates": 15
+  },
+  "fee": {
+   "commission": 8.45e-05,
+   "min_commission": 5.0
+  },
+  "targets": {
+   "123089.SZ": 0.2,
+   "118031.SH": 0.2,
+   "113062.SH": 0.2,
+   "113631.SH": 0.2,
+   "113691.SH": 0.2
+  }
+ },
+ "metrics": {
+  "n_fills": 5,
+  "total_return": 0.003473,
+  "max_drawdown": 0.016798,
+  "actual_commission": 25.13,
+  "modeled_commission": 25.13,
+  "final_value": 10034.73
+ },
+ "artifacts": {},
+ "tags": {
+  "kind": "paper_tracking_record",
+  "quarter": "2025Q4"
+ },
+ "timestamp": "2026-09-10T04:41:37.380856+00:00",
+ "git_sha": "35f8f97d120dfc9f179ee827783662083c1066c8",
+ "status": "completed"
+}

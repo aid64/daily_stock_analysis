@@ -46,8 +46,23 @@ def _content_hash(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()[:12]
 
 
+def _symbol_variants(value: Any) -> set:
+    """Return canonical text/digit variants for suffix/prefix market codes."""
+    raw = str(value or "").strip().upper()
+    if not raw:
+        return set()
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    variants = {raw}
+    if digits:
+        variants.add(digits)
+    if len(digits) == 6 and digits.startswith(("11", "12")):
+        variants.update({"SH" + digits if digits.startswith("11") else "SZ" + digits,
+                         digits + (".SH" if digits.startswith("11") else ".SZ")})
+    return variants
+
+
 def _held_symbols() -> set:
-    """当前持仓代码集合（前缀/后缀形态都收，宽松匹配）；失败返回空集。"""
+    """当前持仓代码集合（前缀/后缀形态都收）；失败返回空集。"""
     try:
         from src.services.portfolio_analysis_context import _service
         from src.services.portfolio_service import PortfolioService
@@ -58,13 +73,7 @@ def _held_symbols() -> set:
         symbols = set()
         for account in snapshot.get("accounts") or []:
             for position in account.get("positions") or []:
-                raw = str(position.get("symbol") or "").strip().upper()
-                if not raw:
-                    continue
-                digits = "".join(ch for ch in raw if ch.isdigit())
-                symbols.add(raw)
-                if digits:
-                    symbols.add(digits)
+                symbols.update(_symbol_variants(position.get("symbol")))
         return symbols
     except Exception as exc:  # noqa: BLE001 - 持仓匹配失败不阻塞总线
         logger.warning("digest held-symbol lookup failed: %r", exc)
@@ -86,6 +95,41 @@ def _is_holding_related(content: str, structured_payload: Optional[Dict[str, Any
     return any(s in haystack for s in held)
 
 
+def _logical_event_fields(
+    *,
+    content: str,
+    route_type: Optional[str],
+    dedup_key: Optional[str],
+    structured_payload: Optional[Dict[str, Any]],
+) -> Tuple[str, str, List[str]]:
+    """Resolve the stable business identity carried by a bus entry.
+
+    Callers may provide the identity in ``structured_payload``.  The legacy
+    dedup key remains the fallback so old producers and old JSONL files keep
+    working while new producers stop inventing one-off verification keys.
+    """
+    payload = structured_payload or {}
+    artifact_type = str(payload.get("artifact_type") or "").strip().lower()
+    logical_id = str(payload.get("logical_id") or "").strip()
+    symbols_raw = payload.get("symbols") or []
+    if isinstance(symbols_raw, str):
+        symbols_raw = symbols_raw.split(",")
+    symbols_set = set()
+    for item in symbols_raw:
+        symbols_set.update(_symbol_variants(item))
+    symbols = sorted(symbols_set)
+    if not artifact_type:
+        if str(route_type or "").lower() == "alert":
+            artifact_type = "event_alert"
+        elif str(route_type or "").lower() == "system_error":
+            artifact_type = "system_error"
+        else:
+            artifact_type = "report"
+    if not logical_id:
+        logical_id = f"{artifact_type}:{dedup_key or _content_hash(content)}"
+    return artifact_type, logical_id, symbols
+
+
 def append_to_bus(
     *,
     content: str,
@@ -95,26 +139,53 @@ def append_to_bus(
     structured_payload: Optional[Dict[str, Any]] = None,
     now: Optional[datetime] = None,
 ) -> Tuple[bool, Dict[str, Any]]:
-    """写入当日总线（带持久化去重）。返回 (是否新入总线, 条目)。"""
+    """写入当日总线；同一 logical_id 替换旧版本而非追加。"""
     now = now or datetime.now()
     day = now.date().isoformat()
+    artifact_type, logical_id, symbols = _logical_event_fields(
+        content=content, route_type=route_type, dedup_key=dedup_key,
+        structured_payload=structured_payload,
+    )
+    payload = structured_payload or {}
+    held = _held_symbols()
     entry = {
         "at": now.isoformat(timespec="seconds"),
         "route_type": route_type or "report",
         "severity": severity or "info",
-        "dedup_key": dedup_key or _content_hash(content),
-        "holding_related": _is_holding_related(
-            content, structured_payload, _held_symbols()),
-        "content": content[:2000],  # 总线存摘要；原文在各自报告/历史里
+        "dedup_key": dedup_key or logical_id,
+        "artifact_type": artifact_type,
+        "logical_id": logical_id,
+        "symbols": symbols,
+        "source": str(payload.get("source") or "unknown"),
+        "priority": str(payload.get("priority") or "normal"),
+        "status": str(payload.get("status") or "active"),
+        "holding_related": bool(set(symbols) & held) or _is_holding_related(
+            content, structured_payload, held),
+        "content": content[:2000],
+        "pit_end": payload.get("pit_end"),
+        "plan_generated_at": payload.get("plan_generated_at"),
+        "stale_symbols": payload.get("stale_symbols") or [],
     }
     path = _bus_path(day)
     path.parent.mkdir(parents=True, exist_ok=True)
-    seen = _read_day_keys(path)
-    key = (entry["route_type"], entry["dedup_key"])
-    if key in seen:
-        return False, entry
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+    entries = read_day_entries(day)
+    replaced = False
+    retained = []
+    for old in entries:
+        old_logical_id = str(old.get("logical_id") or "").strip()
+        old_key = (old.get("route_type"), old.get("dedup_key"))
+        same_event = old_logical_id == logical_id or old_key == (
+            entry["route_type"], entry["dedup_key"])
+        if same_event:
+            if old.get("content") == entry["content"] and old.get("symbols", []) == symbols:
+                return False, old
+            replaced = True
+            continue
+        retained.append(old)
+    retained.append(entry)
+    with path.open("w", encoding="utf-8") as fh:
+        for item in retained:
+            fh.write(json.dumps(item, ensure_ascii=False, default=str) + "\n")
     return True, entry
 
 
@@ -151,7 +222,14 @@ def read_day_entries(day: Optional[str] = None) -> List[Dict[str, Any]]:
 
 
 def render_digest(entries: List[Dict[str, Any]], day: Optional[str] = None) -> str:
-    """分级渲染：持仓相关置顶 > 重要 > 其他；每条一行摘要。"""
+    """分级渲染：先按逻辑事件折叠，再按持仓相关性与优先级排序。"""
+    latest: Dict[str, Dict[str, Any]] = {}
+    for entry in entries:
+        logical_id = str(entry.get("logical_id") or "").strip()
+        if not logical_id:
+            logical_id = f"legacy:{entry.get('route_type')}:{entry.get('dedup_key') or _content_hash(str(entry.get('content') or ''))}"
+        latest[logical_id] = entry
+    entries = list(latest.values())
     related = [e for e in entries if e.get("holding_related")]
     important = [e for e in entries if not e.get("holding_related")
                  and (e.get("route_type") == "alert"
@@ -212,15 +290,44 @@ def run_daily_digest(force: bool = False) -> Optional[str]:
         mark_digest_sent()
         return None
     text = render_digest(entries)
+    # 方案v2 第三批(10)：摘要带影子期指标行（本周执行率/滑点/放弃率）
+    try:
+        from src.services.order_sheet_service import SHEETS_DIR
+        from src.services.portfolio_analysis_context import (
+            get_or_create_default_account)
+        from src.services.portfolio_service import PortfolioService
+        from src.services.shadow_metrics_service import (
+            collect_shadow_metrics, render_weekly)
+
+        svc = PortfolioService()
+        account = get_or_create_default_account(svc)
+        trades = []
+        if account is not None:
+            batch = svc.list_trade_events(
+                account_id=int(account["account_id"]), page=1, page_size=200)
+            trades = batch.get("items") or batch.get("events") or []
+        report = collect_shadow_metrics(sheets_dir=SHEETS_DIR,
+                                        real_trades=trades, days=7)
+        text += "\n—— 影子期（本周）——\n" + render_weekly(report, weeks=1)
+    except Exception as exc:  # noqa: BLE001 - 指标行失败不影响摘要主体
+        logger.warning("影子期指标行生成失败: %r", exc)
     try:
         from src.notification import NotificationService
 
         notifier = NotificationService()
         setattr(notifier, DIGEST_BYPASS_ATTR, True)
-        notifier.send_with_results(
+        # B1（OPTIMIZATION-PLAN-V2）：检查真实发送回执——success=False
+        #（no_channel/all_failed）不写 sent 标记，次日首轮可重试。
+        result = notifier.send_with_results(
             text, route_type="report", severity="info",
             dedup_key=f"daily_digest:{_today()}",
         )
+        if not bool(getattr(result, "success", False)):
+            logger.error(
+                "daily digest 通知未送达（status=%s, results=%s）——不标记已发，"
+                "下轮重试", getattr(result, "status", "?"),
+                [(c.channel, c.success) for c in (getattr(result, "channel_results", None) or [])])
+            return None
     except Exception as exc:  # noqa: BLE001 - 摘要失败不抛给调度器
         logger.exception("daily digest send failed: %r", exc)
         return None

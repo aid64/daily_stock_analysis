@@ -54,6 +54,37 @@ class TestBus:
                             now=datetime(2026, 9, 5, 9, 0))
         assert queued is True  # 跨日不去重
 
+    def test_same_logical_event_replaces_old_version(self, bus_dir, monkeypatch):
+        monkeypatch.setattr(dsvc, "_held_symbols", lambda: {"000899"})
+        payload = {
+            "artifact_type": "daily_operation_sheet",
+            "logical_id": "daily_operation_sheet:2026-09-09",
+            "symbols": ["000899"],
+            "source": "daily_pipeline",
+        }
+        first, _ = _append("【今日操作单】旧数据", dedup="pipeline-old",
+                           structured_payload=payload)
+        second, entry = _append("〔修正版〕【今日操作单】新数据", dedup="manual-new",
+                                structured_payload=payload)
+
+        assert first is True and second is True
+        entries = read_day_entries()
+        assert len(entries) == 1
+        assert entries[0]["content"].endswith("新数据")
+        assert entry["holding_related"] is True
+
+    def test_symbol_variants_match_holdings(self, bus_dir, monkeypatch):
+        monkeypatch.setattr(dsvc, "_held_symbols", lambda: {"SH113062", "113062"})
+        _, entry = _append(
+            "操作单已更新", dedup="cb-plan",
+            structured_payload={
+                "artifact_type": "daily_operation_sheet",
+                "logical_id": "daily_operation_sheet:2026-09-09",
+                "symbols": ["113062.SH"],
+            },
+        )
+        assert entry["holding_related"] is True
+
 
 class TestRendering:
     def test_holding_related_tops_and_flagged(self, bus_dir, monkeypatch):

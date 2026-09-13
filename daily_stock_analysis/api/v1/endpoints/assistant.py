@@ -112,12 +112,26 @@ def runtime_status() -> Dict[str, Any]:
             pipeline = json.loads(pf.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             pass
+    decision_snapshot = None
+    try:
+        from src.services.decision_snapshot_service import load_latest_snapshot
+        snap = load_latest_snapshot()
+        if snap:
+            decision_snapshot = {
+                "snapshot_id": snap.get("snapshot_id"),
+                "generated_at": snap.get("generated_at"),
+                "pit_end": (snap.get("data_versions") or {}).get("pit_end"),
+                "fresh": bool((snap.get("quality") or {}).get("fresh")),
+            }
+    except Exception:  # noqa: BLE001 - 快照缺失不影响状态端点
+        decision_snapshot = None
     return {
         "running": True,
         "uptime_seconds": round(uptime, 0) if uptime else None,
         "feishu_stream_alive": feishu_alive,
         "last_pipeline_run": pipeline.get("last_run"),
         "last_pipeline_ok": pipeline.get("ok"),
+        "decision_snapshot": decision_snapshot,
     }
 
 

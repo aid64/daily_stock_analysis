@@ -8,6 +8,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [新功能] E3 信号状态体系（RESEARCH-BROAD 批次）：导出契约目标三态分层——executable（有有效价格，随单下发）/ blocked（生命周期，带原因）/ manual_review（无有效价格，人工核实，不虚构不静默）；targets 只装 executable；操作单新增"信号状态：executable×N · blocked×M"汇总行与人工核实明细段。消除"current_plan 里出现的就是能买的"歧义。quant 导出测试同步 v2 断言。
+- [新功能] E1 成本门与生成侧风控（RESEARCH-BROAD-20260913，先例：ToFu fee_book / vnpy OrderSizeRule / Ghostfolio fee 一等字段）：①操作单每笔订单显示往返成本与回本涨幅（"需涨 0.84% 才回本"，≥1% 提示确认值得再做）；费率复用 simulation_ledger 纯函数，转债免印花税；②生成侧单笔金额上限 20,000 元（异常价格数据截断或拦截并要求人工核实）；③/成交回填 支持可选 费用N 参数，未传按费率模型估算并标注 estimated（Ghostfolio fee 一等字段语义——费用不缺席）；④影子周报偏差标签化：超量执行/价格偏离/延迟回填分类计数入周行。
+- [新功能] E1 成本门与生成侧风控（RESEARCH-BROAD-20260913，先例：ToFu fee_book / vnpy OrderSizeRule / Ghostfolio fee 一等字段）：①操作单每笔订单显示往返成本与回本涨幅（"需涨 0.84% 才回本"，≥1% 提示确认值得再做）；费率复用 simulation_ledger 纯函数，转债免印花税；②生成侧单笔金额上限 20,000 元（异常价格数据截断或拦截并要求人工核实）；③/成交回填 支持可选 费用N 参数，未传按费率模型估算并标注 estimated（Ghostfolio fee 一等字段语义——费用不缺席）；④影子周报偏差标签化：超量执行/价格偏离/延迟回填分类计数入周行。
+- [新功能] 模拟账本无主条目隔离（批次C5）：sheet 文件已不存在的条目自动移入 quarantined 区保留审计，不参与对比统计——修复历史操作单重建/删除导致的失配污染（实测隔离 38 条，含无主 sheet 与已删单据残留）；账本加载时幂等执行，判据只查 sheet 存在性（不按今天退市状态改写历史）。/对比 口径自此以活跃条目为准，影子期执行率基线重建。
+- [新功能] 组合集中度风险行（批次D）：/健康 接入 PortfolioRiskService.get_risk_report——单标的持仓占比超阈值（默认 35%）显式预警并显示持仓市值；实测用户账户 002475 占 91.7% 触发预警。复用既有风控服务，不新建第二套计算。
+- [新功能] 影子期执行度量（OPTIMIZATION-PLAN-V2 第三批）：新增 shadow_metrics_service——按周聚合执行率（数量口径，合理放弃剔出分母）、金额加权平均滑点（买贵/卖便宜为不利方向）、放弃率、漏回填腿数与平均回填时延；/对比 周报 输出近 4 周明细，每日摘要尾部自动附本周指标行（有单据才显示）。验收：已知场景（一腿足额买贵 0.354%+一腿放弃）指标精确命中。
+- [改进] 个人持仓展示成本与浮动盈亏（用户反馈"当时的买价不是现价"）：操作单个人持仓行现显示 现价/市值 + 成本/浮动盈亏（元与百分比），数据来自 /成交回填 记录的真实买价（fifo avg_cost）。
+- [修复] 操作单三处显示缺陷：①部分成交 hold 文案按现金状态区分（available_cash<=0 才提示未登记，否则显示可用金额与本手所需）；②E2 择时行因 quant_research 内外层包名遮蔽在 server 进程内 import 必炸且被静默吞掉——改为内联 expanding 分位计算（与 /健康 同算法同 PIT），择时行恢复显示；③修复后 /操作单 首次输出完整可执行决策包（买入限价+张数+放弃条件+择时提示+生命周期阻断+个人持仓）。
+- [新功能] /入金 /出金 命令（修复 P0.4 闭环缺口）：此前 /持仓登记 只支持买卖交易、入金无命令可走，现金闸门的恢复路径指向了不存在的操作——新增现金登记命令复用 record_cash_ledger 单一真源，登记后自动刷新决策快照并即时反馈账面现金与闸门状态。
+- [新功能] 模拟账本无主条目隔离（批次C5）：sheet 文件已不存在的条目自动移入 quarantined 区保留审计，不参与对比统计——修复历史操作单重建/删除导致的失配污染（实测隔离 38 条，含无主 sheet 与已删单据残留）；账本加载时幂等执行，判据只查 sheet 存在性（不按今天退市状态改写历史）。/对比 口径自此以活跃条目为准，影子期执行率基线重建。
+- [文档] ytm_true 接班实验预注册（ytm-true-preregistration.md）：五门槛运行前写死（净收益超双低+2pp、2×压力档不翻负、回撤 ≤1.1×、分年稳健 ≥60%、D2 残差 IC 检查），fail 即关闭；状态"已预注册未运行"。
+- [修复] 研究证据链重建（OPTIMIZATION-PLAN-V2 批次C）：①E1 评估器重写——premium 逐日 PIT 对齐（旧实现窗口末值映射历史，实测前视中位偏差 17.5pp/排序相关 0.146）、调仓日收敛为季度首日（旧用 263 个采样日）、现金守恒的整手换仓、修正转债免印花税；修正后重跑：双低 -30.45% / ytm_true +13.11%（最强臂）/ 合成 -36.98%，gate 仍 fail（维持关闭），ytm_true 待独立预注册；②E2 current_state 补 as_of，/健康 弃静态 JSON 改按最新 PIT 动态重算 expanding 分位（与操作单同源，实测静态 95.1% vs 动态 88.8%）；③双低 verdict 方向勘误：原始双低负 IC 是因子有效方向，"先反转后归零"表述修正；④E1/E2 旧结论 superseded 标注保留审计轨迹。
+- [新功能] 成交回填完整性（OPTIMIZATION-PLAN-V2 批次A）：①幂等键 trade_uid（腿+日+量+价派生）——同一笔回填两次只入账一次（此前实证双记账）；②先写真实账本、成功后才标操作单（账本失败不留半状态）；③部分成交累计量语义：fills 累计而非覆盖，单据状态对齐 FIX OrdStatus（pending/partially_filled/filled/cancelled/expired），加权均价记录 fill_count；④量价合理性门：回填价偏离限价 ±5% 或量超计划剩余需追加"确认"参数；⑤/撤单 命令（部分成交后撤剩余、已成交量保留）；⑥跨日 pending 单读取时自动过期（昨日限价今日不可执行）。重复回填实验数据已清理。
+- [修复] 通知真实回执（批次B）：每日摘要与每日管线检查 send_with_results 的 success——通知失败不再写 digest_sent 标记、不再置 pipeline ok=true；pipeline_status 新增 notify_ok 字段与"决策完成≠通知送达"分离；通知失败推 system_error 并次日重试。反例实测：mock success=False 时无 sent 标记。
+- [修复] 安全契约复核 R0（SAFETY-AND-EVIDENCE-REVISION-20260912）：①暂停/负现金闸门从"清空目标"改为**观察模式**——此前 targets={} 会被生成器解释为目标 0，已持有转债会生成清仓卖单（暂停反而触发卖出）；反例实测：暂停与负现金均零指令、个人持仓照常展示。②旧 pending 操作单在闸门命中时标注"不可执行，仅留档"。③决策快照修复 OrderLine 序列化缺失（非空订单曾导致快照丢失操作单块）；新增 signal_available 字段，契约缺失/PIT 错误不再伪装 fresh=true。④暂停状态不可读时按阻断处理（fail-closed）。122 项回归通过。
+- [新功能] /暂停交易 /恢复交易 命令（业务级 kill switch，FINAL-MODIFICATION-PLAN P0.7）：暂停后数据/监控/查询照常，但操作单不再生成任何买卖指令；状态原子落盘（trading_halt.json），每次切换记录原因/操作者/时间；恢复时自动刷新决策快照。操作单幂等命中旧单时同样显示暂停/现金闸门状态，杜绝"旧单看起来仍可执行"。
+- [新功能] 信号契约升级 v2（cb_current_plan_v2）：每个目标携带 price_date/price_source/data_version，plan 携带 pit_data_version（PIT parquet sha256 前 16 位）——下游可校验"价格是哪天的、来自哪份数据"；bridge 双 schema 白名单兼容。
+- [新功能] 现金硬闸门（P0.4）：现金为负（账户缺资金入账）时买入目标全部降级人工核验并显式说明原因，现金未登记（¥0）时买单不给出张数；闸门在新单与幂等旧单两条路径统一生效。
+- [修复] 操作单盘前直发：report 路由默认被每日摘要总线拦截，导致 09:00 生成的操作单压到 18:00 才送达——管线推送改为"总线留索引 + bypass 直发"（与告警同模式），恢复蓝图"盘前推送操作单"契约；信号新鲜度拒绝时改走 system_error 即时告警。
+- [修复] PIT 部分日截面保护：盘后增量只刷新部分券时，当日截面会残缺（实测 18/283）并扭曲 E2 分位数与 min_candidates 池判定——assemble 时裁掉截面数不足前一日 60% 的尾部日期，PIT 末端始终停在最后一个完整日。
+- [改进] LLM 配置收敛为单渠道单模型：主力切换为火山方舟托管的 `openai/deepseek-v4-pro-ga-260813`（实测 3.7s 正常返回）；删除欠费（402）的 DeepSeek 官方渠道与 key 失效（403）的 wawapii 中转渠道；按用户要求不使用方舟其他模型（doubao 系全部移除）。
+- [改进] LLM 备用线路补充：新增 tokenrhythm 中转渠道作为唯一 fallback，模型按用户指定为 `glm-5.3-flash`（实测 4.5s 正常返回）——主力失败时降级到中转线路，实现线路级冗余而非跨模型降级。
+- [新功能] Decision Snapshot 单一事实源（FINAL-SOLUTION W3）：新增 decision_snapshot_service——信号契约/持仓现金/操作单/PIT 数据版本（sha256+截面券数）收拢为版本化快照（latest.json 原子写 + 按日归档保留 90 天）；每日管线导出后与 /操作单 两条路径自动刷新；/健康 新增快照行，/api/v1/assistant/runtime/status 新增 decision_snapshot 字段供 Web 横幅与桌面托盘共用；计划新鲜度评估下沉为服务层唯一实现，操作单门控与健康视图共用同一口径。
+- [新功能] paper tracking 现金季度记录：空调仓季度（min_candidates 让位现金）不再报错缺表，诚实记录为平盘权益+零成交+零费用行；2026Q1/Q2 已补录，三表恢复 2025Q4 起连续（2026Q3 待季末）。
+- [改进] /健康 增加可用现金状态行：现金未登记且存在买入目标时显式提醒 /持仓登记 记账，闭合现金登记提醒环。
+- [修复] PIT 数据管道断裂修复（FINAL-SOLUTION P0）：`update_pit_tail --limit 50` 每日滚动导致 PIT 截面从 300 只衰减到 17 只、2026 全年调仓空转 11 个月——周日全量刷新（914 只约 2 小时）+ 工作日增量优先队列；assemble 后新增截面覆盖率护栏（<200 只推 system_error 提示全量刷新）。
+- [修复] 生命周期硬阻断：quant 导出计划前消费 cb_calls/cb_terms 生命周期事件——强赎已实施/到期赎回/已到期/行情缺失超 7 天的标的一律剔除并记入 plan.blocked（含原因），存续权重重新归一化；DSA 操作单展示阻断明细；123089.SZ（2025-09-16 公告强赎、2025-10-23 退市）不再出现在目标中。
+- [修复] 操作单信号新鲜度门槛：pit_end 超 7 天或 generated_at 早于 pit_end 时拒绝生成操作指令（诚实降级为"信号过期"），绝不渲染陈旧计划。
+- [修复] 通知总线收敛：引入 artifact_type/logical_id/symbols 业务身份，同一操作单刷新替换旧摘要；逐规则告警按标的/类型/方向聚合为一条用户通知，同时保留每条规则的审计记录；测试推送支持 test_mode，避免污染生产摘要。
+- [改进] 操作单与组合可见性：股票持仓只展示股数和实时/最近收盘参考价，不进入转债目标 diff；/健康增加自选股/真实持仓与个性化告警规则覆盖诊断；操作单载荷带 PIT 末端、计划生成时间和 stale 标的。
 - [修复] 通知缺口修复（配置审计发现）：①每日摘要总线不再拦截 alert 类推送——盯盘告警/止损止盈/监控告警恢复即时推送（此前 digest 开启后全部延迟到 18:00，盘中止损信号收盘后才达）；②删除 .env 中三个无代码消费者的 tushare backup 死变量及误导性"三级 failover"注释；③ETF 溢价监控标的显式声明（511380 转债 ETF）。
 - [修复] G6 清理与解冻：E2 择时硬编码日期截断改为跟随 current_plan 的 pit_end 动态计算；删除 .env 幽灵配置（STRATEGY_SIGNAL/ALPHASIFT）与 config.py 过时的 digest 预留告警；simulation_ledger 路径层级修正（parents[1]→[2]）并合并历史分裂账本（8 条）；bot 文档 webhook URL 描述改为 Stream 模式说明；打开三个市场监控开关。
 - [新功能] G2 运行状态端点：GET /api/v1/assistant/runtime/status（uptime/飞书在线/管线最近执行），Web 横幅与桌面托盘 tooltip 共用数据源。

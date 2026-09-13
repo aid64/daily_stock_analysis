@@ -697,13 +697,13 @@ class TestValidateStructuredNotification:
         assert ("NOTIFICATION_TIMEZONE", "error") in errors
         assert ("NOTIFICATION_MIN_SEVERITY", "error") in errors
 
-    def test_daily_digest_reserved_flag_warns_without_blocking(self):
+    def test_daily_digest_enabled_is_not_reported_as_reserved(self):
         cfg = _make_config(notification_daily_digest_enabled=True)
         issues = cfg.validate_structured()
 
-        assert any(
+        assert not any(
             issue.field == "NOTIFICATION_DAILY_DIGEST_ENABLED"
-            and issue.severity == "warning"
+            and "reserved" in issue.message.lower()
             for issue in issues
         )
 

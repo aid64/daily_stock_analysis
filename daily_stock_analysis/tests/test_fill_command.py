@@ -13,7 +13,7 @@ from src.services.order_sheet_service import (
     save_order_sheet,
 )
 
-D = date(2026, 9, 9)
+D = date.today()  # _do_fill 查"今天"的操作单——测试单必须建在今天，否则跨日失效
 
 
 def _msg():
@@ -41,7 +41,7 @@ class TestFillCommand:
         # 回填
         result = _do_fill("002475", "buy", 100, 56.50)
         assert "已回填" in result
-        assert "filled" in result
+        assert "足额成交 100/100" in result  # 方案v2 批次A：足额文案带量对比
 
         # 操作单状态变化
         loaded = load_latest_sheet(D.isoformat())
@@ -73,12 +73,17 @@ class TestFillCommand:
 
     def test_canonical_symbol_handled(self, tmp_path, monkeypatch,
                                       isolated_db):
-        """用户输入 002475 / SZ002475 都归一到 SZ002475。"""
+        """用户输入 002475 / SZ002475 都归一到 SZ002475。
+
+        方案v2 批次A：同日同标的同向同量同价的第二次输入视为重复回填，
+        幂等拦截（这正是双记账修复的行为）。
+        """
         import src.services.order_sheet_service as oss
         monkeypatch.setattr(oss, "SHEETS_DIR", tmp_path / "sheets")
         r1 = _do_fill("002475", "buy", 100, 10.0)
         r2 = _do_fill("SZ002475", "buy", 100, 10.0)
-        assert "SZ002475" in r1 and "SZ002475" in r2
+        assert "SZ002475" in r1
+        assert "幂等拦截" in r2
 
 
 class TestFillAPI:

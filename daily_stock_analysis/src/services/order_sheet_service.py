@@ -28,9 +28,14 @@ logger = logging.getLogger(__name__)
 DEFAULT_ABANDON_PCT = 0.02          # 开盘越限价 2% → 放弃
 DEFAULT_CANCEL_TIME = "14:50"       # 未成交撤单时刻
 SHEET_STATUS_PENDING = "pending"
+SHEET_STATUS_PARTIALLY_FILLED = "partially_filled"   # FIX OrdStatus(1)
 SHEET_STATUS_FILLED = "filled"
 SHEET_STATUS_CANCELLED = "cancelled"
 SHEET_STATUS_EXPIRED = "expired"
+
+# E1（RESEARCH-BROAD 批次）：生成侧风控上限——防异常数据（价格错 100 倍
+# 之类）生成巨量订单。vnpy OrderSizeRule 的等价物，作用于操作单生成。
+MAX_SINGLE_ORDER_VALUE = 20_000.0   # 单笔订单估算金额上限（元）
 
 _ROOT = Path(__file__).resolve().parents[2]
 SHEETS_DIR = _ROOT / "output" / "order_sheets"
@@ -45,6 +50,29 @@ def lot_size_for(symbol: str) -> int:
     return 100
 
 
+def _cost_fields(symbol: str, quantity: int, price: float,
+                 direction: str) -> Dict[str, float]:
+    """E1 成本门（RESEARCH-BROAD G1，复用 simulation_ledger 费率纯函数）：
+    买入单按"当前买入+同价卖出"估算往返成本与回本涨幅；卖出一单向。
+    转债免印花税（RuleBook cb 语义，与 ToFu fee_book 的债类注释一致）。
+    """
+    from src.services.simulation_ledger import calculate_costs, load_fees
+
+    fees = dict(load_fees())
+    if lot_size_for(symbol) == 10:
+        fees["stamp_duty"] = 0.0  # 转债免印花税
+    notional = quantity * price
+    if direction == "buy":
+        buy = calculate_costs(quantity, price, "buy", fees)
+        sell = calculate_costs(quantity, price, "sell", fees)
+        round_trip = buy["total"] + sell["total"]
+    else:
+        round_trip = calculate_costs(quantity, price, "sell", fees)["total"]
+    be = round_trip / notional if notional > 0 else 0.0
+    return {"round_trip_cost": round(round_trip, 2),
+            "break_even_pct": round(be, 5)}
+
+
 @dataclass(frozen=True)
 class OrderLine:
     """一条待执行操作（买入/卖出）"""
@@ -57,6 +85,8 @@ class OrderLine:
     cancel_rule: str        # 未成交撤单时刻
     est_value: float        # 估算成交额
     reason: str             # 为什么动这只（一行）
+    round_trip_cost: float = 0.0   # E1：往返成本估算（元，买入单=买+卖；卖出一单向）
+    break_even_pct: float = 0.0    # E1：回本涨幅（往返成本/成交额，小数）
 
 
 @dataclass(frozen=True)
@@ -175,7 +205,8 @@ def generate_order_sheet(
                 cancel_rule=f"{cancel_time} 未成交撤单",
                 est_value=round(est, 2),
                 reason="跌出目标持仓" if target < current and target == 0
-                       else f"目标 {int(target)} < 当前 {int(current)}"))
+                       else f"目标 {int(target)} < 当前 {int(current)}",
+                **_cost_fields(symbol, sell_qty, price, "sell")))
 
     # 第二遍：买入——贪心顺序分配（价格升序优先买满，预算耗尽的进 holds）。
     # 不用等比缩：逐标的取整手会让等比份额向上溢出预算。
@@ -192,24 +223,48 @@ def generate_order_sheet(
             affordable = int(budget / price / lot) * lot if price > 0 else 0
             buy_qty = min(need_qty, max(affordable, 0))
             if buy_qty <= 0:
-                note = ("现金不足且账户未登记现金——若已转入请先 /持仓登记 记账"
-                        if current <= 0 else "现金不足，本轮未加仓")
+                # 文案按现金状态区分（P0.4 复盘）：available_cash<=0 才是
+                # "未登记"，否则就是单纯买不起下一手
+                if available_cash <= 0:
+                    note = ("现金不足且账户未登记现金——若已转入请先 /持仓登记 记账")
+                else:
+                    note = (f"现金不足（可用 ¥{available_cash:,.0f}，"
+                            f"本手需约 ¥{price * lot:,.0f}）——本轮未加仓")
                 holds.append(HoldLine(
                     symbol=symbol, quantity=int(current), reason=note))
                 continue
             est = buy_qty * price
+            # E1 生成侧风控（vnpy OrderSizeRule 等价）：单笔金额上限——
+            # 异常价格数据（错 100 倍）或异常权重不应生成巨额订单
+            if est > MAX_SINGLE_ORDER_VALUE:
+                capped = int(MAX_SINGLE_ORDER_VALUE / price / lot) * lot
+                if capped <= 0:
+                    holds.append(HoldLine(
+                        symbol=symbol, quantity=int(current),
+                        reason=(f"单笔金额上限保护：本手即超 "
+                                f"¥{MAX_SINGLE_ORDER_VALUE:,.0f}（限价 "
+                                f"{price:g} 异常？）——人工核实数据")))
+                    continue
+                buy_qty = capped
+                est = buy_qty * price
+                reason_note = f"（单笔上限 {MAX_SINGLE_ORDER_VALUE:,.0f} 截断）"
+            else:
+                reason_note = ""
             budget -= est
             buy_value_total += est
             reason = (f"新建仓至目标 {int(target)}" if current == 0
                       else f"补仓至目标 {int(target)}")
             if buy_qty < need_qty:
                 reason += f"（现金受限，目标 {int(need_qty)} 张）"
+            if reason_note:
+                reason += reason_note
             orders.append(OrderLine(
                 direction="buy", symbol=symbol, quantity=buy_qty,
                 limit_price=round(price, 3),
                 abandon_rule=f"开盘>{price * (1 + abandon_pct):.3f} 放弃",
                 cancel_rule=f"{cancel_time} 未成交撤单",
-                est_value=round(est, 2), reason=reason))
+                est_value=round(est, 2), reason=reason,
+                **_cost_fields(symbol, buy_qty, price, "buy")))
 
     if not orders and not holds:
         no_action = "目标持仓与当前持仓均为空：无信号、无操作"
@@ -258,7 +313,12 @@ def load_order_sheet(trade_date: str, sheet_id: str) -> Optional[OrderSheet]:
 
 
 def load_latest_sheet(trade_date: Optional[str] = None) -> Optional[OrderSheet]:
-    """取指定日（缺省：最近有单的一天）的最新操作单"""
+    """取指定日（缺省：最近有单的一天）的最新操作单。
+
+    A6 日终过期（FIX OrdStatus C / Expired）：跨日后仍 pending 的单据
+    在读取时惰性置为 expired 并落盘——昨天的限价与放弃条件今天不可执行；
+    已成交量保留（真实账本不受影响），过期后不可再回填该单。
+    """
     root = SHEETS_DIR
     if not root.exists():
         return None
@@ -270,23 +330,62 @@ def load_latest_sheet(trade_date: Optional[str] = None) -> Optional[OrderSheet]:
     candidates = sorted(day_dir.glob("*.json"))
     if not candidates:
         return None
-    return OrderSheet.from_dict(
+    sheet = OrderSheet.from_dict(
         json.loads(candidates[-1].read_text(encoding="utf-8")))
+    if (sheet.status == SHEET_STATUS_PENDING
+            and sheet.trade_date
+            and sheet.trade_date < date.today().isoformat()):
+        sheet.status = SHEET_STATUS_EXPIRED
+        sheet.no_action_reason = (
+            "跨日自动过期（A6）：昨日限价与放弃条件今日不可执行")
+        save_order_sheet(sheet)
+    return sheet
 
 
 def mark_order_filled(
     sheet: OrderSheet, symbol: str, actual_price: float,
     actual_quantity: Optional[int] = None,
 ) -> OrderSheet:
-    """回填成交：更新 fills 并在全部订单成交后推进状态（真账本由调用方写 PortfolioService）"""
+    """回填成交：更新 fills 并按累计量推进状态（真账本由调用方先写成功）。
+
+    R0-A3（OPTIMIZATION-PLAN-V2）：fills 按累计量记账而非覆盖——同一腿的
+    多次部分成交（30 张 + 70 张）必须汇总，累计达计划量才置 filled，
+    未满为 partially_filled（FIX OrdStatus 1）。数量超计划的校验由
+    调用方（fill 入口量价合理性门）负责，此处只汇总事实。
+    """
+    order = next((o for o in sheet.orders if o.symbol == symbol), None)
+    planned_qty = order.quantity if order is not None else 0
+
+    prev = sheet.fills.get(symbol) or {}
+    prev_qty = int(prev.get("actual_quantity") or 0)
+    # actual_quantity=None（旧调用约定）= 该腿全量成交
+    new_qty = int(actual_quantity) if actual_quantity is not None else int(planned_qty)
+    total_qty = prev_qty + new_qty
+    # 加权均价（按张/股计权的成交均价，多次部分成交的公允口径）
+    total_cost = (prev_qty * float(prev.get("actual_price") or 0)
+                  + new_qty * float(actual_price))
+    avg_price = total_cost / total_qty if total_qty else float(actual_price)
+
     sheet.fills[symbol] = {
-        "actual_price": actual_price,
-        "actual_quantity": actual_quantity,
+        "actual_price": round(avg_price, 4),
+        "actual_quantity": total_qty,
         "filled_at": datetime.now().isoformat(timespec="seconds"),
+        "fill_count": int(prev.get("fill_count") or 0) + 1,
+        "planned_quantity": planned_qty,
     }
+    filled_symbols = set(sheet.fills)
     ordered_symbols = {o.symbol for o in sheet.orders}
-    if ordered_symbols and ordered_symbols.issubset(set(sheet.fills)):
+    if planned_qty > 0 and total_qty >= planned_qty:
+        sheet.fills[symbol]["complete"] = True
+    else:
+        sheet.fills[symbol]["complete"] = False
+        sheet.status = SHEET_STATUS_PARTIALLY_FILLED
+    if (ordered_symbols and ordered_symbols.issubset(filled_symbols)
+            and all(sheet.fills[s].get("complete") for s in ordered_symbols)):
         sheet.status = SHEET_STATUS_FILLED
+    elif sheet.status == SHEET_STATUS_PENDING and sheet.fills:
+        # 任一腿有成交进展即标 partially_filled（比 pending 更诚实）
+        sheet.status = SHEET_STATUS_PARTIALLY_FILLED
     save_order_sheet(sheet)
     return sheet
 
@@ -300,6 +399,14 @@ def mark_sheet_cancelled(sheet: OrderSheet, reason: str = "") -> OrderSheet:
 
 
 # ── 渲染（bot 推送格式）───────────────────────────────────────
+
+
+def _unit_label(symbol: str) -> str:
+    """数量单位：转债按张（申报 10 张整数倍），股票按股。"""
+    digits = "".join(ch for ch in str(symbol) if ch.isdigit())
+    if len(digits) == 6 and digits.startswith(("11", "12")):
+        return "张"
+    return "股"
 
 
 def render_text(sheet: OrderSheet) -> str:
@@ -316,11 +423,23 @@ def render_text(sheet: OrderSheet) -> str:
     for o in sheet.orders:
         arrow = "买入" if o.direction == "buy" else "卖出"
         lines.append(
-            f"· {arrow} {o.symbol} @{o.limit_price:g} 限价 · {o.quantity}手"
+            f"· {arrow} {o.symbol} @{o.limit_price:g} 限价 · {o.quantity}{_unit_label(o.symbol)}"
             f" · {o.abandon_rule} · {o.cancel_rule}\n"
             f"  理由：{o.reason}（约 ¥{o.est_value:,.0f}）")
+        # E1 成本门：往返成本与回本涨幅（用户语言，ToFu fee_book 同语义）
+        if o.round_trip_cost > 0:
+            be_pct = o.break_even_pct * 100
+            if o.direction == "buy":
+                lines.append(
+                    f"  成本门：往返约 ¥{o.round_trip_cost:,.2f}"
+                    f"（{be_pct:.2f}%）→ 需涨 {be_pct:.2f}% 才回本"
+                    + ("——小单成本占比偏高，确认值得再做" if be_pct >= 1.0 else ""))
+            else:
+                lines.append(
+                    f"  成本门：单向费用约 ¥{o.round_trip_cost:,.2f}"
+                    f"（{be_pct:.2f}%）")
     for h in sheet.holds:
-        qty_text = f"{h.quantity}手" if h.quantity > 0 else "未持有"
+        qty_text = f"{h.quantity}{_unit_label(h.symbol)}" if h.quantity > 0 else "未持有"
         lines.append(f"· 持有 {h.symbol} {qty_text} —— {h.reason}")
     if sheet.orders:
         lines.append(

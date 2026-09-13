@@ -1,39 +1,40 @@
 {
  "task": "E1 composite factor four-arm comparison (preregistered)",
+ "revision": "2026-09-12 C1 evaluator fix: PIT-aligned premium, quarterly dates, cash-conservative fills, no stamp duty on CB; supersedes pre-fix numbers",
  "window": "2020-01-01..2026-08-08",
  "top_n": 5,
  "results": {
   "double_low": {
-   "total_return": -0.268365,
-   "annual_return": -0.003898,
-   "max_drawdown": 0.573675,
-   "total_cost": 16933.45,
-   "n_rebalances": 320
+   "total_return": -0.304525,
+   "annual_return": -0.054408,
+   "max_drawdown": 0.32778,
+   "total_cost": 1346.45,
+   "n_rebalances": 27
   },
   "ytm_true": {
-   "total_return": -0.308409,
-   "annual_return": -0.004599,
-   "max_drawdown": 0.506169,
-   "total_cost": 17065.17,
-   "n_rebalances": 320
+   "total_return": 0.131132,
+   "annual_return": 0.019163,
+   "max_drawdown": 0.434579,
+   "total_cost": 1319.6,
+   "n_rebalances": 27
   },
   "low_premium": {
-   "total_return": -0.041444,
-   "annual_return": -0.000529,
-   "max_drawdown": 0.491003,
-   "total_cost": 17076.99,
-   "n_rebalances": 320
+   "total_return": -0.344812,
+   "annual_return": -0.063061,
+   "max_drawdown": 0.345343,
+   "total_cost": 432.14,
+   "n_rebalances": 27
   },
   "composite": {
-   "total_return": -0.031657,
-   "annual_return": -0.000402,
-   "max_drawdown": 0.561964,
-   "total_cost": 17073.93,
-   "n_rebalances": 320
+   "total_return": -0.369819,
+   "annual_return": -0.068661,
+   "max_drawdown": 0.405589,
+   "total_cost": 321.52,
+   "n_rebalances": 27
   }
  },
  "gates": {
-  "composite_excess_vs_double_low_pp": 0.35,
+  "composite_excess_vs_double_low_pp": -1.43,
   "gate_1_excess_ge_2pp_and_dd_ok": false,
   "verdict": "fail"
  }

@@ -21,7 +21,7 @@ import subprocess
 import sys
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger("daily_pipeline")
 
@@ -53,13 +53,18 @@ def _run_step(name: str, cmd: list, timeout: int = 600) -> bool:
         return False
 
 
-def _write_status(step: str, ok: bool, detail: str = "") -> None:
-    """管线状态写文件（Web 横幅/G2 的数据源）。"""
+def _write_status(step: str, ok: bool, detail: str = "",
+                  notify_ok: Optional[bool] = None) -> None:
+    """管线状态写文件（Web 横幅/G2 的数据源）。
+
+    B2：notify_ok 与 ok 分离——决策完成（ok）不等于通知送达。
+    """
     try:
         status = {
             "last_run": datetime.now().isoformat(timespec="seconds"),
             "last_step": step,
             "ok": ok,
+            "notify_ok": bool(notify_ok) if notify_ok is not None else ok,
             "detail": detail[:200],
             "date": date.today().isoformat(),
         }
@@ -84,9 +89,14 @@ def run_daily_pipeline(force: bool = False) -> bool:
     logger.info("[pipeline] 开始执行")
     py = sys.executable
 
-    # 1-3: quant 侧三步（子进程，跨项目契约）
+    # 1-3: quant 侧三步（子进程，跨项目契约）。
+    # PIT 刷新节奏（FINAL-SOLUTION 0.1）：周日全量（914 只约 2 小时，
+    # 防截面断裂回退到 56 只），工作日增量 50 只 + 优先队列保证目标债新鲜。
+    is_sunday = date.today().weekday() == 6
+    pit_cmd = ([py, "update_pit_tail.py"] if is_sunday
+               else [py, "update_pit_tail.py", "--limit", "50"])
     steps = [
-        ("pit_tail", [py, "update_pit_tail.py", "--limit", "50"], 600),
+        ("pit_tail", pit_cmd, 10800 if is_sunday else 600),
         ("assemble", [py, "build_pit_snapshot.py",
                       "--assemble-only", "--start", "2018"], 300),
         ("export_plan", [py, "run_paper_tracking.py", "--export-plan"], 300),
@@ -96,24 +106,112 @@ def run_daily_pipeline(force: bool = False) -> bool:
             _write_status(name, False, f"{name} step failed")
             _alert_failure(name)
             return False
+        if name == "assemble":
+            _check_cross_section_coverage()
+
+    # 3.5: 决策快照（W3）——计划导出后立即落一份可追溯快照
+    try:
+        from src.services.decision_snapshot_service import refresh
+        refresh()
+    except Exception as exc:  # noqa: BLE001 - 快照失败不阻塞管线
+        logger.warning("[pipeline] decision snapshot refresh failed: %r", exc)
 
     # 4: 生成操作单（幂等）
     try:
         from bot.commands.order_sheet import _build_sheet_text
         from src.notification import NotificationService
+        from src.services.cb_signal_bridge import load_cb_plan
+        from src.services.notification_digest_service import (
+            DIGEST_BYPASS_ATTR, append_to_bus)
 
         text = _build_sheet_text()
-        # 5: 推送
+        plan = load_cb_plan() or {}
+        target_symbols = sorted(str(s).upper() for s in (plan.get("targets") or {}))
+        stale_symbols = sorted(
+            str(s).upper() for s, payload in (plan.get("targets") or {}).items()
+            if not payload or float(payload.get("t1_close") or 0) <= 0
+        )
+        logical_id = f"daily_operation_sheet:{date.today().isoformat()}"
+        dedup = f"daily_pipeline:{date.today().isoformat()}"
+        payload = {
+            "artifact_type": "daily_operation_sheet",
+            "logical_id": logical_id,
+            "source": "daily_pipeline",
+            "priority": "high",
+            "symbols": target_symbols,
+            "status": "degraded" if stale_symbols else "ready",
+            "pit_end": plan.get("pit_end"),
+            "plan_generated_at": plan.get("generated_at"),
+            "stale_symbols": stale_symbols,
+        }
         notifier = NotificationService()
-        notifier.send(text, route_type="report",
-                      dedup_key=f"daily_pipeline:{date.today().isoformat()}")
-        _write_status("push_order_sheet", True)
-        logger.info("[pipeline] 操作单已推送")
+        if text.startswith("⚠"):
+            # 新鲜度门槛拒绝：即时告警送达，不进摘要总线压到晚间
+            result = notifier.send_with_results(
+                text, route_type="system_error", dedup_key=dedup)
+        else:
+            # 盘前操作单契约（蓝图终局形态）：①总线留索引（logical_id
+            # 替换语义，晚间摘要只列一行）②立即直发到渠道——report 路由
+            # 默认被摘要总线拦截会压到 18:00，违背 09:00 盘前推送。
+            append_to_bus(content=text, route_type="report", severity="info",
+                          dedup_key=dedup, structured_payload=payload)
+            setattr(notifier, DIGEST_BYPASS_ATTR, True)
+            result = notifier.send_with_results(
+                text, route_type="report", dedup_key=dedup,
+                structured_payload=payload)
+        # B2（OPTIMIZATION-PLAN-V2）：区分"决策完成"与"通知送达"——
+        # 通知失败不埋没决策，但 status 拆字段并推告警，次日可补发。
+        notify_ok = bool(getattr(result, "success", False))
+        _write_status("push_order_sheet", True,
+                      detail="" if notify_ok else "通知未送达（次日重试）",
+                      notify_ok=notify_ok)
+        if not notify_ok:
+            logger.error("[pipeline] 操作单通知未送达（status=%s）",
+                         getattr(result, "status", "?"))
+            _alert_failure_custom("操作单已生成但通知未送达——请检查飞书渠道；"
+                                  "单据内容可用 /操作单 查询。")
+        logger.info("[pipeline] 操作单已推送（notify_ok=%s）", notify_ok)
         return True
     except Exception as exc:  # noqa: BLE001
         _write_status("push_order_sheet", False, str(exc))
         _alert_failure("push_order_sheet")
         return False
+
+
+def _check_cross_section_coverage(min_bonds: int = 200) -> None:
+    """assemble 后护栏：PIT 末端截面券数过低说明增量管道断裂（9 月曾跌到 56）。
+
+    只告警不失败——让 export 继续（目标债有优先队列保障），但用户会收到
+    system_error 提示去跑全量刷新。
+    """
+    try:
+        import pandas as pd
+
+        parquet = (_REPO_ROOT / "quant_research" / "data" / "pit"
+                   / "convertible_pit.parquet")
+        table = pd.read_parquet(parquet, columns=["as_of", "symbol"])
+        latest = table["as_of"].max()
+        n_bonds = int(table.loc[table["as_of"] == latest, "symbol"].nunique())
+        if n_bonds < min_bonds:
+            _alert_failure_custom(
+                f"PIT 覆盖率过低：{pd.Timestamp(latest).date()} 截面仅 {n_bonds} 只"
+                f"（阈值 {min_bonds}）——增量管道疑似断裂，请在周日全量刷新前"
+                "手动执行 py scripts/update_pit_tail.py（quant_research/）")
+            logger.warning("[pipeline] cross-section coverage low: %d bonds", n_bonds)
+    except Exception as exc:  # noqa: BLE001 - 护栏失败不影响管线主流程
+        logger.warning("[pipeline] coverage check failed: %r", exc)
+
+
+def _alert_failure_custom(message: str) -> None:
+    """带自定义文案的 system_error 告警（护栏用）。"""
+    try:
+        from src.notification import NotificationService
+
+        NotificationService().send(
+            message, route_type="system_error",
+            dedup_key=f"pipeline_guard:{date.today().isoformat()}")
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _alert_failure(step: str) -> None:

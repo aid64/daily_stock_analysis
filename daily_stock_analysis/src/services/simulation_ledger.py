@@ -101,6 +101,7 @@ class SimulationLedger:
     def __init__(self, ledger_path: Optional[Path] = None):
         self.path = Path(ledger_path) if ledger_path else _LEDGER_PATH
         self._data: Dict[str, Any] = self._load()
+        self._quarantine_orphans()
 
     def _load(self) -> Dict[str, Any]:
         if not self.path.exists():
@@ -110,6 +111,52 @@ class SimulationLedger:
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning("模拟账本读取失败，重建: %r", exc)
             return {"entries": []}
+
+    def _quarantine_orphans(self) -> None:
+        """C5（OPTIMIZATION-PLAN-V2）：无主条目隔离到 unknown 区，不删除。
+
+        判据：条目的 sheet_id 在操作单目录中已无对应文件（历史调试单被
+        删除后账本残留）。隔离条目移入 data["quarantined"]，不参与对比
+        统计；原始数据保留以备审计。首版判据只查 sheet 文件存在性——
+        不按"标的今天是否退市"判断（历史记录的合法性不由今天的上市状态决定）。
+        """
+        try:
+            # 经模块属性取 SHEETS_DIR——测试/隔离环境可整体替换
+            from src.services import order_sheet_service as _oss
+            sheets_root = Path(_oss.SHEETS_DIR)
+            existing_sheet_ids: set = set()
+            if sheets_root.exists():
+                for day_dir in sheets_root.iterdir():
+                    if not day_dir.is_dir():
+                        continue
+                    for f in day_dir.glob("*.json"):
+                        try:
+                            existing_sheet_ids.add(
+                                json.loads(f.read_text(encoding="utf-8")).get("sheet_id"))
+                        except (json.JSONDecodeError, OSError):
+                            continue
+            entries = self._data.get("entries") or []
+            live, orphans = [], []
+            for e in entries:
+                (live if e.get("sheet_id") in existing_sheet_ids else orphans).append(e)
+            if orphans:
+                quarantined = self._data.setdefault("quarantined", [])
+                known = {q.get("sheet_id") + ":" + q.get("symbol", "")
+                         + ":" + q.get("direction", "") + ":" + str(q.get("created_at"))
+                         for q in quarantined}
+                moved = [o for o in orphans
+                         if (o.get("sheet_id") + ":" + o.get("symbol", "")
+                             + ":" + o.get("direction", "") + ":" + str(o.get("created_at")))
+                         not in known]
+                if moved:
+                    self._data["entries"] = live
+                    quarantined.extend(moved)
+                    self._save()
+                    logger.warning(
+                        "模拟账本隔离 %d 条无主条目（sheet 文件已不存在）——"
+                        "移入 quarantined 区，不参与对比统计", len(moved))
+        except Exception as exc:  # noqa: BLE001 - 隔离失败不阻塞账本主流程
+            logger.warning("模拟账本隔离检查失败: %r", exc)
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)

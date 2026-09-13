@@ -20,8 +20,10 @@ from src.services.portfolio_service import PortfolioService
 
 PLAN = {
     "schema": "cb_current_plan_v1",
-    "generated_at": "2026-09-07T08:00:00",
-    "pit_end": "2026-09-04",
+    # 日期动态化：新鲜度门槛（pit_end 距今 ≤7 天）会拒绝过期契约——
+    # 硬编码日期会让测试在跨周后必然失败。
+    "generated_at": f"{date.today().isoformat()}T08:00:00",
+    "pit_end": date.today().isoformat(),
     "latest_rebalance": "2026-07-01",
     "capital_base": 10000.0,
     "targets": {
@@ -139,10 +141,11 @@ class TestOrderSheetCommand:
             type("M", (), {"platform": "test"})(), []).text
 
         assert "今日操作单" in text
-        assert "买入 SZ123089 @116.5 限价 · 10手" in text
-        # 113062 已在目标内 → 持有；600519 信号外且缺价 → 人工处理提示
+        assert "买入 SZ123089 @116.5 限价 · 10张" in text
+        # 113062 已在目标内 → 持有；600519 信号外股票 → 个人持仓展示不下单
         assert "持有 SH113062" in text
-        assert "缺 T-1 收盘价" in text
+        assert "个人持仓" in text
+        assert "600519" in text
         assert "118.830 放弃" in text
 
     def test_plan_missing_degrades(self, isolated_db, monkeypatch, tmp_path):

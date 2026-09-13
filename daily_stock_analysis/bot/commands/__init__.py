@@ -20,8 +20,11 @@ from bot.commands.strategies import StrategiesCommand
 from bot.commands.health import HealthCommand
 from bot.commands.compare import CompareCommand
 from bot.commands.fill import FillCommand
+from bot.commands.cancel_order import CancelOrderCommand
+from bot.commands.cash import CashDepositCommand, CashWithdrawCommand
 from bot.commands.history import HistoryCommand
 from bot.commands.order_sheet import OrderSheetCommand
+from bot.commands.trading_halt import HaltTradingCommand, ResumeTradingCommand
 from bot.commands.portfolio import (
     PortfolioClearCommand,
     PortfolioCommand,
@@ -42,8 +45,13 @@ ALL_COMMANDS = [
     HealthCommand,
     CompareCommand,
     FillCommand,
+    CancelOrderCommand,
+    CashDepositCommand,
+    CashWithdrawCommand,
     HistoryCommand,
     OrderSheetCommand,
+    HaltTradingCommand,
+    ResumeTradingCommand,
     PortfolioCommand,
     PortfolioRecordCommand,
     PortfolioClearCommand,
