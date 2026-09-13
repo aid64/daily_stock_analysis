@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [改进] 股票分析报告语言清理（用户反馈"优化语言"）：①筹码结构行从裸管道数字（"32.8 | 10.5964 | 16.81 警惕"）改为带标签中文（"获利盘 32.8% · 平均成本 10.60元 · 90%集中度 16.8%（警惕）"），数值口径自适应（0-1 小数与百分数两种历史格式）；②量比缺失不再打印 "None"，改为"缺失"（与状态"量能正常（量比数据缺失）"不再自相矛盾）；③报告 prompt 的 data_limitations 示例明确要求完整中文句子、禁止照抄 technical: partial 等原始枚举键值——LLM 报告不再泄漏英文枚举。
 - [修复] 管线并发互斥与超时根治：①server 5 分钟重试与手动补跑可能并发执行 pit_tail/assemble——run_daily_pipeline 加 O_EXCL 锁文件互斥（陈旧锁=持锁进程已死可抢占）；②akshare 底层请求无超时，单只债网络挂起拖死整步——fetch 加 30s socket 级超时；③update_pit_tail 新增 --time-budget 优雅退出（增量断点安全，部分进度 rc=0），管线预算 420s 为 600s 步骤超时留 DNS 挂起余量（getaddrinfo 不受 socket 超时约束）。
 - [新功能] E2 真实账本事件完整性（RESEARCH-BROAD 批次收官，蓝图 options-monitor repository_core）：①payload_hash 列（INSERT 时应用层对财务字段算 sha256，事后改值可检测，历史行已回填）；②财务字段 UPDATE 即 ABORT 的存储层触发器（trade/cash 两表按各自列适配）；③DELETE 强制审计留痕——before-payload 写入 portfolio_event_audit（该表自身 append-only 触发器保护）。设计取舍：API 修正删除流保留（delete 后重新登记），未采用无条件 append-only ABORT 以免破坏已文档化的修正路径。验收四反例：hash 维护/UPDATE ABORT/DELETE 留痕/审计表防改全过，portfolio 73 项回归通过。
 - [新功能] E3 信号状态体系（RESEARCH-BROAD 批次）：导出契约目标三态分层——executable（有有效价格，随单下发）/ blocked（生命周期，带原因）/ manual_review（无有效价格，人工核实，不虚构不静默）；targets 只装 executable；操作单新增"信号状态：executable×N · blocked×M"汇总行与人工核实明细段。消除"current_plan 里出现的就是能买的"歧义。quant 导出测试同步 v2 断言。
