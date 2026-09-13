@@ -25,18 +25,26 @@ _RAW_DIR = Path(__file__).resolve().parent.parent / "data" / "pit" / "raw"
 
 
 def _fetch_history(code: str) -> Optional[pd.DataFrame]:
+    import socket
     import time
 
     import akshare as ak
 
-    for attempt in range(3):
-        try:
-            df = ak.bond_zh_cov_value_analysis(symbol=code)
-            break
-        except Exception:  # noqa: BLE001 - 网络抖动重试（东财源间歇性 10054）
-            if attempt == 2:
-                return None
-            time.sleep(2 ** attempt)
+    # E2 复盘：akshare 底层请求无超时，单只债挂起会拖死整步（管线 600s
+    # 超时判失败）。30s socket 级超时把挂起转成异常，走既有的重试/失败路径。
+    old_timeout = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(30.0)
+    try:
+        for attempt in range(3):
+            try:
+                df = ak.bond_zh_cov_value_analysis(symbol=code)
+                break
+            except Exception:  # noqa: BLE001 - 网络抖动重试（东财源间歇性 10054）
+                if attempt == 2:
+                    return None
+                time.sleep(2 ** attempt)
+    finally:
+        socket.setdefaulttimeout(old_timeout)
     if df is None or df.empty:
         return None
     out = pd.DataFrame({
@@ -56,7 +64,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--limit", type=int, default=None, help="最多更新 N 只（调试用）")
     parser.add_argument("--symbols", default="",
                         help="优先更新的券（逗号分隔）——不传则自动读上一期 current_plan.json 目标")
+    parser.add_argument("--time-budget", type=int, default=None,
+                        help="墙钟预算（秒），超时优雅退出——增量断点安全，剩余券下一轮继续")
     args = parser.parse_args(argv)
+    run_deadline = (time.monotonic() + args.time_budget) if args.time_budget else None
 
     raw_dir = Path(args.raw_dir)
     updated, skipped_current, failed, no_new = 0, 0, 0, 0
@@ -84,6 +95,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     logger.info("raw 缓存 %d 只", len(sym_dirs))
 
     for i, sym_dir in enumerate(sym_dirs, 1):
+        if run_deadline is not None and time.monotonic() >= run_deadline:
+            logger.info("时间预算 %ds 用尽——优雅退出（已处理 %d 只，剩余下一轮继续）",
+                        args.time_budget, i - 1)
+            break
         symbol = sym_dir.name
         meta_path = sym_dir / "meta.json"
         if not meta_path.exists():
@@ -146,6 +161,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     logger.info("完成: 更新 %d, 已最新 %d, 失败 %d", updated, skipped_current, failed)
     # 管线友好：只要有一只成功（或无需更新）就 rc=0；
     # 全部失败才 rc=1（让 daily_pipeline 判定步骤失败并告警）
+    if run_deadline is not None and time.monotonic() >= run_deadline:
+        return 0  # 预算退出 = 部分进度有效，不算失败
     if updated == 0 and failed > 0 and failed > no_new:
         return 1
     return 0

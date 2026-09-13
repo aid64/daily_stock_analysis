@@ -1,7 +1,7 @@
 {
  "entries": [
   {
-   "sheet_id": "2026-09-13_117f4d04",
+   "sheet_id": "2026-09-13_3c457be9",
    "trade_date": "2026-09-13",
    "symbol": "SZ123089",
    "direction": "buy",
@@ -15,10 +15,10 @@
     "total": 5.0233,
     "slippage": 1.165
    },
-   "created_at": "2026-09-13T11:37:53"
+   "created_at": "2026-09-13T21:47:20"
   },
   {
-   "sheet_id": "2026-09-13_117f4d04",
+   "sheet_id": "2026-09-13_3c457be9",
    "trade_date": "2026-09-13",
    "symbol": "SH113691",
    "direction": "buy",
@@ -32,7 +32,7 @@
     "total": 5.0296,
     "slippage": 1.48
    },
-   "created_at": "2026-09-13T11:37:53"
+   "created_at": "2026-09-13T21:47:20"
   }
  ],
  "quarantined": [
@@ -902,6 +902,74 @@
     "slippage": 1.1915
    },
    "created_at": "2026-09-13T11:37:11"
+  },
+  {
+   "sheet_id": "2026-09-13_117f4d04",
+   "trade_date": "2026-09-13",
+   "symbol": "SZ123089",
+   "direction": "buy",
+   "quantity": 10,
+   "limit_price": 116.5,
+   "costs": {
+    "notional": 1165.0,
+    "commission": 5.0,
+    "stamp_duty": 0.0,
+    "transfer_fee": 0.0233,
+    "total": 5.0233,
+    "slippage": 1.165
+   },
+   "created_at": "2026-09-13T11:37:53"
+  },
+  {
+   "sheet_id": "2026-09-13_117f4d04",
+   "trade_date": "2026-09-13",
+   "symbol": "SH113691",
+   "direction": "buy",
+   "quantity": 10,
+   "limit_price": 148.0,
+   "costs": {
+    "notional": 1480.0,
+    "commission": 5.0,
+    "stamp_duty": 0.0,
+    "transfer_fee": 0.0296,
+    "total": 5.0296,
+    "slippage": 1.48
+   },
+   "created_at": "2026-09-13T11:37:53"
+  },
+  {
+   "sheet_id": "2026-09-13_05ca99a9",
+   "trade_date": "2026-09-13",
+   "symbol": "SH118031",
+   "direction": "buy",
+   "quantity": 10,
+   "limit_price": 118.93,
+   "costs": {
+    "notional": 1189.3,
+    "commission": 5.0,
+    "stamp_duty": 0.0,
+    "transfer_fee": 0.0238,
+    "total": 5.0238,
+    "slippage": 1.1893
+   },
+   "created_at": "2026-09-13T21:40:17"
+  },
+  {
+   "sheet_id": "2026-09-13_1b401f2d",
+   "trade_date": "2026-09-13",
+   "symbol": "SH118031",
+   "direction": "buy",
+   "quantity": 10,
+   "limit_price": 118.93,
+   "costs": {
+    "notional": 1189.3,
+    "commission": 5.0,
+    "stamp_duty": 0.0,
+    "transfer_fee": 0.0238,
+    "total": 5.0238,
+    "slippage": 1.1893
+   },
+   "created_at": "2026-09-13T21:41:42"
   }
  ]
 }

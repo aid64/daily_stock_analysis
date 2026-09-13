@@ -1,6 +1,6 @@
 {
- "snapshot_id": "2026-09-13_46f05f08",
- "generated_at": "2026-09-13T11:38:43",
+ "snapshot_id": "2026-09-13_5945c584",
+ "generated_at": "2026-09-13T21:48:12",
  "trade_date": "2026-09-13",
  "plan": {
   "pit_end": "2026-09-13",
@@ -43,7 +43,7 @@
   ]
  },
  "order_sheet": {
-  "sheet_id": "2026-09-13_117f4d04",
+  "sheet_id": "2026-09-13_3c457be9",
   "status": "pending",
   "orders": [
    {
@@ -82,9 +82,9 @@
  },
  "data_versions": {
   "pit_path": "D:\\daily_stock_analysis\\quant_research\\data\\pit\\convertible_pit.parquet",
-  "pit_sha256": "4dc9c46c88f51c744d72c6a4ccaafeaaf3114dea82990ecae858025886ccd106",
-  "pit_end": "2026-09-10",
-  "cross_section_bonds": 283
+  "pit_sha256": "51157003dfda8773bf5c141c6ef93596fcc07b99bcd5d62a478bbd79ea905c82",
+  "pit_end": "2026-09-11",
+  "cross_section_bonds": 299
  },
  "quality": {
   "fresh": true,

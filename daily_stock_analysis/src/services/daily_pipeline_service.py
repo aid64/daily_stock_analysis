@@ -76,7 +76,21 @@ def _write_status(step: str, ok: bool, detail: str = "",
 
 
 def run_daily_pipeline(force: bool = False) -> bool:
-    """执行完整管线。幂等保护：当日已成功则跳过（force 覆盖）。"""
+    """执行完整管线。幂等保护：当日已成功则跳过（force 覆盖）。
+
+    E2.2 并发互斥：server 重试与手动补跑可能同时进入——用 O_EXCL 锁文件
+    串行化（持锁方写 PID，陈旧锁=持锁进程已死则抢占）。
+    """
+    if _acquire_pipeline_lock() is None:
+        logger.info("[pipeline] 另一实例持有管线锁——本次跳过")
+        return True
+    try:
+        return _run_daily_pipeline_locked(force)
+    finally:
+        _PIPELINE_LOCK_PATH.unlink(missing_ok=True)  # 释放锁（无句柄需关闭）
+
+
+def _run_daily_pipeline_locked(force: bool = False) -> bool:
     if not force and _STATUS_FILE.exists():
         try:
             prev = json.loads(_STATUS_FILE.read_text(encoding="utf-8"))
@@ -93,8 +107,10 @@ def run_daily_pipeline(force: bool = False) -> bool:
     # PIT 刷新节奏（FINAL-SOLUTION 0.1）：周日全量（914 只约 2 小时，
     # 防截面断裂回退到 56 只），工作日增量 50 只 + 优先队列保证目标债新鲜。
     is_sunday = date.today().weekday() == 6
+    # --time-budget 540：给 600s 步骤超时留余量——预算用尽优雅退出
+    #（增量断点安全），不再因网络劣化把整步判失败
     pit_cmd = ([py, "update_pit_tail.py"] if is_sunday
-               else [py, "update_pit_tail.py", "--limit", "50"])
+               else [py, "update_pit_tail.py", "--limit", "50", "--time-budget", "420"])
     steps = [
         ("pit_tail", pit_cmd, 10800 if is_sunday else 600),
         ("assemble", [py, "build_pit_snapshot.py",
@@ -176,6 +192,34 @@ def run_daily_pipeline(force: bool = False) -> bool:
         _write_status("push_order_sheet", False, str(exc))
         _alert_failure("push_order_sheet")
         return False
+
+
+_PIPELINE_LOCK_PATH = _ROOT / "output" / "pipeline.lock"
+
+
+def _acquire_pipeline_lock():
+    """O_EXCL 抢锁；陈旧锁（持锁 PID 已不存在）抢占。返回文件句柄或 None。"""
+    import os as _os
+
+    _PIPELINE_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fh = _os.open(str(_PIPELINE_LOCK_PATH),
+                      _os.O_CREAT | _os.O_EXCL | _os.O_WRONLY)
+        _os.write(fh, str(_os.getpid()).encode())
+        _os.close(fh)
+        return _PIPELINE_LOCK_PATH
+    except FileExistsError:
+        try:
+            holder = int(_PIPELINE_LOCK_PATH.read_text(encoding="utf-8").strip())
+            import psutil  # 可选依赖；缺失时保守视为活着
+            psutil.Process(holder)
+        except (ValueError, ImportError):
+            logger.warning("[pipeline] 陈旧管线锁（持锁进程已不存在）——抢占")
+            _PIPELINE_LOCK_PATH.unlink(missing_ok=True)
+            return _acquire_pipeline_lock()
+        except OSError:
+            pass
+        return None
 
 
 def _check_cross_section_coverage(min_bonds: int = 200) -> None:
