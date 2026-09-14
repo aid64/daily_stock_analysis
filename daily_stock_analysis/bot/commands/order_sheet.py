@@ -348,6 +348,21 @@ def _build_sheet_text() -> str:
     from src.services.order_sheet_service import save_order_sheet
     from src.services.simulation_ledger import SimulationLedger
 
+    # E1.4 信号年龄披露（用户质疑"SH118031 哪里来的"）：
+    # 目标来自 latest_rebalance 那次调仓的沿用持仓。对新建仓用户，
+    # 这不等于"今天该买"——必须把调仓年龄与当前溢价摆到台面。
+    strategy_note = ""
+    reb = str((plan or {}).get("latest_rebalance") or "")
+    if reb and len(reb) >= 10:
+        try:
+            reb_date = date.fromisoformat(reb[:10])
+            age_days = (date.today() - reb_date).days
+            strategy_note = (
+                f"\n—— 策略状态：目标来自 {reb[:10]} 调仓"
+                f"（已 {age_days} 天，期间无新调仓信号）——")
+        except ValueError:
+            pass
+
     # E2 择时信号：估值分位高位时提示减仓。
     # C2（OPTIMIZATION-PLAN-V2）：内联计算 expanding 分位——与 /健康 同一
     # 算法同一 PIT。此前 import quant_research.* 因外层/内层包名遮蔽
@@ -386,6 +401,8 @@ def _build_sheet_text() -> str:
         text = halt_note + "\n" + text
     if cash_gate_note:
         text += "\n" + cash_gate_note
+    if strategy_note:
+        text += strategy_note
     if timing_note:
         text += timing_note
     blocked = plan.get("blocked") or {}

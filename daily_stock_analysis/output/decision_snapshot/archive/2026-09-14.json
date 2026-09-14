@@ -1,81 +1,101 @@
 {
- "snapshot_id": "2026-09-14_d899c00b",
- "generated_at": "2026-09-14T09:55:25",
+ "snapshot_id": "2026-09-14_4225b95a",
+ "generated_at": "2026-09-14T10:25:30",
  "trade_date": "2026-09-14",
  "plan": {
-  "pit_end": "2026-09-14",
-  "plan_generated_at": "2026-09-14T08:00:00",
-  "latest_rebalance": "2026-07-01",
+  "pit_end": "2026-09-11",
+  "plan_generated_at": "2026-09-14T09:46:36",
+  "latest_rebalance": "2025-10-09",
   "targets": {
    "113062.SH": {
-    "weight": 0.2,
-    "t1_close": 128.0
+    "weight": 0.25,
+    "t1_close": 128.75,
+    "price_date": "2026-09-11",
+    "price_source": "pit_close",
+    "data_version": "51157003dfda8773",
+    "signal_state": "executable"
    },
-   "123089.SZ": {
-    "weight": 0.2,
-    "t1_close": 116.5
+   "113631.SH": {
+    "weight": 0.25,
+    "t1_close": 133.748,
+    "price_date": "2026-09-11",
+    "price_source": "pit_close",
+    "data_version": "51157003dfda8773",
+    "signal_state": "executable"
    },
    "113691.SH": {
-    "weight": 0.2,
-    "t1_close": 148.0
+    "weight": 0.25,
+    "t1_close": 145.136,
+    "price_date": "2026-09-11",
+    "price_source": "pit_close",
+    "data_version": "51157003dfda8773",
+    "signal_state": "executable"
+   },
+   "118031.SH": {
+    "weight": 0.25,
+    "t1_close": 118.93,
+    "price_date": "2026-09-11",
+    "price_source": "pit_close",
+    "data_version": "51157003dfda8773",
+    "signal_state": "executable"
    }
   },
-  "blocked": {},
+  "blocked": {
+   "123089.SZ": "强赎已实施（公告 2025-09-16，赎回 2025-10-15）"
+  },
   "no_action_reason": null
  },
  "portfolio": {
-  "total_cash": 7730.0,
+  "total_cash": 1549.0,
   "positions": [
    {
-    "symbol": "SH113062",
-    "quantity": 10.0,
-    "avg_cost": 127.0,
-    "last_price": 0.0,
-    "price_date": null
+    "symbol": "000899",
+    "quantity": 100.0,
+    "avg_cost": 11.16,
+    "last_price": 9.87,
+    "price_date": "2026-09-11"
    },
    {
-    "symbol": "SH600519",
-    "quantity": 100.0,
-    "avg_cost": 10.0,
-    "last_price": 0.0,
-    "price_date": null
+    "symbol": "002475",
+    "quantity": 200.0,
+    "avg_cost": 56.77,
+    "last_price": 55.39,
+    "price_date": "2026-09-11"
    }
   ]
  },
  "order_sheet": {
-  "sheet_id": "2026-09-14_3023cf28",
+  "sheet_id": "2026-09-14_6c009f38",
   "status": "pending",
   "orders": [
    {
     "direction": "buy",
-    "symbol": "SZ123089",
+    "symbol": "SH118031",
     "quantity": 10,
-    "limit_price": 116.5,
-    "abandon_rule": "开盘>118.830 放弃",
+    "limit_price": 118.93,
+    "abandon_rule": "开盘>121.309 放弃",
     "cancel_rule": "14:50 未成交撤单",
-    "est_value": 1165.0,
-    "reason": "新建仓至目标 10",
+    "est_value": 1189.3,
+    "reason": "新建仓至目标 20（现金受限，目标 20 张）",
     "round_trip_cost": 10.05,
-    "break_even_pct": 0.00862
-   },
-   {
-    "direction": "buy",
-    "symbol": "SH113691",
-    "quantity": 10,
-    "limit_price": 148.0,
-    "abandon_rule": "开盘>150.960 放弃",
-    "cancel_rule": "14:50 未成交撤单",
-    "est_value": 1480.0,
-    "reason": "新建仓至目标 10",
-    "round_trip_cost": 10.06,
-    "break_even_pct": 0.0068
+    "break_even_pct": 0.00845
    }
   ],
   "holds": [
    {
     "symbol": "SH113062",
-    "quantity": 10,
-    "reason": "在目标持仓内"
+    "quantity": 0,
+    "reason": "现金不足（可用 ¥1,549，本手需约 ¥1,288）——本轮未加仓"
+   },
+   {
+    "symbol": "SH113631",
+    "quantity": 0,
+    "reason": "现金不足（可用 ¥1,549，本手需约 ¥1,337）——本轮未加仓"
+   },
+   {
+    "symbol": "SH113691",
+    "quantity": 0,
+    "reason": "现金不足（可用 ¥1,549，本手需约 ¥1,451）——本轮未加仓"
    }
   ],
   "fills": {}
@@ -91,5 +111,5 @@
   "signal_available": true,
   "warnings": []
  },
- "content_hash": "6a225997de85493f"
+ "content_hash": "73572fff2f9d358f"
 }
