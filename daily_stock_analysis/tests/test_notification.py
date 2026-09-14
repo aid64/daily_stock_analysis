@@ -1116,7 +1116,9 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
                     "watch_conditions": ["放量突破"],
                     "next_check_time": "14:30",
                     "confidence_reason": "数据质量可用",
-                    "data_limitations": ["quote: stale"],
+                    # E-freeze：原始枚举行（quote: stale）在渲染层被过滤，
+                    # 限制段只保留完整中文句
+                    "data_limitations": ["quote: stale", "行情数据存在延迟"],
                 },
             },
         )
@@ -1127,7 +1129,8 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertIn("盘中跟踪", out)
         self.assertIn("等待确认", out)
         self.assertIn("放量突破", out)
-        self.assertIn("quote: stale", out)
+        self.assertIn("行情数据存在延迟", out)
+        self.assertNotIn("quote: stale", out)  # 枚举行不再泄漏到用户报告
 
     @mock.patch("src.notification.get_config")
     def test_generate_dashboard_report_skips_context_only_phase_decision_default_renderer(

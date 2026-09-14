@@ -1194,10 +1194,20 @@ class NotificationService(
             ])
 
         if data_limitations:
-            report_lines.append(f"**{labels['data_limitations_label']}**:")
-            for limitation in data_limitations:
-                report_lines.append(f"- {limitation}")
-            report_lines.append("")
+            # E-freeze：过滤 LLM 照抄的原始枚举行（"technical: partial" 等）——
+            # 已有中文完整句时枚举行是纯噪声；纯枚举行被过滤后为空则整个段不显示
+            import re as _re
+
+            _ENUM_LINE = _re.compile(
+                r"^\s*(quote|daily_bars|technical|chip|fundamentals|news)\s*:\s*"
+                r"(available|missing|not_supported|fallback|stale|estimated|partial|fetch_failed)\s*$",
+                _re.IGNORECASE)
+            human_lines = [ln for ln in data_limitations if not _ENUM_LINE.match(str(ln))]
+            if human_lines:
+                report_lines.append(f"**{labels['data_limitations_label']}**:")
+                for limitation in human_lines:
+                    report_lines.append(f"- {limitation}")
+                report_lines.append("")
 
     def _get_display_operation_advice(
         self,
