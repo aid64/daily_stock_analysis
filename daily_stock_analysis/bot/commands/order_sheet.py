@@ -17,6 +17,8 @@ from typing import List
 
 import logging
 
+import json
+
 from pathlib import Path
 
 from bot.commands.base import BotCommand
@@ -116,6 +118,59 @@ def _current_gate_notes(snapshot: dict) -> str:
             "⛔ 现金闸门：可用现金未登记（¥0）——买入目标无法给出张数，"
             "请先 /持仓登记 记账。")
     return "\n".join(notes)
+
+
+def _render_history(day: str | None = None) -> str:
+    """/操作单 历史 [日期]：时间点查询（E2 终局）——读归档决策快照，
+    回放"系统那天说了什么"。快照不可变（content_hash 防篡改）。"""
+    from src.services.decision_snapshot_service import SNAPSHOT_DIR
+    from src.services.order_sheet_service import _unit_label
+
+    archive = SNAPSHOT_DIR / "archive"
+    if not archive.exists():
+        return "暂无历史归档快照。"
+    if day:
+        f = archive / f"{day}.json"
+        if not f.exists():
+            return f"{day} 无归档快照（仅保留 90 天）。"
+        days_to_show = [day]
+    else:
+        days_to_show = sorted(
+            (f.stem for f in archive.glob("????-??-??.json")), reverse=True)[:7]
+        if not days_to_show:
+            return "暂无历史归档快照。"
+    lines: List[str] = ["—— 决策快照历史（content_hash 防篡改）——"]
+    for d in days_to_show:
+        try:
+            snap = json.loads((archive / f"{d}.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            lines.append(f"· {d}: 归档损坏")
+            continue
+        plan = snap.get("plan") or {}
+        sheet = snap.get("order_sheet") or {}
+        quality = snap.get("quality") or {}
+        orders = sheet.get("orders") or []
+        blocked = plan.get("blocked") or {}
+        verdict = ("交易" if orders else
+                   "不交易/仅观察")
+        reasons = [r for r in (quality.get("warnings") or [])][:1]
+        line = (f"· {d} [{snap.get('snapshot_id', '?')[:15]}] "
+                f"结论:{verdict} · 订单 {len(orders)} 条 · "
+                f"PIT {plan.get('pit_end', '?')}")
+        if blocked:
+            line += f" · 阻断 {len(blocked)}"
+        if reasons:
+            line += f" · {reasons[0][:40]}"
+        lines.append(line)
+        for o in orders:
+            arrow = "买入" if o.get("direction") == "buy" else "卖出"
+            lines.append(
+                f"    {arrow} {o.get('symbol')} {o.get('quantity')}"
+                f"{_unit_label(o.get('symbol', ''))} @{o.get('limit_price')}")
+        if not orders and sheet:
+            lines.append("    （当日无订单）")
+    lines.append("\n校验：任意一天可用 content_hash 重算检测是否被改。")
+    return "\n".join(lines)
 
 
 def _refresh_snapshot_quietly() -> None:
@@ -375,10 +430,13 @@ class OrderSheetCommand(BotCommand):
 
     @property
     def usage(self) -> str:
-        return "/操作单"
+        return "/操作单 | /操作单 历史 [日期]"
 
     def execute(self, message: BotMessage, args: List[str]) -> BotResponse:
         try:
+            if args and args[0].strip() in ("历史", "归档"):
+                day = args[1].strip() if len(args) > 1 else None
+                return BotResponse.text_response(_render_history(day))
             return BotResponse.text_response(_build_sheet_text())
         except Exception as exc:  # noqa: BLE001 - 面向用户的命令不能抛栈
             return BotResponse.text_response(f"操作单生成失败：{exc}")

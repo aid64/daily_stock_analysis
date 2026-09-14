@@ -176,8 +176,18 @@ def build_snapshot() -> Dict[str, Any]:
     }
 
 
+def _content_hash(snapshot: Dict[str, Any]) -> str:
+    """E2 终局：快照内容指纹（canonical JSON 的 sha256）——
+    读模型不可变的可验证形态：读回后重算即知是否被改过。"""
+    body = {k: v for k, v in snapshot.items() if k != "content_hash"}
+    canonical = json.dumps(body, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+
 def save_snapshot(snapshot: Dict[str, Any]) -> Path:
     """原子写 latest.json + 每日 archive（保留 90 天）。"""
+    snapshot = dict(snapshot)
+    snapshot["content_hash"] = _content_hash(snapshot)
     SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
     latest = SNAPSHOT_DIR / "latest.json"
     tmp = SNAPSHOT_DIR / "latest.json.tmp"
