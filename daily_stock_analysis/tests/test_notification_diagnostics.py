@@ -186,7 +186,9 @@ class NotificationDiagnosticsTestCase(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertIn("invalid_notification_timezone", {item.code for item in result.errors})
 
-    def test_noise_daily_digest_reserved_reports_warning(self):
+    def test_daily_digest_enabled_reports_active_semantics(self):
+        """摘要总线已实现：诊断应说明实际行为（写总线 + 到点聚合），
+        不再是 P4 时代的"预留配置、不会发送"误报。"""
         result = run_notification_diagnostics(
             _config(
                 wechat_webhook_url="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=1",
@@ -195,7 +197,10 @@ class NotificationDiagnosticsTestCase(unittest.TestCase):
         )
 
         self.assertTrue(result.ok)
-        self.assertIn("reserved_daily_digest", {item.code for item in result.warnings})
+        self.assertIn("daily_digest_enabled", {item.code for item in result.info})
+        self.assertNotIn(
+            "reserved_daily_digest", {item.code for item in result.warnings}
+        )
 
 
 if __name__ == "__main__":

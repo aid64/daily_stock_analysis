@@ -36,6 +36,8 @@ SHEET_STATUS_EXPIRED = "expired"
 # E1（RESEARCH-BROAD 批次）：生成侧风控上限——防异常数据（价格错 100 倍
 # 之类）生成巨量订单。vnpy OrderSizeRule 的等价物，作用于操作单生成。
 MAX_SINGLE_ORDER_VALUE = 20_000.0   # 单笔订单估算金额上限（元）
+# 粗估费用率（展示用；精确模型见模拟账本）。追加/撤单后重算合计同用此口径。
+DEFAULT_ESTIMATED_COST_RATE = 0.0001
 
 _ROOT = Path(__file__).resolve().parents[2]
 SHEETS_DIR = _ROOT / "output" / "order_sheets"
@@ -137,9 +139,11 @@ def generate_order_sheet(
     available_cash: float,
     abandon_pct: float = DEFAULT_ABANDON_PCT,
     cancel_time: str = DEFAULT_CANCEL_TIME,
-    cost_rate: float = 0.0001,   # 粗估费用率（展示用；精确模型见模拟账本）
+    cost_rate: float = DEFAULT_ESTIMATED_COST_RATE,
     keep_reason: str = "在目标持仓内",
     sheet_id: Optional[str] = None,
+    reasons: Optional[Dict[str, str]] = None,
+    hold_reasons: Optional[Dict[str, str]] = None,
 ) -> OrderSheet:
     """目标持仓 diff → 操作单（纯函数）。
 
@@ -149,8 +153,12 @@ def generate_order_sheet(
         t1_close_prices: {symbol: T-1 收盘价}——限价唯一来源，缺失的标的进 holds
         available_cash: 可用现金（买单受此约束）
         keep_reason: 持有条目的默认理由
+        reasons: 账户决策引擎注入的按标的态度理由（卖出单 reason 覆盖）
+        hold_reasons: 按标的持有理由覆盖（无报价等场景）
     """
     sheet_id = sheet_id or f"{trade_date.isoformat()}_{uuid.uuid4().hex[:8]}"
+    reasons = reasons or {}
+    hold_reasons = hold_reasons or {}
     orders: List[OrderLine] = []
     holds: List[HoldLine] = []
 
@@ -170,14 +178,16 @@ def generate_order_sheet(
             if current > 0 or target > 0:
                 holds.append(HoldLine(
                     symbol=symbol, quantity=int(current),
-                    reason="缺 T-1 收盘价，无法给出限价——人工处理"))
+                    reason=hold_reasons.get(symbol)
+                    or "缺 T-1 收盘价，无法给出限价——人工处理"))
             continue
 
         diff = target - current
         if diff == 0:
             if current > 0:
                 holds.append(HoldLine(
-                    symbol=symbol, quantity=int(current), reason=keep_reason))
+                    symbol=symbol, quantity=int(current),
+                    reason=hold_reasons.get(symbol) or keep_reason))
             continue
         if _lot_floor(abs(diff), lot) == 0:
             # 差额不足一个申报单位：既买不进也卖不出（非清仓场景）
@@ -204,8 +214,9 @@ def generate_order_sheet(
                 abandon_rule=f"开盘<{price * (1 - abandon_pct):.3f} 放弃",
                 cancel_rule=f"{cancel_time} 未成交撤单",
                 est_value=round(est, 2),
-                reason="跌出目标持仓" if target < current and target == 0
-                       else f"目标 {int(target)} < 当前 {int(current)}",
+                reason=reasons.get(symbol)
+                or ("跌出目标持仓" if target < current and target == 0
+                    else f"目标 {int(target)} < 当前 {int(current)}"),
                 **_cost_fields(symbol, sell_qty, price, "sell")))
 
     # 第二遍：买入——贪心顺序分配（价格升序优先买满，预算耗尽的进 holds）。
@@ -289,6 +300,24 @@ def generate_order_sheet(
     )
 
 
+def recalculate_totals(
+    sheet: OrderSheet,
+    cost_rate: float = DEFAULT_ESTIMATED_COST_RATE,
+) -> OrderSheet:
+    """按当前 orders 重算单据合计（追加/撤单腿后调用，保证单内数字自洽）。
+
+    与 generate_order_sheet 同一口径（estimated_cost 为展示用粗估；
+    逐笔往返成本仍是 simulation_ledger 费率纯函数的输出）。
+    """
+    sheet.total_buy_value = round(sum(
+        o.est_value for o in sheet.orders if o.direction == "buy"), 2)
+    sheet.total_sell_value = round(sum(
+        o.est_value for o in sheet.orders if o.direction == "sell"), 2)
+    sheet.estimated_cost = round(
+        (sheet.total_buy_value + sheet.total_sell_value) * cost_rate, 2)
+    return sheet
+
+
 # ── 文件账本 + 状态机 ─────────────────────────────────────────
 
 
@@ -327,7 +356,11 @@ def load_latest_sheet(trade_date: Optional[str] = None) -> Optional[OrderSheet]:
         key=lambda d: d.name)
     if day_dir is None or not day_dir.exists():
         return None
-    candidates = sorted(day_dir.glob("*.json"))
+    # 同日多单按"最新"选择必须按修改时间，不能按文件名（uuid 十六进制
+    # 排序等于抽签——/成交回填 与决策快照都压在这个函数上）
+    candidates = sorted(
+        day_dir.glob("*.json"),
+        key=lambda p: (p.stat().st_mtime, p.name))
     if not candidates:
         return None
     sheet = OrderSheet.from_dict(

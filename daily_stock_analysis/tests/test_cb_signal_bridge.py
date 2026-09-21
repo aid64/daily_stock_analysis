@@ -117,8 +117,10 @@ class TestTargets:
 class TestOrderSheetCommand:
     def test_full_chain_generates_sheet(self, plan_path, isolated_db,
                                         monkeypatch, tmp_path):
-        # 准备持仓：已持有 113062 10 张（目标 10 → 持有），
-        # 123089 未持有（目标 10 → 买入），另持有一只信号外股票
+        # 2026-09-15 账户中心重构：/操作单 主体 = 账户决策包（真实持仓 +
+        # 规则 + 集中度），CB 契约只作为研究观察附注。本测试改为断言：
+        # ①真实持仓进入决策块 ②CB 目标降级为附注（不再直接生成买卖单）
+        # ③个人股票持仓照常展示。
         import src.services.order_sheet_service as oss
         monkeypatch.setattr(
             "src.services.cb_signal_bridge.DEFAULT_PLAN_PATH", plan_path)
@@ -140,21 +142,28 @@ class TestOrderSheetCommand:
         text = OrderSheetCommand().execute(
             type("M", (), {"platform": "test"})(), []).text
 
-        assert "今日操作单" in text
-        assert "买入 SZ123089 @116.5 限价 · 10张" in text
-        # 113062 已在目标内 → 持有；600519 信号外股票 → 个人持仓展示不下单
-        assert "持有 SH113062" in text
-        assert "个人持仓" in text
+        # 账户决策包主体（新语义）
+        assert "账户决策包" in text
+        # 真实持仓进入决策块（转债持仓：无规则 → 持有/集中度判断）
+        assert "113062" in text
+        # 个人股票持仓展示
         assert "600519" in text
-        assert "118.830 放弃" in text
+        # CB 契约目标降级为研究观察附注，不再直接生成买入单
+        assert "研究观察" in text
+        assert "不构成操作指令" in text
+        assert "买入 SZ123089" not in text
 
-    def test_plan_missing_degrades(self, isolated_db, monkeypatch, tmp_path):
-        import src.services.cb_signal_bridge as bridge
+    def test_plan_missing_still_decides_for_account(self, isolated_db,
+                                                    monkeypatch, tmp_path):
+        """CB 契约缺失不再阻塞账户决策——决策对象是真实账户，不是策略。"""
         import src.services.order_sheet_service as oss
+        import src.services.cb_signal_bridge as bridge
         monkeypatch.setattr(oss, "SHEETS_DIR", tmp_path / "sheets")
         monkeypatch.setattr(bridge, "DEFAULT_PLAN_PATH",
                             tmp_path / "nope.json")
         text = OrderSheetCommand().execute(
             type("M", (), {"platform": "test"})(), []).text
-        assert "信号源不可用" in text
-        assert "--export-plan" in text
+        # 账户决策包照常生成（无持仓时是空决策）
+        assert "账户决策包" in text
+        # CB 侧降级为附注提示
+        assert "研究观察" in text

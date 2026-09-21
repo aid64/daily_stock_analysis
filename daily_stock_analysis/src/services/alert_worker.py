@@ -7,9 +7,11 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 from src.agent.events import (
@@ -50,6 +52,15 @@ DEFAULT_DB_ALERT_COOLDOWN_SECONDS = 24 * 60 * 60
 ALERT_WORKER_RULE_LIMIT = 1000
 WRITABLE_TRIGGER_STATUSES = frozenset({"triggered", "skipped", "degraded", "failed"})
 
+# 状态型破位去重（price_cross）：状态落盘 data/cache（与 event_arbitrage /
+# etf_premium 同惯例），进程重启不丢——同一破位状态持续期间不再重复推送。
+ALERT_BREACH_STATE_PATH = (
+    Path(__file__).resolve().parents[2] / "data" / "cache" / "alert_breach_state.json"
+)
+ALERT_BREACH_STATE_VERSION = 1
+BREACH_SUPPRESSED_CHANNEL = "__breach_state__"
+PRICE_CROSS_ALERT_TYPE = "price_cross"
+
 
 @dataclass
 class RuntimeAlertRule:
@@ -61,6 +72,85 @@ class RuntimeAlertRule:
     cooldown_policy: Optional[Dict[str, Any]] = None
     effective_target: Optional[str] = None
     display_target: Optional[str] = None
+
+
+class AlertBreachStateStore:
+    """price_cross 破位状态签名持久化（改动2：消除每日重复推送）。
+
+    语义（group_key = ``event_alert:<标的>:price_cross:<方向>``）：
+      - 每个规则组记录"当前被跌破的档位集合"签名（如 ``10.65,10.87``）；
+      - 签名未变 = 同一破位状态持续 → 不再重复推送；
+      - 签名变化（又跌破一档 / 收回一档）= 状态变化 → 推送一次并更新签名；
+      - 本周期评估后无触发 = 复位 → 清除签名，下次再破位可重新推送一次。
+
+    写入失败（磁盘/权限）只告警不抛——告警主流程不受影响。
+    """
+
+    def __init__(
+        self,
+        state_path: Optional[Path] = None,
+        now_provider: Optional[Callable[[], float]] = None,
+    ) -> None:
+        self.state_path = Path(state_path) if state_path else Path(ALERT_BREACH_STATE_PATH)
+        self.now_provider = now_provider or time.time
+        self._states: Optional[Dict[str, Dict[str, Any]]] = None
+
+    def _load(self) -> Dict[str, Dict[str, Any]]:
+        if self._states is not None:
+            return self._states
+        states: Dict[str, Dict[str, Any]] = {}
+        try:
+            if self.state_path.exists():
+                raw = json.loads(self.state_path.read_text(encoding="utf-8"))
+                groups = raw.get("groups") if isinstance(raw, dict) else None
+                if isinstance(groups, dict):
+                    for key, value in groups.items():
+                        if isinstance(value, dict):
+                            states[str(key)] = dict(value)
+        except (OSError, ValueError) as exc:
+            logger.warning("[AlertWorker] 破位状态读取失败（按空状态处理）: %s", exc)
+        self._states = states
+        return states
+
+    def signature(self, group_key: str) -> Optional[str]:
+        """该组已记录的破位签名；无记录返回 None（= 首次破位，可推送）。"""
+        entry = self._load().get(group_key) or {}
+        value = entry.get("signature")
+        return str(value) if value else None
+
+    def remember(self, group_key: str, signature: str, levels: List[float]) -> None:
+        states = self._load()
+        states[group_key] = {
+            "signature": str(signature),
+            "levels": [float(level) for level in levels],
+            "notified_at": datetime.fromtimestamp(self.now_provider()).isoformat(
+                timespec="seconds"),
+        }
+        self._save()
+
+    def forget(self, group_key: str) -> bool:
+        """清除该组签名（复位）；返回是否确实删除了记录。"""
+        states = self._load()
+        if group_key not in states:
+            return False
+        states.pop(group_key, None)
+        self._save()
+        return True
+
+    def _save(self) -> None:
+        if self._states is None:
+            return
+        try:
+            self.state_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.state_path.with_suffix(".json.tmp")
+            tmp.write_text(
+                json.dumps(
+                    {"version": ALERT_BREACH_STATE_VERSION, "groups": self._states},
+                    ensure_ascii=False, indent=1),
+                encoding="utf-8")
+            os.replace(tmp, self.state_path)
+        except Exception as exc:  # noqa: BLE001 - 写状态失败不影响告警主流程
+            logger.warning("[AlertWorker] 破位状态写入失败（不影响本轮告警）: %s", exc)
 
 
 @dataclass
@@ -90,6 +180,7 @@ class AlertWorker:
         notifier: Optional[Any] = None,
         now_provider: Optional[Callable[[], float]] = None,
         fingerprint_ttl_seconds: int = ALERT_WORKER_FINGERPRINT_TTL_SECONDS,
+        breach_state_store: Optional[AlertBreachStateStore] = None,
     ) -> None:
         self.config_provider = config_provider or self._default_config_provider
         self.service = service or AlertService()
@@ -97,6 +188,8 @@ class AlertWorker:
         self.notifier = notifier
         self.now_provider = now_provider or time.time
         self.fingerprint_ttl_seconds = max(1, int(fingerprint_ttl_seconds))
+        self.breach_state_store = breach_state_store or AlertBreachStateStore(
+            now_provider=self.now_provider)
         self._trigger_fingerprints: Dict[str, float] = {}
         self._trigger_fingerprint_ttls: Dict[str, int] = {}
         self._analysis_visibility_cache: Dict[str, Optional[Dict[str, Any]]] = {}
@@ -124,6 +217,7 @@ class AlertWorker:
             "failed": 0,
             "notification_attempts": 0,
             "cooldown_suppressed": 0,
+            "breach_state_suppressed": 0,
         }
 
         try:
@@ -147,6 +241,9 @@ class AlertWorker:
         daily_cache: Dict[Any, Any] = {}
         self._analysis_visibility_cache = {}
         pending_legacy_alerts: Dict[str, List[Tuple[RuntimeAlertRule, Dict[str, Any], Optional[int]]]] = {}
+        # 本周期 legacy price_cross 规则组的评估结论（group_key -> 状态集合）：
+        # 用于"复位"判定——评估后确认未触发才清签名，跳过/降级不算复位。
+        legacy_breach_statuses: Dict[str, set] = {}
         for runtime_rule in runtime_rules:
             stats["evaluated"] += 1
             try:
@@ -165,6 +262,11 @@ class AlertWorker:
                 }
 
             record_status = result.get("record_status")
+            if (runtime_rule.source == "legacy_env"
+                    and self._is_price_cross_rule(runtime_rule)):
+                legacy_breach_statuses.setdefault(
+                    self._legacy_alert_group_key(runtime_rule), set()
+                ).add(str(record_status or "not_triggered"))
             if record_status == "triggered":
                 self._attach_decision_signal_summary_safely(runtime_rule, result)
             if record_status in WRITABLE_TRIGGER_STATUSES:
@@ -205,7 +307,19 @@ class AlertWorker:
                     )
 
         for group_key, grouped in pending_legacy_alerts.items():
-            if not self._should_notify(group_key):
+            # price_cross 走"破位状态签名"去重（改动2）：同一破位状态持续期间
+            # 不再重复推送——内存指纹 TTL 会让"仍处于跌破状态"的告警每天重发。
+            breach_signature: Optional[str] = None
+            breach_levels: List[float] = []
+            if self._group_alert_type(grouped) == PRICE_CROSS_ALERT_TYPE:
+                breach_signature, breach_levels = self._breach_signature(grouped)
+                if self.breach_state_store.signature(group_key) == breach_signature:
+                    stats["breach_state_suppressed"] += 1
+                    for _rule, _result, trigger_id in grouped:
+                        self._record_breach_state_suppression_safely(
+                            trigger_id, group_key, breach_signature)
+                    continue
+            elif not self._should_notify(group_key):
                 continue
             dispatch = self._send_aggregated_legacy_alert(grouped)
             for _rule, _result, trigger_id in grouped:
@@ -214,9 +328,97 @@ class AlertWorker:
                 )
             if bool(dispatch.success):
                 self._mark_notified(group_key)
+                if breach_signature is not None:
+                    self._remember_breach_state_safely(
+                        group_key, breach_signature, breach_levels)
                 stats["notified"] += 1
 
+        # 复位：本周期评估后确认无触发（仅 not_triggered）→ 清签名，
+        # 下次再破位可重新推送一次。跳过/降级/失败不算复位（数据没结论）。
+        for group_key, statuses in legacy_breach_statuses.items():
+            if statuses and statuses <= {"not_triggered"}:
+                self._forget_breach_state_safely(group_key)
+
         return stats
+
+    @staticmethod
+    def _is_price_cross_rule(runtime_rule: RuntimeAlertRule) -> bool:
+        return AlertWorker._rule_alert_type(getattr(runtime_rule, "rule", None)) == PRICE_CROSS_ALERT_TYPE
+
+    @staticmethod
+    def _rule_alert_type(rule: Any) -> str:
+        raw = getattr(getattr(rule, "alert_type", None), "value",
+                      getattr(rule, "alert_type", ""))
+        return str(raw or "").lower()
+
+    @staticmethod
+    def _group_alert_type(grouped: List[Tuple[RuntimeAlertRule, Dict[str, Any], Optional[int]]]) -> str:
+        return AlertWorker._rule_alert_type(getattr(grouped[0][0], "rule", None))
+
+    @classmethod
+    def _breach_signature(
+        cls,
+        grouped: List[Tuple[RuntimeAlertRule, Dict[str, Any], Optional[int]]],
+    ) -> Tuple[str, List[float]]:
+        """本组"被跌破的档位集合"签名（档位升序，可跨进程稳定比对）。"""
+        levels = []
+        for _rule, result, _trigger_id in grouped:
+            level = cls._optional_float(result.get("threshold"))
+            if level is not None:
+                levels.append(level)
+        levels = sorted(set(levels))
+        return ",".join(f"{level:g}" for level in levels), levels
+
+    def _remember_breach_state_safely(
+        self,
+        group_key: str,
+        signature: str,
+        levels: List[float],
+    ) -> None:
+        try:
+            self.breach_state_store.remember(group_key, signature, levels)
+        except Exception as exc:  # noqa: BLE001 - 状态写失败不影响告警主流程
+            logger.warning(
+                "[AlertWorker] 破位状态记录失败（不影响本轮回执）: %s",
+                self.service._sanitize_text(str(exc) or "breach state write failed"),
+            )
+
+    def _forget_breach_state_safely(self, group_key: str) -> None:
+        try:
+            if self.breach_state_store.forget(group_key):
+                logger.info("[AlertWorker] 破位已复位，清除状态签名: %s", group_key)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[AlertWorker] 破位状态清除失败: %s", exc)
+
+    def _record_breach_state_suppression_safely(
+        self,
+        trigger_id: Optional[int],
+        group_key: str,
+        signature: str,
+    ) -> None:
+        """被状态去重抑制时留审计行（与 db 冷却期的 __cooldown__ 同一惯例）。"""
+        from src.notification import ChannelAttemptResult, NotificationDispatchResult
+
+        self._record_notification_attempts_safely(
+            trigger_id,
+            NotificationDispatchResult(
+                dispatched=False,
+                success=False,
+                status="breach_state_unchanged",
+                channel_results=[
+                    ChannelAttemptResult(
+                        channel=BREACH_SUPPRESSED_CHANNEL,
+                        success=False,
+                        error_code="breach_state_unchanged",
+                        retryable=False,
+                        diagnostics=(
+                            f"breach state unchanged: {group_key} "
+                            f"levels={signature or 'n/a'}"),
+                    )
+                ],
+                message="breach state unchanged; duplicate notification suppressed",
+            ),
+        )
 
     _ALERT_TYPE_LABELS = {
         ("price_cross", "below"): "跌破价位",

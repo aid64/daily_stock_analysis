@@ -245,6 +245,15 @@ class AlertWorkerTestCase(unittest.TestCase):
         Config.reset_instance()
         DatabaseManager.reset_instance()
         self.service = AlertService()
+        # 破位状态文件隔离（改动2）：默认路径在 data/cache，测试写临时目录，
+        # 既不打脏真实状态文件，也避免用例之间互相抑制。
+        self.breach_state_path = self.data_dir / "alert_breach_state.json"
+        breach_state_patcher = patch(
+            "src.services.alert_worker.ALERT_BREACH_STATE_PATH",
+            self.breach_state_path,
+        )
+        breach_state_patcher.start()
+        self.addCleanup(breach_state_patcher.stop)
 
     def tearDown(self) -> None:
         DatabaseManager.reset_instance()
@@ -1622,7 +1631,13 @@ class AlertWorkerTestCase(unittest.TestCase):
         self.assertEqual(kwargs["dedup_key"], "event_alert:000899:price_cross:below")
         self.assertEqual(kwargs["structured_payload"]["symbols"], ["000899"])
 
-    def test_legacy_rule_still_uses_fingerprint_suppression(self) -> None:
+    def test_legacy_price_cross_repeats_are_suppressed_by_breach_state(self) -> None:
+        """改动2：同一破位状态持续期间不再重复推送（不再由指纹 TTL 决定）。
+
+        本用例取代原 test_legacy_rule_still_uses_fingerprint_suppression——
+        后者的断言（TTL 到期后同一"仍在上穿状态"的告警再推一次）正是用户
+        抱怨的每日重复推送，语义已被"破位状态签名"取代，故按新语义重写。
+        """
         raw_rules = '[{"stock_code":"600519","alert_type":"price_cross","direction":"above","price":1800}]'
         notifier = self._notifier()
         now = {"value": 1000.0}
@@ -1638,6 +1653,39 @@ class AlertWorkerTestCase(unittest.TestCase):
             "src.agent.events.EventMonitor._get_realtime_quote",
             new=AsyncMock(return_value=SimpleNamespace(price=1810.0)),
         ):
+            first = worker.run_once()
+            now["value"] += 10
+            second = worker.run_once()
+            now["value"] += 61
+            third = worker.run_once()
+
+        self.assertEqual(first["notified"], 1)
+        self.assertEqual(second["notified"], 0)
+        self.assertEqual(third["notified"], 0)
+        self.assertEqual(second["breach_state_suppressed"], 1)
+        self.assertEqual(third["breach_state_suppressed"], 1)
+        self.assertEqual(notifier.send_with_results.call_count, 1)
+        # 审计不受影响：每轮触发记录照写（只是不再重复发用户通知）
+        self.assertEqual(len(self._triggers(status="triggered")), 3)
+
+    def test_legacy_non_price_cross_rule_still_uses_fingerprint_suppression(self) -> None:
+        """其余告警类型行为不变：TTL 内抑制、到期后再推（price_change_percent）。"""
+        raw_rules = ('[{"stock_code":"300750","alert_type":"price_change_percent",'
+                     '"direction":"down","change_pct":3.5}]')
+        notifier = self._notifier()
+        now = {"value": 1000.0}
+
+        worker = AlertWorker(
+            config_provider=lambda: self._config(raw_rules),
+            service=self.service,
+            notifier=notifier,
+            now_provider=lambda: now["value"],
+            fingerprint_ttl_seconds=60,
+        )
+        with patch(
+            "src.agent.events.EventMonitor._get_realtime_quote",
+            new=AsyncMock(return_value={"pct_chg": "-3.75%"}),
+        ):
             worker.run_once()
             now["value"] += 10
             worker.run_once()
@@ -1646,6 +1694,7 @@ class AlertWorkerTestCase(unittest.TestCase):
 
         self.assertEqual(notifier.send_with_results.call_count, 2)
         self.assertEqual(len(self._triggers(status="triggered")), 3)
+        self.assertEqual(self._notifications(channel="__breach_state__"), [])
 
     def test_failed_db_notification_attempts_do_not_start_cooldown_window(self) -> None:
         self._create_rule(target="600519")

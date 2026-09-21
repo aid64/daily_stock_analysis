@@ -113,3 +113,58 @@ class TestSnapshotPersistence:
         monkeypatch.setattr(dss, "_pit_data_version", lambda: {"pit_end": "x"})
         snap = refresh()
         assert snap is not None and load_latest_snapshot()["snapshot_id"] == snap["snapshot_id"]
+
+
+class TestSnapshotDatabasePath:
+    def test_snapshot_records_database_path(self, monkeypatch):
+        """快照必须记录本次进程实际使用的数据库绝对路径（可回溯）。"""
+        monkeypatch.setattr(dss, "_pit_data_version", lambda: {"pit_end": "x"})
+        snap = build_snapshot()
+        assert snap["data_versions"]["database_path"]
+
+
+class TestPortfolioRegressionGuard:
+    """同日 + 不同库 + 持仓读成空 → 拒绝降级覆盖（多进程 DATABASE_PATH 不一致）。"""
+
+    @pytest.fixture()
+    def snap_dir(self, tmp_path: Path, monkeypatch) -> Path:
+        d = tmp_path / "snap_guard"
+        monkeypatch.setattr(dss, "SNAPSHOT_DIR", d)
+        return d
+
+    def _snap(self, *, positions, db, day=None, snapshot_id="x"):
+        day = day or date.today().isoformat()
+        return {"snapshot_id": snapshot_id, "trade_date": day,
+                "portfolio": {"total_cash": 0.0, "positions": positions},
+                "data_versions": {"database_path": db}}
+
+    def test_regression_detected_when_db_differs(self):
+        prev = self._snap(positions=[{"symbol": "000899"}], db="A")
+        new = self._snap(positions=[], db="B")
+        assert dss._is_portfolio_regression(prev, new) is True
+
+    def test_no_regression_when_same_db(self):
+        prev = self._snap(positions=[{"symbol": "000899"}], db="A")
+        new = self._snap(positions=[], db="A")
+        assert dss._is_portfolio_regression(prev, new) is False
+
+    def test_no_regression_for_different_day(self):
+        prev = self._snap(positions=[{"symbol": "000899"}], db="A",
+                          day=(date.today() - timedelta(days=1)).isoformat())
+        new = self._snap(positions=[], db="B")
+        assert dss._is_portfolio_regression(prev, new) is False
+
+    def test_no_regression_when_new_snapshot_has_positions(self):
+        prev = self._snap(positions=[{"symbol": "000899"}], db="A")
+        new = self._snap(positions=[{"symbol": "002475"}], db="B")
+        assert dss._is_portfolio_regression(prev, new) is False
+
+    def test_refresh_keeps_previous_on_regression(self, snap_dir, monkeypatch):
+        save_snapshot(self._snap(positions=[{"symbol": "000899"}], db="A",
+                                 snapshot_id="prev"))
+        monkeypatch.setattr(
+            dss, "build_snapshot",
+            lambda: self._snap(positions=[], db="B", snapshot_id="new"))
+        result = refresh()
+        assert result["snapshot_id"] == "prev"
+        assert load_latest_snapshot()["snapshot_id"] == "prev"

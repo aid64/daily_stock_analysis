@@ -547,13 +547,19 @@ def run_notification_diagnostics(config: Config) -> NotificationDiagnosticResult
         )
 
     if getattr(config, "notification_daily_digest_enabled", False):
-        warnings.append(
+        # 摘要总线已实现（notification_digest_service：JSONL 总线 + logical_id
+        # 折叠 + 到点聚合发送）。此前这里报"预留配置、不会发送"是 P4 时代
+        # 的过时文案，与实现相反，交接时会误导——改为说明实际行为与前提。
+        info.append(
             _issue(
-                "warning",
-                "reserved_daily_digest",
+                "info",
+                "daily_digest_enabled",
                 (
-                    "NOTIFICATION_DAILY_DIGEST_ENABLED 当前为预留配置；"
-                    "P4 不会发送每日摘要或持久化摘要内容。"
+                    "NOTIFICATION_DAILY_DIGEST_ENABLED=true：report 渠道的"
+                    "非 system_error 推送先写入当日消息总线"
+                    "（data/cache/notification_bus/<date>.jsonl），到 "
+                    "NOTIFICATION_DIGEST_TIME 聚合为一条分级摘要；"
+                    "system_error 与带 digest bypass 的盘前决策包仍即时发送。"
                 ),
                 key="NOTIFICATION_DAILY_DIGEST_ENABLED",
             )

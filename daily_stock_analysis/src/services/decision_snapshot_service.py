@@ -85,6 +85,54 @@ def _pit_data_version() -> Dict[str, Any]:
     return info
 
 
+def _resolved_database_path() -> str:
+    """当前进程实际使用的数据库绝对路径（诊断字段）。
+
+    DATABASE_PATH 默认是相对路径（./data/stock_analysis.db）——不同工作目录/
+    不同入口的进程会读到不同的库（甚至一个空库），这里把真实路径写进快照，
+    让"这个快照是哪份数据算出来的"可回溯、不一致时可见。
+    """
+    raw = ""
+    try:
+        from src.config import Config
+
+        raw = str(getattr(Config.get_instance(), "database_path", "") or "").strip()
+    except Exception as exc:  # noqa: BLE001 - 取不到就走环境变量
+        logger.debug("[snapshot] 读取 database_path 失败: %r", exc)
+    if not raw:
+        import os as _os
+
+        raw = _os.getenv("DATABASE_PATH", "./data/stock_analysis.db")
+    try:
+        return str(Path(raw).expanduser().resolve())
+    except Exception:  # noqa: BLE001
+        return raw
+
+
+def _is_portfolio_regression(
+    previous: Optional[Dict[str, Any]],
+    snapshot: Dict[str, Any],
+) -> bool:
+    """本快照是否把当日持仓读成了空、且与既有快照不是同一个库。
+
+    同日 + 既有快照有持仓 + 新快照无持仓 + 数据库路径不同 → 几乎只可能是
+    "另一进程用不同 DATABASE_PATH 刷新了同一份快照"（实测：相对路径 +
+    不同工作目录会读到空库）。此时拒绝覆盖，保留信息更完整的那一份。
+    合法的清仓（同一数据库）不受影响。
+    """
+    if not previous:
+        return False
+    if str(previous.get("trade_date") or "") != str(snapshot.get("trade_date") or ""):
+        return False
+    prev_positions = (previous.get("portfolio") or {}).get("positions") or []
+    new_positions = (snapshot.get("portfolio") or {}).get("positions") or []
+    if not prev_positions or new_positions:
+        return False
+    prev_db = str((previous.get("data_versions") or {}).get("database_path") or "")
+    new_db = str((snapshot.get("data_versions") or {}).get("database_path") or "")
+    return bool(prev_db and new_db and prev_db != new_db)
+
+
 def build_snapshot() -> Dict[str, Any]:
     """构建快照（不落盘）。任何子块失败降级为 warnings，不抛异常。"""
     from datetime import datetime
@@ -150,6 +198,7 @@ def build_snapshot() -> Dict[str, Any]:
         warnings.append(f"操作单读取失败: {exc}")
 
     data_version = _pit_data_version()
+    data_version["database_path"] = _resolved_database_path()
     if data_version.get("pit_error"):
         warnings.append(f"PIT 数据版本读取失败: {data_version['pit_error'][:80]}")
 
@@ -218,6 +267,15 @@ def refresh() -> Optional[Dict[str, Any]]:
     """构建并落盘快照；异常安全（操作单/管线的失败不受影响）。"""
     try:
         snapshot = build_snapshot()
+        previous = load_latest_snapshot()
+        if _is_portfolio_regression(previous, snapshot):
+            logger.warning(
+                "[snapshot] 拒绝降级覆盖：新快照当日持仓为空、数据库路径与既有快照不同"
+                "（既有 %s ← 本次 %s）——疑似另一进程 DATABASE_PATH 不一致，保留原快照",
+                ((previous or {}).get("data_versions") or {}).get("database_path"),
+                (snapshot.get("data_versions") or {}).get("database_path"),
+            )
+            return previous
         save_snapshot(snapshot)
         logger.info("[snapshot] 决策快照已更新: %s", snapshot["snapshot_id"])
         return snapshot

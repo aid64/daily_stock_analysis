@@ -283,9 +283,11 @@ class BondNewIssueCalendarService:
         stages.sort(key=lambda s: priority.get(s[0], 9))
         return stages[0]
 
-    def _collect_reminders(self, today: date) -> List[_BondReminder]:
+    def _collect_reminders(
+        self, today: date, records: Optional[List[Dict[str, Any]]] = None
+    ) -> List[_BondReminder]:
         reminders: List[_BondReminder] = []
-        for record in self._fetch_calendar():
+        for record in (records if records is not None else self._fetch_calendar()):
             for stage, bond_code, bond_name in self._classify_all(record, today):
                 reference = (
                     self._parse_date(record.get("上市时间" if stage == "listing" else "申购日期"))
@@ -309,6 +311,50 @@ class BondNewIssueCalendarService:
         stage_order = {"rights": 0, "subscribe": 1, "payment": 2, "listing": 3}
         reminders.sort(key=lambda r: (stage_order.get(r.stage, 9), r.bond_code))
         return reminders
+
+    # ------------------------------------------------------------------
+    # 只读查询（供策略引擎 / 决策包盘前汇总，不推送、不写状态）
+    # ------------------------------------------------------------------
+
+    def upcoming_reminders(self, days: int = 2) -> List[Dict[str, Any]]:
+        """未来 days 日内的打新提醒（去重后按阶段+代码排序）。
+
+        与 run_once 推送链路互不影响：本方法只读。days 夹在 [1, 7]。
+        发行表只拉取一次，多日分类复用同一份 records。
+        """
+        from datetime import timedelta
+
+        today = self.now_provider()
+        span = max(1, min(int(days), 7))
+        try:
+            records = self._fetch_calendar()
+        except Exception as exc:  # noqa: BLE001 - 查询失败返回空（调用方降级）
+            logger.warning("[BondNewIssueCalendar] 汇总查询拉取失败: %s", exc)
+            return []
+
+        seen: Dict[Tuple[str, str], _BondReminder] = {}
+        for offset in range(span):
+            day = today + timedelta(days=offset)
+            for reminder in self._collect_reminders(day, records=records):
+                seen.setdefault((reminder.bond_code, reminder.stage), reminder)
+
+        return [
+            {
+                "bond_code": r.bond_code,
+                "bond_name": r.bond_name,
+                "stage": r.stage,
+                "reference_date": r.reference_date,
+                "note": r.note,
+            }
+            for r in sorted(
+                seen.values(),
+                key=lambda x: (
+                    {"rights": 0, "subscribe": 1, "payment": 2, "listing": 3}.get(
+                        x.stage, 9),
+                    x.bond_code,
+                ),
+            )
+        ]
 
     # ------------------------------------------------------------------
     # 消息构建

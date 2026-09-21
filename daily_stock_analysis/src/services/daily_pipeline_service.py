@@ -125,6 +125,22 @@ def _run_daily_pipeline_locked(force: bool = False) -> bool:
         if name == "assemble":
             _check_cross_section_coverage()
 
+    # 3.4: 全市场扫描（买入侧原料线，蓝图 ②-A/②-B）——快照落库 + 规则漏斗。
+    # 失败不阻塞主决策（买入观察池降级为空），但必须留痕到状态文件。
+    scan_ok, scan_detail = False, ""
+    try:
+        from src.services.market_scan_service import (
+            fetch_and_store_snapshot, run_funnel)
+        snapshot = fetch_and_store_snapshot()
+        funnel = run_funnel(snapshot)
+        scan_ok = True
+        scan_detail = funnel.step_log
+        logger.info("[pipeline] market scan: %s", scan_detail)
+    except Exception as exc:  # noqa: BLE001 - 扫描失败不阻塞管线
+        scan_detail = str(exc)
+        logger.warning("[pipeline] market scan failed: %r", exc)
+    _write_status("market_scan", scan_ok, scan_detail)
+
     # 3.5: 决策快照（W3）——计划导出后立即落一份可追溯快照
     try:
         from src.services.decision_snapshot_service import refresh
@@ -132,7 +148,7 @@ def _run_daily_pipeline_locked(force: bool = False) -> bool:
     except Exception as exc:  # noqa: BLE001 - 快照失败不阻塞管线
         logger.warning("[pipeline] decision snapshot refresh failed: %r", exc)
 
-    # 4: 生成操作单（幂等）
+    # 4: 生成账户决策包（R1：决策对象=真实持仓+现金，非 CB 策略 diff）
     try:
         from bot.commands.order_sheet import _build_sheet_text
         from src.notification import NotificationService
@@ -142,11 +158,22 @@ def _run_daily_pipeline_locked(force: bool = False) -> bool:
 
         text = _build_sheet_text()
         plan = load_cb_plan() or {}
-        target_symbols = sorted(str(s).upper() for s in (plan.get("targets") or {}))
-        stale_symbols = sorted(
-            str(s).upper() for s, payload in (plan.get("targets") or {}).items()
-            if not payload or float(payload.get("t1_close") or 0) <= 0
-        )
+
+        # 持仓符号集（决策包 symbols）从快照取真实账户，而非 CB 契约目标
+        held_symbols: list = []
+        try:
+            from src.services.portfolio_service import PortfolioService
+            snapshot = PortfolioService().get_portfolio_snapshot(
+                cost_method="fifo", include_realtime=False)
+            for account in snapshot.get("accounts") or []:
+                for position in account.get("positions") or []:
+                    if float(position.get("quantity") or 0) > 0:
+                        digits = "".join(
+                            ch for ch in str(position.get("symbol")) if ch.isdigit())
+                        held_symbols.append(digits)
+        except Exception as exc:  # noqa: BLE001 - 符号集缺失不阻塞推送
+            logger.warning("[pipeline] 持仓符号集读取失败: %r", exc)
+
         logical_id = f"daily_operation_sheet:{date.today().isoformat()}"
         dedup = f"daily_pipeline:{date.today().isoformat()}"
         payload = {
@@ -154,21 +181,20 @@ def _run_daily_pipeline_locked(force: bool = False) -> bool:
             "logical_id": logical_id,
             "source": "daily_pipeline",
             "priority": "high",
-            "symbols": target_symbols,
-            "status": "degraded" if stale_symbols else "ready",
+            "symbols": sorted(set(held_symbols)),
+            "status": "ready" if held_symbols else "degraded",
             "pit_end": plan.get("pit_end"),
             "plan_generated_at": plan.get("generated_at"),
-            "stale_symbols": stale_symbols,
         }
         notifier = NotificationService()
         if text.startswith("⚠"):
-            # 新鲜度门槛拒绝：即时告警送达，不进摘要总线压到晚间
+            # 门槛拒绝：即时告警送达，不进摘要总线压到晚间
             result = notifier.send_with_results(
                 text, route_type="system_error", dedup_key=dedup)
         else:
-            # 盘前操作单契约（蓝图终局形态）：①总线留索引（logical_id
-            # 替换语义，晚间摘要只列一行）②立即直发到渠道——report 路由
-            # 默认被摘要总线拦截会压到 18:00，违背 09:00 盘前推送。
+            # 盘前决策包契约：①总线留索引（logical_id 替换语义，晚间摘要
+            # 只列一行）②立即直发到渠道——report 路由默认被摘要总线拦截
+            # 会压到 18:00，违背 09:00 盘前推送。
             append_to_bus(content=text, route_type="report", severity="info",
                           dedup_key=dedup, structured_payload=payload)
             setattr(notifier, DIGEST_BYPASS_ATTR, True)
