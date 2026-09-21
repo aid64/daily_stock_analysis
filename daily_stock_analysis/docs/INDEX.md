@@ -11,6 +11,7 @@
 | 配置大模型渠道 | [LLM 配置指南](LLM_CONFIG_GUIDE.md) | [LLM 服务商配置指南](llm-providers.md)（含 xAI Grok 直连） |
 | 配置推送通知 | [通知能力基线](notifications.md) | [飞书配置交接说明](feishu-handoff.md)、[完整配置与部署指南](full-guide.md) |
 | 部署到服务器或云平台 | [部署指南](DEPLOY.md) | [云端 WebUI 部署](deploy-webui-cloud.md)、[Zeabur 部署](docker/zeabur-deployment.md) |
+| 备份账本 / 崩溃恢复 | [单机灾难恢复（DR）](disaster-recovery.md) | 账本备份脚本、Windows 计划任务、三类崩溃场景还原步骤 |
 | 使用 Bot / IM 接入 | [Bot 命令与接入](bot-command.md) | [Bot 平台配置](bot/)（飞书） |
 | 排查运行问题 | [FAQ](FAQ.md) | [更新日志](CHANGELOG.md) |
 | 处理数据源失败或降级 | [数据源稳定性与故障处理图示](data-source-stability.md) | [FAQ](FAQ.md) |
