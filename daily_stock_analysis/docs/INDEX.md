@@ -12,6 +12,7 @@
 | 配置推送通知 | [通知能力基线](notifications.md) | [飞书配置交接说明](feishu-handoff.md)、[完整配置与部署指南](full-guide.md) |
 | 部署到服务器或云平台 | [部署指南](DEPLOY.md) | [云端 WebUI 部署](deploy-webui-cloud.md)、[Zeabur 部署](docker/zeabur-deployment.md) |
 | 备份账本 / 崩溃恢复 | [单机灾难恢复（DR）](disaster-recovery.md) | 账本备份脚本、Windows 计划任务、三类崩溃场景还原步骤 |
+| 决策层参数为何这么定 | [在线决策层变更留痕](decision-layer-changelog.md) | 结构锚价位/破位分档/组合器三层参数、回放基线（分档过度设计、价位锚才是开关）、变更留痕规范 |
 | 使用 Bot / IM 接入 | [Bot 命令与接入](bot-command.md) | [Bot 平台配置](bot/)（飞书） |
 | 排查运行问题 | [FAQ](FAQ.md) | [更新日志](CHANGELOG.md) |
 | 处理数据源失败或降级 | [数据源稳定性与故障处理图示](data-source-stability.md) | [FAQ](FAQ.md) |
