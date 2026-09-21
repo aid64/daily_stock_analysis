@@ -1,0 +1,101 @@
+# ============================================================
+# strategies.yaml — 策略部署注册表（唯一真源）
+# ============================================================
+# 与 docs/strategy-catalog.md 一一对应；改参数 = 改本文件，不改代码
+# （mandate.yaml 先例）。状态机：registered → replicating → shadow
+# → active；任意阶段可 rejected / dormant。详见 strategy-catalog.md 第一节。
+# 纪律：参数取结构值或社区声明值（预注册），不做网格调参。
+# 消费方：src/services/strategy_engine.py（只评估 active）。
+# ============================================================
+
+strategies:
+  # ── 现金管理层（active：规则性正期望 / 无风险，免回测）──
+  - id: reverse_repo_window
+    name: 国债逆回购窗口
+    tier: cash_management
+    risk: zero
+    status: active
+    evaluator: reverse_repo_window
+    params:
+      product_sh: GC001        # 沪市 1 天期 204001
+      product_sz: R-001        # 深市 1 天期 131810
+      min_cash: 1000           # 起投门槛（1000 整数倍）
+
+  - id: cb_new_issue
+    name: 转债打新汇总
+    tier: cash_management
+    risk: near_zero
+    status: active
+    evaluator: cb_new_issue
+    params:
+      lookahead_days: 2        # 决策包汇总未来 2 日内的申购/缴款/上市提醒
+
+  # ── 低风险层（registered：待换源复现后 shadow → active）──
+  - id: cb_ytm_floor
+    name: 转债高YTM底仓
+    tier: low_risk
+    risk: bounded
+    status: registered
+    params:
+      min_ytm: 2.0             # 到期收益率下限（%）
+      min_rating: AA           # 评级下限
+      max_price: 108           # 贴面值上限
+
+  - id: closed_fund_discount
+    name: 封基/定开LOF折价套利
+    tier: low_risk
+    risk: bounded
+    status: registered
+    params:
+      min_discount: 5.0        # 折价率出手门槛（%）
+
+  - id: dividend_lowvol_core
+    name: 红利低波核心仓（持有型，禁择时）
+    tier: low_risk
+    risk: equity_drawdown
+    status: registered
+    params:
+      universe: [515450]       # 红利低波 ETF（候选池，复现时定稿）
+      timing_signal: forbidden # 教训：择时信号会失效，持有型成立
+
+  # ── 中风险层（registered：卫星仓候选，需完整管道 + E2 回落）──
+  - id: etf_momentum_rotation4
+    name: ETF四资产动量轮动
+    tier: satellite
+    risk: mid
+    status: registered
+    source: 知乎·升值之路（2026-09 检索）
+    params:
+      assets: [518880, 513100, 159915, 510300]   # 黄金/纳指/创业板/沪深300
+      lookback_days: 25                            # 动量窗口
+      score: return_x_r2                            # 涨幅×R²
+
+  - id: etf_multifactor_top7
+    name: 多因子ETF轮动（卫星主力候选）
+    tier: satellite
+    risk: mid
+    status: registered
+    source: 知乎·quantsteve（2026-09 检索）
+    params:
+      weights: {momentum: 45, volatility: 20, correlation: 20, drawdown: 10, liquidity: 5}
+      top_n: 7
+      rebalance_days: 7
+
+  - id: industry_momentum_rotation
+    name: 行业动量轮动
+    tier: satellite
+    risk: mid
+    status: registered
+    params:
+      universe_size: 15       # 行业 ETF 池规模（复现时定稿）
+      top_n: 3
+      lookback_days: 60
+
+  - id: small_cap_rotation
+    name: 小市值轮动（风格暴露极端，排后）
+    tier: satellite
+    risk: high
+    status: dormant
+    params:
+      index: 399101           # 中小综指
+      top_n: 5
