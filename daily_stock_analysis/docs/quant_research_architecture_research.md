@@ -1,5 +1,7 @@
 # 量化研究项目软件架构深度调研报告
 
+> **[ARCHIVED]** 一次性调研产出，描述的是独立的 `quant_research/` 项目架构，本仓库 `src/` 无对应实现。当前 dsa 与 quant 的边界与协作以 `docs/REFACTOR-PLAN-STRATEGY-CENTRIC.md`（v4.0）为准；quant 内部现状以该项目自身文档为准。
+
 > 调研范围：GitHub 开源项目（qlib / backtrader / vnpy / Lean / QUANTAXIS / NautilusTrader / zvt / rqalpha）、知乎量化社区、聚宽 / 米筐 / 优矿等云端平台、散户 1 万本金手动下单场景。
 >
 > 输出目标：为 `quant_research` 独立项目输出一份「每个模块该由什么构成、该如何写代码」的可落地工程指南。

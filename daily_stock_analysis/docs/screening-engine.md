@@ -1,5 +1,7 @@
 # 选股引擎
 
+> **[冻结不删·内容仍准确]** `screening_service.py` + `screening/` 代码仍在、本文档准确。按 `docs/REFACTOR-PLAN-STRATEGY-CENTRIC.md`（v4.0），screening 计划冻结（配置默认 off，深度接线不删），买入侧候选改用轻量 `market_scan_service`。作为现有实现的权威说明保留。
+
 DSA 将选股能力作为主项目的一部分维护。实现参考 [AlphaSift](https://github.com/ZhuLinsen/alphasift) 提交 [`9f522747caafd3c0b1ddb7e14d5cf44c8580b6cf`](https://github.com/ZhuLinsen/alphasift/commit/9f522747caafd3c0b1ddb7e14d5cf44c8580b6cf)，并按 Apache License 2.0 修改和分发。衍生文件保留来源头，许可证位于 `src/services/screening/LICENSE`，第三方声明见根目录 `THIRD_PARTY_NOTICES.md`。
 
 ## 代码边界

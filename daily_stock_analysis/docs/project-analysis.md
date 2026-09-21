@@ -1,5 +1,7 @@
 # daily_stock_analysis 项目深度分析报告
 
+> **[OUTDATED 2026-09-19]** 本文档描述的是早期 `source_code/ / source_code_fork/ / 桌面打包` 三层目录结构，与当前仓库（`daily_stock_analysis/` + `quant_research/` 双项目）完全不符，仅作历史记录。当前架构与重构方向以 `docs/REFACTOR-PLAN-STRATEGY-CENTRIC.md`（v4.0）为准。
+
 > 基于本地仓库结构分析，对比上游 [ZhuLinsen/daily_stock_analysis](https://github.com/ZhuLinsen/daily_stock_analysis) 与你所做的修改。
 
 ---

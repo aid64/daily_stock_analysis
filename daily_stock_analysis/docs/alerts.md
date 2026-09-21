@@ -19,7 +19,26 @@
 | `price_change_percent` | `direction`: `up` / `down` | `change_pct` | 实时涨跌幅达到指定百分比 |
 | `volume_spike` | - | `multiplier` | 最新成交量超过近 20 日均量的指定倍数 |
 
-`sentiment_shift`、`risk_flag`、`custom` 等类型只作为未来扩展占位；当前运行时不接受这些类型作为可执行规则。
+| `sentiment_shift`、`risk_flag`、`custom` 等类型只作为未来扩展占位；当前运行时不接受这些类型作为可执行规则。
+
+## `price_cross` 的双重语义（账户决策引擎，2026-09-15）
+
+`price_cross` 规则现在有**两个消费方**，语义不同但同源：
+
+| 消费方 | 位置 | 语义 |
+| --- | --- | --- |
+| 告警 worker | `src/services/alert_worker.py` | 价格穿越阈值 → 发一条提醒（事件提示） |
+| 账户决策引擎 | `src/services/account_decision_service.py` | 阈值升级为**决策依据** → 给出买/卖结论 |
+
+账户决策引擎对 `price_cross` 的映射：
+
+- `direction=below` → 视为**止损位**：现价低于该价 → 触发卖出决策；
+- `direction=above` → 视为**止盈位**：现价高于该价 → 触发卖出决策；
+- `price_change_percent` / `volume_spike` → **不参与决策**，仅作事件提示（它们没有价位语义，无法转化为限价指令）。
+
+因此**改 `.env` 里的 `price_cross` 价位会同时改变告警和买卖建议**。这一点在交接时必须明确：用户配置止损位时，实际是在设定系统的卖出纪律。
+
+规则溯源、多档位语义、破位诊断与验证状态见 [`account-decision-rules.md`](account-decision-rules.md)。
 
 ## Legacy 配置兼容
 

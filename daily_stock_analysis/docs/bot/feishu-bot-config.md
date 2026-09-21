@@ -1,8 +1,12 @@
 # 飞书通知配置指南
 
-本文只解决两类常见诉求：
+> **本页只讲图形化配置步骤与常见坑。** 若要了解本仓库当前**实际生效**的飞书配置、完整发送/交互链路、渠道路由、每日摘要与排障手册，请先看 [`docs/feishu-handoff.md`](../feishu-handoff.md)——那份是交接真源。
+>
+> 本页正文围绕**群 Webhook** 展开；若你使用**应用机器人 / Stream Bot**（本项目当前形态），直接跳到 [附：应用 / Stream Bot 原流程截图参考](#附应用--stream-bot-原流程截图参考)，或看上面那份交接文档。
 
-1. 把分析结果推送到飞书群
+本文解决两类常见诉求：
+
+1. 把分析结果推送到飞书群（Webhook 模式）
 2. 避免把飞书应用模式、App Bot 主动推送和群机器人 Webhook 模式混用
 
 ## 先分清两种模式
@@ -52,8 +56,11 @@ FEISHU_DOMAIN=feishu
 - `FEISHU_APP_ID` / `FEISHU_APP_SECRET` 不会直接开启群 Webhook 推送
 - 简单群通知优先配置 `FEISHU_WEBHOOK_URL`
 - 不用 Webhook 时，App Bot 主动推送必须同时配置 `FEISHU_APP_ID`、`FEISHU_APP_SECRET` 和 `FEISHU_CHAT_ID`
+- **私聊模式命名陷阱**：`FEISHU_RECEIVE_ID_TYPE=open_id` 时，`FEISHU_CHAT_ID` 里装的是**用户 open_id**（`ou_...`）而非群 ID——变量名沿用群聊语义，容易被误判为配错。判断依据始终是 `FEISHU_RECEIVE_ID_TYPE`
 - `FEISHU_STREAM_ENABLED` 只代表事件订阅 / Stream Bot，不参与主动通知是否配置完成的判断
 - `FEISHU_DOMAIN=lark` 会让 App Bot 主动发送、Stream 长连接和消息回复统一使用 `open.larksuite.com`；飞书国内版使用默认值 `feishu`
+- 变量注释请**单独成行**，不要写成 `FEISHU_RECEIVE_ID_TYPE=open_id  # 说明`——行内注释依赖 dotenv 解析行为，可能污染取值
+- 一旦机器人所在群被解散，走 `chat_id` 会报 `230002 Bot/User can NOT be out of the chat`；改用 open_id 私聊可让推送不受群变动影响
 - 如果你做的是应用机器人 / Stream Bot，可直接看文末保留的原流程截图参考
 - App Bot 发送路径复用 `requirements.txt` 中已有的 `lark-oapi>=1.0.0`，标准安装使用 `pip install -r requirements.txt`；参考 [Feishu message create OpenAPI](https://open.feishu.cn/document/server-docs/im-v1/message/create)、[lark-oapi PyPI](https://pypi.org/project/lark-oapi/) 和 [SDK repo](https://github.com/larksuite/oapi-sdk-python)
 

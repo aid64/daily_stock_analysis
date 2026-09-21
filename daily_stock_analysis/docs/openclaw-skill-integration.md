@@ -6,7 +6,7 @@
 
 - **集成方式**：openclaw Skill 通过 HTTP 调用 daily_stock_analysis（DSA）REST API
 - **适用场景**：已部署 DSA API 服务，希望在 openclaw 对话中触发分析（如「帮我分析茅台」「analyze AAPL」）
-- **同类消费方**：2026-08-11 上线的 [Grok Bot](https://x.ai/bot)（Skills / Routines / MCP / computer use）走同一套 REST 契约，不要另起平行 API。见 [Grok Bot 集成](grok-bot-integration.md)。
+- **同类消费方**：2026-08-11 上线的 [Grok Bot](https://x.ai/bot)（Skills / Routines / MCP / computer use）走同一套 REST 契约，不要另起平行 API。
 
 ## 前置条件
 

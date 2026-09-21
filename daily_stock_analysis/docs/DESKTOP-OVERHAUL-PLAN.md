@@ -1,5 +1,7 @@
 # 桌面端大修计划 v2（GLM-5.3F 执行指导）
 
+> **[历史计划·桌面端已冻结]** 桌面端在重构计划 v4.0 中已定为"冻结不删"（用户主入口是飞书 + Web），本大修计划不再执行。仅作追溯，当前方向以 `docs/REFACTOR-PLAN-STRATEGY-CENTRIC.md` 为准。
+
 > 版本：v2.0（2026-09-07 定稿——基于外部调研修订，替代 v1.0）
 > 调研依据：Electron 官方文档（app/Tray/Notification 三份逐条核对）+ 参考项目（fyears/electron-python-example 2089★ 已停维护 / every-pdf 1242★ 活跃，进程管理最佳现实参考）+ 本仓库代码核实（所有引用行号已逐条验证）
 > 效力：桌面端大修的唯一真源。吸收并替代 CLOSURE-FIX-PLAN v2 的 G1；G2/G4/G5/G6 后端部分仍按 v2 执行。

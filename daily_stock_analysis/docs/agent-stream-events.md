@@ -1,5 +1,7 @@
 # Agent Stream Progress Events
 
+> **[冻结·内容仍准确]** `stream_events.py`/`runner.py`/`orchestrator.py` 代码仍在、契约有效。按 `docs/REFACTOR-PLAN-STRATEGY-CENTRIC.md`（v4.0），agent 例行链路计划冻结（保留 bot 交互入口）。作为现有实现的权威说明保留。
+
 This document records the progress-event contract used by:
 
 - `POST /api/v1/agent/chat/stream`

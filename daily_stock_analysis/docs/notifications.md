@@ -237,7 +237,9 @@ P3 新增三类通知路由配置：
 
 ### 每日摘要总线与逻辑事件
 
-开启 `NOTIFICATION_DAILY_DIGEST_ENABLED=true` 后，report 通知进入 JSONL 总线，按 `logical_id` 聚合；同一逻辑事件刷新内容时替换旧版本，不追加第二条。生产者应通过 `structured_payload` 提供 `artifact_type`、`logical_id`、`symbols`、`source`、`priority` 和 `status`。操作单使用 `daily_operation_sheet:<date>`，事件告警使用 `event_alert:<symbol>:<type>:<direction>`。
+开启 `NOTIFICATION_DAILY_DIGEST_ENABLED=true` 后，report 通知进入 JSONL 总线，按 `logical_id` 聚合；同一逻辑事件刷新内容时替换旧版本，不追加第二条。生产者应通过 `structured_payload` 提供 `artifact_type`、`logical_id`、`symbols`、`source`、`priority` 和 `status`。账户决策包使用 `daily_operation_sheet:<date>`（`symbols` 为真实持仓代码集），事件告警使用 `event_alert:<symbol>:<type>:<direction>`。
+
+2026-09-15 起，`daily_operation_sheet` 的内容是【账户决策包】而非 CB 策略目标 diff：决策对象为用户真实持仓与现金，决策依据为用户价格规则 > 集中度 > E2 择时 > AI 解释（详见 `docs/EXECUTION-BLUEPRINT.md` 账户中心重构补充与 `src/services/account_decision_service.py`）。
 
 alert 仍然即时发送，但成功发送后会向摘要总线写入同一 `logical_id` 的索引，因此晚间摘要与盘中消息保持一致。测试或手工验收必须使用 `send(..., test_mode=True)`，不会污染生产摘要总线。
 

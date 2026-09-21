@@ -160,6 +160,24 @@ class BotCommand(ABC):
 | `/help` | Show help text | `/help` |
 | `/status` | Show system status | `/status` |
 
+### 4.1 Account & trading loop
+
+This is the semi-automated trading path: **the system issues a decision → you place the order manually in your broker app → you report the fill back in chat → the system books it and compares**. The decision mechanism is documented in [`account-decision-rules.md`](account-decision-rules.md) (Chinese only).
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `/操作单` | Generate/view today's **account decision package** (buy/sell/hold verdict per holding, limit price, abandon rule) | `/操作单`, `/操作单 历史 2026-09-14` |
+| `/成交回填` | Record a real fill (idempotent; supports partial fills and an optional fee) | `/成交回填 002475 卖出 100 56.50` |
+| `/撤单` | Cancel one leg of today's order sheet (after a partial fill, cancels the remainder) | `/撤单 002475 reason` |
+| `/持仓` | Show current positions | `/持仓` |
+| `/持仓登记` | Register a historical trade (initial booking / backfill) | `/持仓登记 600519 买入 100 1820.00` |
+| `/入金` / `/出金` | Register a cash deposit / withdrawal | `/入金 5000` |
+| `/对比` | Simulated ledger vs real fills comparison (includes the shadow-period weekly report) | `/对比 周报` |
+| `/健康` | System health: cash, decision snapshot, timing, concentration, alert coverage | `/健康` |
+| `/暂停交易` / `/恢复交易` | Business-level kill switch: halt/resume generation of any trading instruction | `/暂停交易 business trip` |
+
+Command names and aliases are Chinese; the table lists canonical names. `/操作单` output changed on 2026-09-15 from "strategy target diff" to "account decision package" — the decision object is now your real positions and cash.
+
 > **Stock code formats:** A-shares use 6-digit codes (e.g. `600519`); HK stocks prefix `hk` (e.g. `hk00700`); US stocks use ticker symbols (e.g. `AAPL`, `TSLA`).
 
 > **Registered index inputs:** explicit codes (`sh000016`), CSI aliases (`930955.CSI` converges to `csi930955`) and registered Chinese names (`上证50`) are all accepted. Index inputs are submitted as a structured `AnalysisTarget` that flows through to the analysis pipeline, so `sh000016` is never rewritten to `SH000016`. Unregistered CSI forms (e.g. `930956.CSI`), code shapes the legacy gate rejected (`12345`, bare `00700`, `600519.SH`, unregistered `sh999999`) and unrecognized names return an explicit error without submitting a task; ambiguous registered names require an explicit code instead of guessing. Stock inputs (A-share 6-digit, `HK`+5-digit, US 1-5 letters, e.g. `usfd`→`USFD`) keep the legacy code path. Stock-name inputs (e.g. `贵州茅台`) are newly exposed by this Bot entry: they reuse the existing name resolver (`resolve_name_to_code`) and then submit the legacy code without a structured target.

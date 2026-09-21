@@ -9,9 +9,9 @@
 | 快速了解项目能做什么 | [README](../../README.md) | [完整配置与部署指南](full-guide.md) |
 | 第一次把项目跑起来 | [小白客户端安装与配置](beginner-client-setup.md) | [完整配置与部署指南](full-guide.md) |
 | 配置大模型渠道 | [LLM 配置指南](LLM_CONFIG_GUIDE.md) | [LLM 服务商配置指南](llm-providers.md)（含 xAI Grok 直连） |
-| 配置推送通知 | [通知能力基线](notifications.md) | [完整配置与部署指南](full-guide.md) |
+| 配置推送通知 | [通知能力基线](notifications.md) | [飞书配置交接说明](feishu-handoff.md)、[完整配置与部署指南](full-guide.md) |
 | 部署到服务器或云平台 | [部署指南](DEPLOY.md) | [云端 WebUI 部署](deploy-webui-cloud.md)、[Zeabur 部署](docker/zeabur-deployment.md) |
-| 使用 Bot / IM 接入 | [Bot 命令与接入](bot-command.md) | [Bot 平台配置](bot/)、[Grok Bot 集成](grok-bot-integration.md) |
+| 使用 Bot / IM 接入 | [Bot 命令与接入](bot-command.md) | [Bot 平台配置](bot/)（飞书） |
 | 排查运行问题 | [FAQ](FAQ.md) | [更新日志](CHANGELOG.md) |
 | 处理数据源失败或降级 | [数据源稳定性与故障处理图示](data-source-stability.md) | [FAQ](FAQ.md) |
 | 参与开发或提交 PR | [贡献指南](CONTRIBUTING.md) | [API 规格](architecture/api_spec.json) |
@@ -36,7 +36,24 @@
 | [LiteLLM YAML 示例](examples/litellm_config.example.yaml) | LiteLLM 多渠道配置示例 |
 | [Grok Bot Skill 示例](examples/grok_bot/README.md) | 给 Grok Bot 粘贴的最小 Skill，调用现有 REST |
 | [通知能力基线](notifications.md) | 企业微信、飞书、Telegram、Discord、Slack、邮件等通知渠道配置 |
+| [飞书配置交接说明](feishu-handoff.md) | 飞书三种接入方式的区别、当前实际配置、发送/交互链路、渠道路由、每日摘要与排障手册（交接真源） |
+| [账户决策规则溯源](account-decision-rules.md) | 买卖建议凭什么产生：规则来源（现为结构锚生成的价位）、验证状态、为什么目前只有卖、破位分级判断与未经验证的诚实边界 |
+| [策略目录](strategy-catalog.md) | 策略从调研到部署的唯一真源：风险谱系（零风险→高风险）、每条策略规则/实证/风险来源、状态机（登记→复现→影子→准入）、已否决与排除项；对应仓库根 `strategies.yaml` 注册表与 `strategy_engine` 引擎 |
 | [Tushare 股票列表指南](TUSHARE_STOCK_LIST_GUIDE.md) | Tushare 股票列表相关配置和使用说明 |
+
+## 项目演进与重构（规划真源）
+
+> 阅读顺序：先看当前生效的重构计划，再按需追溯策略目录与执行蓝图。带 SUPERSEDED/OUTDATED 标注的文档仅作历史记录，不指导当前开发。
+
+| 文档 | 状态 | 内容 |
+| --- | --- | --- |
+| [策略中心重构计划](REFACTOR-PLAN-STRATEGY-CENTRIC.md) | **规划唯一真源（v4.1）** | 全项目重构路线：实测盘点、dsa=账户真源+quant=回测裁决所的方向、模块增删总表、P0-P5 阶段与三件套验收；v4.1 吸收 14 条外部审阅（P0.5 备份前置/P0.9 在线层回放/非交易日门/裁决新鲜度门等） |
+| [策略目录](strategy-catalog.md) | 生效（策略面真源） | 策略登记与状态机（与重构计划 P1-P3 配套） |
+| [账户决策规则溯源](account-decision-rules.md) | 生效但**部分过时** | 决策依据溯源；"价位=成本±%机械模板"对应 P0 前旧价位，P0 已用结构锚重生，见文内更正说明 |
+| [执行蓝图](EXECUTION-BLUEPRINT.md) | 已交付形态说明（①-④） | 操作单/账本/治理/砍除产出的事实描述；⑤及以后规划权归重构计划 |
+| [现状审计（2026-09-10）](ASSISTANT-GAP-AUDIT-20260910.md) | 历史记录 | 半自动助手当时的差距审计，问题多已在重构计划中处置 |
+| [闭环修复计划](CLOSURE-FIX-PLAN.md) / [桌面端大修计划](DESKTOP-OVERHAUL-PLAN.md) | 历史/桌面端冻结 | 早期专项计划；桌面端已按重构计划冻结 |
+| [项目深度分析](project-analysis.md) | **OUTDATED** | 描述早期三层目录结构，与当前双项目布局不符 |
 
 ## 使用专题
 
@@ -52,7 +69,6 @@
 | [分析上下文包契约、运行态消费与可见性](analysis-context-pack.md) | AnalysisContextPack 首版范围、字段质量状态、P1/P2 内部契约、P3 Prompt 摘要消费、P4 历史/API/Web 低敏可见性、P5 数据质量评分、P6 迁移回滚与源码锚点；完整指南补充 #1386 阶段感知分析、迁移与回滚入口 |
 | [图片识别 Prompt](image-extract-prompt.md) | 图片识别股票信息的 Prompt 与使用边界 |
 | [OpenClaw Skill 集成](openclaw-skill-integration.md) | OpenClaw / Skill 外部集成说明 |
-| [Grok Bot 集成](grok-bot-integration.md) | 2026-08-11 Grok Bot（AI teammate）与 DSA REST / DecisionSignal / Skill 的对接边界 |
 
 ## 部署与打包
 
