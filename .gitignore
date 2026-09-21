@@ -130,3 +130,6 @@ daily_stock_analysis/docs/specs/
 # AI 会话工作目录（本机工具产物）
 .zcode/
 pipeline.lock
+
+# 集群/审计任务临时脚本（本机产物）
+.cluster/
