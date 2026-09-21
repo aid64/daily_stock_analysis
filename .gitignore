@@ -133,3 +133,10 @@ pipeline.lock
 
 # 集群/审计任务临时脚本（本机产物）
 .cluster/
+
+# ── 运行时产物与数据缓存（不入库，本机生成）──────────────
+# 大方针 B（2026-09-21）：output/ 与 pit 数据全部移出跟踪
+daily_stock_analysis/output/
+quant_research/output/
+quant_research/data/pit/*.parquet
+quant_research/data/pit/*.json

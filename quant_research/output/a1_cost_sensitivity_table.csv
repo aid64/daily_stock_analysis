@@ -1,4 +1,0 @@
-﻿cost_multiplier,commission_rate,min_commission,total_return,annual_return,max_drawdown,sharpe,calmar,total_trades,completed_orders,traded_value,commission_paid,turnover,final_value,return_decay_vs_1x_pp
-1,0.0001,5.0,0.157366,0.019017,0.253585,0.028924,0.074992,190,394,576450.82,2124.82,51.990195,11573.66,0.0
-2,0.0002,10.0,-0.220076,-0.031531,0.344441,-0.578139,0.091544,190,386,456904.92,4104.73,50.065878,7799.24,-37.744
-4,0.0004,20.0,-0.439333,-0.071872,0.485151,-1.050317,0.148143,147,295,340661.09,6268.69,44.613831,5606.67,-59.67

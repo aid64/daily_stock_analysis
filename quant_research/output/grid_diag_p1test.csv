@@ -1,2 +1,0 @@
-﻿combo_id,segment,lookback,ma_filter,top_k,rebalance_freq,stop_loss_pct,vol_adjusted,defensive,annual_return,max_drawdown,sharpe,calmar,total_return,total_trades,final_value
-1,full,60,250,3,W,,False,none,-0.1598,0.6304,-0.872,0.254,-0.6213,83,3786.98

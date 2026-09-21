@@ -1,5 +1,0 @@
-﻿combo_id,segment,lookback,ma_filter,top_k,annual_return,max_drawdown,sharpe,calmar,total_return,total_trades,final_value
-1,full,40,120,1,0.1284,0.5858,0.499,0.219,1.771,123,27710.19
-2,full,40,120,2,0.1493,0.5238,0.599,0.285,2.235,154,32350.23
-3,full,40,120,3,0.126,0.4928,0.527,0.256,1.721,137,27209.86
-4,full,40,120,5,0.1407,0.4807,0.582,0.293,2.0366,125,30366.13
