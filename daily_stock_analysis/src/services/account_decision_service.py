@@ -34,9 +34,15 @@ from src.services.strategies.types import (  # noqa: E402,F401
     VERDICT_SELL, VERDICT_REDUCE, VERDICT_HOLD, VERDICT_LABELS, PositionDecision)
 from src.services.strategies.user_rules import (  # noqa: E402,F401
     decide_position, levels_text)
+from src.services.strategies.concentration import (  # noqa: E402,F401
+    apply_concentration_targets)
+from src.services.strategies.e2_timing import (  # noqa: E402,F401
+    E2_DEFENSIVE_THRESHOLD, compute_e2_percentile, decide_cash_verdict)
 
 # E2 择时防守阈值（与 /健康、操作单 timing_note 同一口径）
-E2_DEFENSIVE_THRESHOLD = 0.80
+# P1 step4：E2 择时（compute_e2_percentile / 阈值 / 现金决策映射）抽到
+# strategies/e2_timing.py；re-export 保持 ads.* 命名空间兼容（测试 monkeypatch
+# 目标不变）
 
 
 # 破位分级紧急度（辅助判断的离散档位）
@@ -195,30 +201,7 @@ def _latest_ai_notes(symbols: List[str], days: int = 3) -> Tuple[Dict[str, str],
     return notes, names
 
 
-# ── E2 择时（与 /健康、旧 timing_note 同一算法同一 PIT）────────
-
-
-def compute_e2_percentile() -> Tuple[Optional[float], str]:
-    """转债估值 expanding 分位。Returns: (percentile, as_of 日期)。"""
-    try:
-        from pathlib import Path
-
-        import pandas as pd
-
-        pit_path = (Path(__file__).resolve().parents[3]
-                    / "quant_research" / "data" / "pit"
-                    / "convertible_pit.parquet")
-        if not pit_path.exists():
-            return None, ""
-        pit = pd.read_parquet(pit_path, columns=["as_of", "price"])
-        median = pit.groupby("as_of")["price"].median().sort_index()
-        if median.empty:
-            return None, ""
-        pct = float((median <= median.iloc[-1]).mean())
-        return pct, str(pd.Timestamp(median.index[-1]).date())
-    except Exception as exc:  # noqa: BLE001 - 择时失败不影响主决策
-        logger.warning("[account-decision] E2 分位计算失败: %r", exc)
-        return None, ""
+# ── E2 择时（实现已抽到 strategies/e2_timing.py，P1 step4）────────
 
 
 # ── 决策核心（纯函数，不做网络 IO）────────────────────────────
@@ -301,40 +284,16 @@ def build_account_decision(
             concentration_threshold_pct=concentration_threshold_pct,
             ai_note=ai_notes.get(symbol, "")))
     # 2. 减仓数量修正：目标 = 阈值内可持有量（按当前总市值近似，整手取整）
-    for i, decision in enumerate(decisions):
-        if decision.verdict != VERDICT_REDUCE or decision.last_price <= 0:
-            continue
-        from src.services.order_sheet_service import lot_size_for
-        lot = lot_size_for(decision.symbol)
-        budget_mv = total_value * concentration_threshold_pct / 100
-        target = int(budget_mv / decision.last_price / lot) * lot
-        target = max(0, min(target, decision.quantity))
-        # 目标不足一手或不低于现持仓 → 退化为持有（卖不出有效手数）
-        if target >= decision.quantity or (decision.quantity - target) < lot:
-            decisions[i] = PositionDecision(
-                **{**decision.to_dict(),
-                   "verdict": VERDICT_HOLD,
-                   "target_quantity": decision.quantity,
-                   "reason": (f"集中度 {decision.weight_pct:.1f}% 超阈值但减仓量"
-                              f"不足一手——持有并提示，无指令")})
-        else:
-            decisions[i] = PositionDecision(
-                **{**decision.to_dict(), "target_quantity": target})
+    #    集中度约束逻辑已抽到 strategies/concentration.py（P1 step3），此处只编排
+    apply_concentration_targets(
+        decisions,
+        total_value=total_value,
+        concentration_threshold_pct=concentration_threshold_pct)
 
-    # 3. 现金决策（E2 择时层）
+    # 3. 现金决策（E2 择时层——映射已抽到 strategies/e2_timing.py，P1 step4）
     e2_pct, e2_as_of = compute_e2_percentile() if include_e2 else (None, "")
     cash_weight = (cash / total_value * 100) if total_value > 0 else 0.0
-    if e2_pct is not None and e2_pct > E2_DEFENSIVE_THRESHOLD:
-        cash_verdict = "持有"
-        cash_reason = (f"E2 择时：估值分位 {e2_pct:.1%}（截至 {e2_as_of}，"
-                       f">{E2_DEFENSIVE_THRESHOLD:.0%} 高分位防守区）——不新增买入")
-    elif e2_pct is not None:
-        cash_verdict = "可配置"
-        cash_reason = (f"E2 择时：估值分位 {e2_pct:.1%}（截至 {e2_as_of}）——"
-                       "分位正常，现金可按规则配置")
-    else:
-        cash_verdict = "持有"
-        cash_reason = "E2 择时不可用——默认持有现金，不新增买入"
+    cash_verdict, cash_reason = decide_cash_verdict(e2_pct, e2_as_of)
 
     # 4. 买入观察池（观点层：候选池打分，展示不落单——闭合"卖出的钱去哪"）
     buy_candidates: List[Dict[str, Any]] = []
