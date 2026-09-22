@@ -48,9 +48,10 @@ def _fixed_decision(monkeypatch):
             {"000899": "观望——弱势整理（2026-09-14）",
              "002475": "减仓——空头排列（2026-09-14）"},
             {"000899": "赣能股份", "002475": "立讯精密"}))
-    # 破位诊断钉死为 immediate（不依赖本地日线）
+    # 破位诊断钉死为 immediate（不依赖本地日线）。P1 拆分后 decide_position
+    # 在 strategies.user_rules 里调用 diagnose_breach——patch 该命名空间。
     monkeypatch.setattr(
-        ads, "diagnose_breach",
+        "src.services.strategies.user_rules.diagnose_breach",
         lambda **kw: BreachDiagnosis(
             depth_pct=10.5, consecutive_days=22, above_ma_count=0,
             ma_structure="均线纠缠", volume_note="放量破位",

@@ -280,7 +280,7 @@ class TestRender:
                                      {"000899": "赣能股份"}))
         # 屏蔽破位诊断，使渲染断言不依赖本机数据库中的日线
         monkeypatch.setattr(
-            "src.services.account_decision_service.diagnose_breach",
+            "src.services.strategies.user_rules.diagnose_breach",
             lambda **kwargs: None)
         snap = _snapshot([
             _position("000899", 100, 11.16, 9.75),
@@ -314,7 +314,7 @@ class TestRender:
             lambda symbols, days=3: ({}, {}))
         from src.services.account_decision_service import BreachDiagnosis
         monkeypatch.setattr(
-            "src.services.account_decision_service.diagnose_breach",
+            "src.services.strategies.user_rules.diagnose_breach",
             lambda **kwargs: BreachDiagnosis(
                 depth_pct=10.5, consecutive_days=22, above_ma_count=0,
                 ma_structure="均线纠缠", volume_note="放量破位",
@@ -342,7 +342,7 @@ class TestRender:
             lambda symbols, days=3: ({}, {}))
         from src.services.account_decision_service import BreachDiagnosis
         monkeypatch.setattr(
-            "src.services.account_decision_service.diagnose_breach",
+            "src.services.strategies.user_rules.diagnose_breach",
             lambda **kwargs: BreachDiagnosis(
                 depth_pct=1.2, consecutive_days=1, above_ma_count=2,
                 ma_structure="均线纠缠", volume_note="缩量破位",
