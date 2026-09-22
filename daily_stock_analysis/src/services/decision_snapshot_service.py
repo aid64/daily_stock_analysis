@@ -177,6 +177,27 @@ def build_snapshot() -> Dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         warnings.append(f"持仓快照读取失败: {exc}")
 
+    # 价格新鲜度：持仓估值价不得落后于信号数据日（pit_end）——落后即
+    # 操作单按旧价生成（典型：价格源断流回退旧收盘价、新买入尚无 PIT 价）。
+    # price_date 缺失（价格解析失败、估值价为 0）视同陈旧，比旧价更不可信。
+    pit_end_raw = str(plan.get("pit_end") or "")
+    held_positions = portfolio.get("positions") or []
+    if held_positions and pit_end_raw:
+        try:
+            pit_end_d = date.fromisoformat(pit_end_raw)
+            stale_syms = [
+                str(p.get("symbol")) for p in held_positions
+                if not p.get("price_date")
+                or date.fromisoformat(str(p.get("price_date"))) < pit_end_d
+            ]
+            if stale_syms:
+                shown = "、".join(stale_syms[:5]) + ("…" if len(stale_syms) > 5 else "")
+                warnings.append(
+                    f"持仓价格陈旧：{len(stale_syms)} 只持仓价格缺失或日期"
+                    f"落后于 PIT 末端 {pit_end_raw}（{shown}）——注意核实估值与操作价")
+        except ValueError:
+            pass  # pit_end 无法解析已由 evaluate_plan_freshness 单独告警
+
     sheet_info: Dict[str, Any] = {}
     try:
         from dataclasses import asdict

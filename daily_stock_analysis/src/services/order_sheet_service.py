@@ -378,6 +378,7 @@ def load_latest_sheet(trade_date: Optional[str] = None) -> Optional[OrderSheet]:
 def mark_order_filled(
     sheet: OrderSheet, symbol: str, actual_price: float,
     actual_quantity: Optional[int] = None,
+    direction: Optional[str] = None,
 ) -> OrderSheet:
     """回填成交：更新 fills 并按累计量推进状态（真账本由调用方先写成功）。
 
@@ -385,8 +386,20 @@ def mark_order_filled(
     多次部分成交（30 张 + 70 张）必须汇总，累计达计划量才置 filled，
     未满为 partially_filled（FIX OrdStatus 1）。数量超计划的校验由
     调用方（fill 入口量价合理性门）负责，此处只汇总事实。
+
+    方向护栏：同一 symbol 在单内存在买卖双腿时，未指定 direction 无法
+    定位目标腿——拒绝执行而非静默取第一条（错腿回填会污染单据状态）。
     """
-    order = next((o for o in sheet.orders if o.symbol == symbol), None)
+    candidates = [
+        o for o in sheet.orders
+        if o.symbol == symbol
+        and (direction is None or o.direction == direction)
+    ]
+    if direction is None and len(candidates) > 1:
+        legs = "/".join(sorted(o.direction for o in candidates))
+        raise ValueError(
+            f"{symbol} 在操作单中同时存在 {legs} 双腿，回填必须指定 direction")
+    order = candidates[0] if candidates else None
     planned_qty = order.quantity if order is not None else 0
 
     prev = sheet.fills.get(symbol) or {}

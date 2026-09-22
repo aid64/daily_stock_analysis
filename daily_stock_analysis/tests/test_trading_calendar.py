@@ -387,6 +387,18 @@ class InferMarketPhaseTestCase(unittest.TestCase):
 
         self.assertEqual(result, trading_calendar.MarketPhase.NON_TRADING)
 
+    def test_weekend_returns_non_trading_without_calendar(self):
+        """周末门先于 xcals 依赖：日历库缺失时周六/周日仍确定性判非交易日。"""
+        saturday = datetime(2026, 3, 28, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+        sunday = datetime(2026, 3, 29, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+        with patch.object(trading_calendar, "_XCALS_AVAILABLE", False):
+            self.assertEqual(
+                trading_calendar.infer_market_phase("cn", current_time=saturday),
+                trading_calendar.MarketPhase.NON_TRADING)
+            self.assertEqual(
+                trading_calendar.infer_market_phase("cn", current_time=sunday),
+                trading_calendar.MarketPhase.NON_TRADING)
+
     def test_hk_phase_boundaries_include_lunch_and_ten_minute_closing_window(self):
         fake_calendar = _FakeCalendar(
             sessions=[date(2026, 3, 27)],

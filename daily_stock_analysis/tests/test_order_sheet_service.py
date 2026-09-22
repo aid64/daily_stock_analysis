@@ -169,3 +169,39 @@ class TestRender:
     def test_render_no_action(self):
         sheet = _mk(current={}, target={}, prices={})
         assert "无信号" in render_text(sheet)
+
+
+class TestFillDirectionGuard:
+    """方向护栏：同 symbol 双腿时回填必须指定 direction，否则拒绝错腿回填。"""
+
+    def _dual_leg_sheet(self):
+        line_kw = dict(
+            limit_price=100.0, abandon_rule="", cancel_rule="",
+            est_value=100.0, reason="")
+        return oss.OrderSheet(
+            sheet_id="s1", trade_date="2026-09-07", created_at="",
+            orders=[
+                oss.OrderLine(direction="buy", symbol="SH113062",
+                              quantity=100, **line_kw),
+                oss.OrderLine(direction="sell", symbol="SH113062",
+                              quantity=50, **line_kw),
+            ])
+
+    def test_dual_leg_without_direction_raises(self, sheets_dir):
+        sheet = self._dual_leg_sheet()
+        with pytest.raises(ValueError, match="双腿"):
+            mark_order_filled(sheet, "SH113062", 100.0, 100)
+
+    def test_dual_leg_with_direction_targets_correct_leg(self, sheets_dir):
+        sheet = self._dual_leg_sheet()
+        mark_order_filled(sheet, "SH113062", 100.0, 50, direction="sell")
+        # 命中 sell 腿（计划 50）→ 足额；若误取 buy 腿（计划 100）则 partial
+        assert sheet.fills["SH113062"]["complete"] is True
+        assert sheet.fills["SH113062"]["planned_quantity"] == 50
+
+    def test_single_leg_direction_none_still_works(self, sheets_dir):
+        """向后兼容：单腿单不指定 direction 仍按原逻辑定位。"""
+        sheet = _mk(current={"SH113062": 100}, target={"SH113062": 0},
+                    prices={"SH113062": 128.0})
+        mark_order_filled(sheet, "SH113062", 128.0)
+        assert sheet.fills["SH113062"]["actual_price"] == 128.0

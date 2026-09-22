@@ -178,7 +178,7 @@ def _do_fill(symbol_raw: str, side: str, quantity: float, price: float,
 
     # ② 操作单标记（账本成功后；部分成交累计量）
     if matched is not None:
-        mark_order_filled(sheet, symbol, price, int(quantity))
+        mark_order_filled(sheet, symbol, price, int(quantity), direction=side)
         fill = sheet.fills.get(symbol) or {}
         done = int(fill.get("actual_quantity") or 0)
         planned = int(matched.quantity)

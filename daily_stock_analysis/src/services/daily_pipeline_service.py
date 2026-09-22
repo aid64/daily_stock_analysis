@@ -101,6 +101,20 @@ def _run_daily_pipeline_locked(force: bool = False) -> bool:
             pass
 
     logger.info("[pipeline] 开始执行")
+
+    # 交易日历门：非交易日（周末/法定节假日）不跑决策管线——无新截面无
+    # 新价，产出只能是重复单或陈旧单。force=True 手动补跑可越过；
+    # 日历不可用/异常时 fail-open 照常执行（维持既有行为）。
+    if not force:
+        try:
+            from src.core.trading_calendar import MarketPhase, infer_market_phase
+            if infer_market_phase("cn") == MarketPhase.NON_TRADING:
+                logger.info("[pipeline] 交易日历门：今日非交易日——跳过管线")
+                _write_status("calendar_gate", True, "非交易日（周末/节假日）——管线跳过")
+                return True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[pipeline] 交易日历门检查失败（fail-open 继续）: %r", exc)
+
     py = sys.executable
 
     # 1-3: quant 侧三步（子进程，跨项目契约）。

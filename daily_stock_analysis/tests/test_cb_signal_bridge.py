@@ -114,8 +114,18 @@ class TestTargets:
         assert "110091.SH" not in targets
 
 
+@pytest.fixture()
+def isolated_snapshot_dir(monkeypatch, tmp_path: Path):
+    """隔离决策快照落盘目录——OrderSheetCommand 执行会 refresh() 快照，
+    未隔离会覆写真实 output/decision_snapshot/latest.json（Web 横幅/托盘数据源）。"""
+    import src.services.decision_snapshot_service as dss
+    monkeypatch.setattr(dss, "SNAPSHOT_DIR", tmp_path / "snapshot")
+    return tmp_path / "snapshot"
+
+
 class TestOrderSheetCommand:
     def test_full_chain_generates_sheet(self, plan_path, isolated_db,
+                                        isolated_snapshot_dir,
                                         monkeypatch, tmp_path):
         # 2026-09-15 账户中心重构：/操作单 主体 = 账户决策包（真实持仓 +
         # 规则 + 集中度），CB 契约只作为研究观察附注。本测试改为断言：
@@ -142,8 +152,8 @@ class TestOrderSheetCommand:
         text = OrderSheetCommand().execute(
             type("M", (), {"platform": "test"})(), []).text
 
-        # 账户决策包主体（新语义）
-        assert "账户决策包" in text
+        # 账户决策包主体（新语义；渲染已重写为"今日待办"卡片式）
+        assert "今日待办" in text
         # 真实持仓进入决策块（转债持仓：无规则 → 持有/集中度判断）
         assert "113062" in text
         # 个人股票持仓展示
@@ -154,6 +164,7 @@ class TestOrderSheetCommand:
         assert "买入 SZ123089" not in text
 
     def test_plan_missing_still_decides_for_account(self, isolated_db,
+                                                    isolated_snapshot_dir,
                                                     monkeypatch, tmp_path):
         """CB 契约缺失不再阻塞账户决策——决策对象是真实账户，不是策略。"""
         import src.services.order_sheet_service as oss
@@ -163,7 +174,7 @@ class TestOrderSheetCommand:
                             tmp_path / "nope.json")
         text = OrderSheetCommand().execute(
             type("M", (), {"platform": "test"})(), []).text
-        # 账户决策包照常生成（无持仓时是空决策）
-        assert "账户决策包" in text
+        # 账户决策包照常生成（无持仓时是空决策；"今日待办"卡片式）
+        assert "今日待办" in text
         # CB 侧降级为附注提示
         assert "研究观察" in text

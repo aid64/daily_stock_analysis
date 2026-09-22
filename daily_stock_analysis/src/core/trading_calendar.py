@@ -354,13 +354,18 @@ def infer_market_phase(
     """
     if market not in MARKET_EXCHANGE or market not in MARKET_TIMEZONE:
         return MarketPhase.UNKNOWN
-    if not _XCALS_AVAILABLE:
-        return MarketPhase.UNKNOWN
 
     ex = MARKET_EXCHANGE[market]
     tz_name = MARKET_TIMEZONE[market]
     market_now = get_market_now(market, current_time=current_time)
     local_date = market_now.date()
+
+    # 周末门：周六/周日恒非交易日（六市场周末一致）——先于 xcals 依赖
+    # 判定，日历库缺失/异常时不把周末误报成 UNKNOWN
+    if local_date.weekday() >= 5:
+        return MarketPhase.NON_TRADING
+    if not _XCALS_AVAILABLE:
+        return MarketPhase.UNKNOWN
 
     try:
         cal = xcals.get_calendar(ex)
