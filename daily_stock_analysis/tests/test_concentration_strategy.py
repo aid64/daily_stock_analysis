@@ -54,3 +54,51 @@ def test_no_price_reduce_skipped():
         decisions, total_value=20000.0, concentration_threshold_pct=35.0)
     assert decisions[0].verdict == VERDICT_REDUCE
     assert decisions[0].target_quantity == 200
+
+
+# ── P1.5 账户规模感知（v4.2 发现#5："减仓=清仓"不可执行建议）──────────
+
+
+def test_reduce_floor_one_lot_when_budget_under_one_lot():
+    """预算不足一手 + 多手持仓 → 保底一手分批降低，不再清仓。
+
+    真实账户场景：total=13461，阈值 35% → 预算 ¥4,711；
+    002475 一手 ¥5,495（@54.95×100）> 预算 → 旧逻辑 target=0（清仓 200 股），
+    新逻辑保底一手：卖 100 留 100，并披露"卖出后仍超阈值"。
+    """
+    decisions = [_dec("002475", 200, 54.95, VERDICT_REDUCE, weight_pct=81.6)]
+    apply_concentration_targets(
+        decisions, total_value=13461.0, concentration_threshold_pct=35.0)
+    d = decisions[0]
+    assert d.verdict == VERDICT_REDUCE
+    assert d.target_quantity == 100          # 保底一手，不是 0
+    assert "保底一手" in d.reason
+    assert "非清仓" in d.reason
+    assert "仍将超阈值" in d.reason          # 诚实披露：一手仍超 35%
+    assert "稀释" in d.reason
+
+
+def test_reduce_holds_when_only_one_lot_and_budget_under_one_lot():
+    """预算不足一手 + 仅持一手 → 持有 + 稀释路径提示（卖出即清仓，不执行）。"""
+    decisions = [_dec("002475", 100, 54.95, VERDICT_REDUCE, weight_pct=81.6)]
+    apply_concentration_targets(
+        decisions, total_value=7000.0, concentration_threshold_pct=35.0)
+    d = decisions[0]
+    assert d.verdict == VERDICT_HOLD
+    assert d.target_quantity == 100
+    assert "已是最小持仓单位" in d.reason
+    assert "账户规模过小" in d.reason
+    assert "稀释" in d.reason
+
+
+def test_real_account_002475_regression():
+    """真实账户参数回归钉死（2026-09-23）：总值 13461 / 200股@54.95。
+
+    变更前（机械减仓）：REDUCE target=0 → "卖出全部 200 股"（不可执行建议，
+    零执行成因之一）。变更后：REDUCE target=100。
+    对照记录见 docs/decision-layer-changelog.md。
+    """
+    decisions = [_dec("002475", 200, 54.95, VERDICT_REDUCE, weight_pct=81.6)]
+    apply_concentration_targets(
+        decisions, total_value=13461.0, concentration_threshold_pct=35.0)
+    assert decisions[0].target_quantity == 100

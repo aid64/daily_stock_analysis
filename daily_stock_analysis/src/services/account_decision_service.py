@@ -295,6 +295,24 @@ def _reference_execution_line(candidate: Dict[str, Any], *, cash: float) -> str:
             f"（回本 {cost['break_even_pct'] * 100:.2f}%）")
 
 
+def _driver_label(p: Any) -> str:
+    """动作卡片的驱动规则标签（v4.2 发现#6）。
+
+    实测 002475 卖出量 200→100→200 的跳变实为"止损减半"与"集中度清仓"
+    两机制在不同交易日交替主导——用户看到形似指令、背后理由已换。
+    每条动作显式标注由哪条规则驱动，机制切换可见。
+    """
+    if p is None:
+        return ""
+    if p.verdict == VERDICT_REDUCE:
+        return "集中度规则"
+    if "止盈" in (p.rule_state or ""):
+        return "止盈规则"
+    if "止损" in (p.rule_state or ""):
+        return "止损规则"
+    return ""
+
+
 def render_decision_package(decision: AccountDecision,
                             sheet: Any = None) -> str:
     """决策包渲染：待办动作卡片式（2026-09-19 重写——用户反馈"老一套文字墙"）。
@@ -324,10 +342,12 @@ def render_decision_package(decision: AccountDecision,
         direction = "买入" if order.direction == "buy" else "卖出"
         title = (f"{direction} {order.symbol} "
                  f"{(p.name if p else '')[:6]}".rstrip())
+        reason_text = (p.reason if p else "")[:110]
+        driver = _driver_label(p)
         actions.append((
             f"{title} {qty_text} @{order.limit_price:g}"
             f"（约 ¥{order.est_value:,.0f}）",
-            (p.reason if p else "")[:52],
+            (f"[{driver}] {reason_text}" if driver else reason_text),
             f"{order.abandon_rule} · {order.cancel_rule}",
             f"/成交回填 {order.symbol} {direction} "
             f"{order.quantity} {order.limit_price:g}"))

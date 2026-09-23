@@ -202,8 +202,12 @@ class SimulationLedger:
         """模拟成交 vs 真实账本（PortfolioService 交易事件）逐笔对比。
 
         匹配键：(symbol 归一形态, direction, trade_date)——匹配不到真实侧
-        = "未回填/未执行"，诚实列出。
+        = "未回填/未执行"，诚实列出。归一用 canonical_symbol（模拟侧记
+        操作单腿的存储形态如股票裸码 002475，真实账本是前缀形态
+        SZ002475——不归一则股票腿永远配不上，P1.5 验收发现）。
         """
+        from src.services.cb_signal_bridge import canonical_symbol
+
         rows: List[Dict[str, Any]] = []
         entries = self._data["entries"]
         real_index: Dict[tuple, Dict[str, Any]] = {}
@@ -213,7 +217,7 @@ class SimulationLedger:
                 kwargs["account_id"] = account_id
             result = service.list_trade_events(**kwargs)
             for ev in result.get("events") or result.get("items") or []:
-                key = (str(ev.get("symbol", "")).upper(),
+                key = (canonical_symbol(str(ev.get("symbol", ""))),
                        str(ev.get("side", "")).lower(),
                        str(ev.get("trade_date", ""))[:10])
                 real_index.setdefault(key, ev)
@@ -222,7 +226,8 @@ class SimulationLedger:
 
         for e in entries:
             real = real_index.get(
-                (str(e["symbol"]).upper(), e["direction"], e["trade_date"]))
+                (canonical_symbol(str(e["symbol"])), e["direction"],
+                 e["trade_date"]))
             row = {
                 "trade_date": e["trade_date"],
                 "symbol": e["symbol"],

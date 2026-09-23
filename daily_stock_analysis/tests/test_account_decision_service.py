@@ -112,7 +112,13 @@ class TestBuildAccountDecision:
         assert p899.pnl == round((9.75 - 11.16) * 100, 2)
 
     def test_concentration_reduce_target_lots(self, monkeypatch):
-        """集中度减仓：目标量按整手取整且不超过阈值预算"""
+        """集中度减仓：目标量按整手取整且不超过阈值预算
+
+        P1.5 账户规模感知（v4.2 发现#5）：总市值 57×200+100=11,500、
+        35% 预算 ¥4,025 < 一手 ¥5,700——旧逻辑 target=0（"减仓=清仓"的
+        不可执行建议，连续 9 天零执行的可能成因），新逻辑保底一手
+        target=100。对照留痕见 docs/decision-layer-changelog.md。
+        """
         monkeypatch.setattr(
             "src.services.account_decision_service.compute_e2_percentile",
             lambda: (None, ""))
@@ -126,11 +132,9 @@ class TestBuildAccountDecision:
             snapshot=snap, rules={}, concentration_threshold_pct=35.0)
         p = decision.positions[0]
         assert p.verdict == VERDICT_REDUCE
-        # 总市值 57*200+100=11500；35% 预算 = 4025 → 4025/57=70.6 → 0 手? 不：
-        # 100 股一手 → floor(70.6/100)=0 → 减仓量 200-0=200 >= 一手 → 目标 0
-        # 但 target>=quantity 会退化 hold——本例目标 0 < 200 是全卖，属于集中度
-        # 修复的极端形态（单票 99% 时 35% 预算买不起一手）
-        assert p.target_quantity == 0
+        # 预算不足一手 → 保底一手（不再清仓）
+        assert p.target_quantity == 100
+        assert "保底一手" in p.reason
 
     def test_e2_normal_allows_cash_deploy(self, monkeypatch):
         monkeypatch.setattr(
@@ -303,6 +307,39 @@ class TestRender:
         assert "87.5%" in text
         # 执行方式（半自动闭环）
         assert "/成交回填" in text
+
+    def test_render_labels_driver_rule_and_floor_one_lot(self, monkeypatch):
+        """P1.5（发现#5/#6）：集中度动作卡带驱动标签 + 保底一手文案可见。
+
+        预算不足一手时旧逻辑输出"减仓=清仓"（200→0），用户无法执行；
+        新逻辑保底一手（200→100）且依据行讲清"为什么不是全卖"，
+        动作卡标注驱动规则（机制切换可见——止损/集中度交替主导不再隐形）。
+        """
+        monkeypatch.setattr(
+            "src.services.account_decision_service.compute_e2_percentile",
+            lambda: (None, ""))
+        monkeypatch.setattr(
+            "src.services.account_decision_service._latest_ai_notes",
+            lambda symbols, days=3: ({}, {"002475": "立讯精密"}))
+        # 无价格规则触发（rules 空）→ 集中度路径
+        monkeypatch.setattr(
+            "src.services.strategies.user_rules.diagnose_breach",
+            lambda **kwargs: None)
+        snap = _snapshot([
+            _position("002475", 200, 56.77, 52.78),
+        ], cash=1549.0)
+        decision = build_account_decision(snapshot=snap, rules={})
+        p = decision.positions[0]
+        assert p.verdict == VERDICT_REDUCE
+        assert p.target_quantity == 100          # 保底一手（预算 ¥4,711 < 一手 ¥5,278）
+        sheet = decision_to_sheet(decision, available_cash=1549.0)
+        text = render_decision_package(decision, sheet=sheet)
+        # 动作卡：驱动规则标签（发现#6）
+        assert "[集中度规则]" in text
+        # 依据行讲清"为什么不是全卖"（发现#5）
+        assert "保底一手" in text and "非清仓" in text
+        # 卖出腿是 100 股不是 200 股
+        assert "卖出 002475" in text and "100股 @52.78" in text
 
     def test_render_shows_breach_diagnosis(self, monkeypatch):
         """规则触发时渲染破位诊断行与分级建议。"""

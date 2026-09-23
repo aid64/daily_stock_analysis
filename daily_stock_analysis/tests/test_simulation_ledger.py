@@ -101,6 +101,37 @@ class TestLedger:
         assert matched["real_price"] == 127.8
         assert matched["sim_price"] == 128.0
 
+    def test_compare_matches_bare_symbol_leg(self, ledger, tmp_path,
+                                              isolated_db):
+        """P1.5 验收发现的回归：模拟侧裸码 vs 真实侧前缀形态必须配对。
+
+        股票决策链的操作单 symbol 是裸码（002475），真实账本统一为
+        canonical 前缀形态（SZ002475）。旧实现匹配键只做 upper()，
+        股票腿在 /对比 里永远显示"未回填"。修复：两侧经 canonical_symbol
+        归一后配对。
+        """
+        sheet = generate_order_sheet(
+            trade_date=D,
+            current_positions={"002475": 200},
+            target_positions={"002475": 100},
+            t1_close_prices={"002475": 54.84},
+            available_cash=1495.0,
+            sheet_id=f"{D.isoformat()}_bare01",
+        )
+        ledger.record_sheet(sheet)
+        # 建仓（更早日期）再回填卖出——卖出校验按事件流重放
+        setup = PortfolioServiceStub(
+            isolated_db, trade_date=D - timedelta(days=30))
+        setup.record_trade("SZ002475", "buy", 56.77, quantity=200)
+        service = PortfolioServiceStub(isolated_db, trade_date=D)
+        service.record_trade("SZ002475", "sell", 54.5, quantity=100)
+
+        result = ledger.compare_with_real(service)
+        assert result["n_matched"] == 1
+        matched = next(r for r in result["rows"] if r["matched"])
+        assert matched["real_price"] == 54.5
+        assert matched["sim_price"] == 54.84
+
     def test_render_text(self, ledger, tmp_path, isolated_db):
         sheet = self._sheet(tmp_path)
         ledger.record_sheet(sheet)

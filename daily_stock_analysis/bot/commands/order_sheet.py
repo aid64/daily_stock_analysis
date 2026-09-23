@@ -127,6 +127,24 @@ def _cb_research_appendix() -> str:
     return "\n".join(lines)
 
 
+def _first_fill_hint(service) -> str:
+    """P1.5 首笔引导（v4.2 发现#4）：零执行期间明确"如何完成第一笔回填"。
+
+    实测操作单连续 9 天 pending/fills=0——闭环代码可用但用户从未完成一次
+    回填。账户没有任何真实成交记录时，决策包尾部给出一次性操作指引；
+    查询失败静默降级（不阻塞决策包）。
+    """
+    try:
+        if service.list_trade_events(page=1, page_size=1).get("total", 0) == 0:
+            return ("\n💡 首笔回填指引：本账户还没有任何真实成交记录。"
+                    "任一待办动作在券商 App 成交后，把卡片里的"
+                    "『成交后发送』命令原样发给我即可记账；"
+                    "首次回填后 /对比 将开始量化模拟与真实的偏差。")
+    except Exception as exc:  # noqa: BLE001 - 查询失败不阻塞决策包
+        logger.warning("首笔回填状态查询失败: %r", exc)
+    return ""
+
+
 def _build_sheet_text() -> str:
     """账户决策包（FINAL-PLAN-ACCOUNT-CENTRIC R1）：真实持仓+现金 → 决策。
 
@@ -151,6 +169,9 @@ def _build_sheet_text() -> str:
     service = PortfolioService()
     snapshot = service.get_portfolio_snapshot(cost_method="fifo",
                                               include_realtime=True)
+
+    # P1.5 首笔引导（v4.2 发现#4）：零执行期间明确"如何完成第一笔回填"
+    first_fill_note = _first_fill_hint(service)
 
     # 交易暂停（业务级 kill switch）：数据照常，零指令
     halt_note = ""
@@ -182,6 +203,8 @@ def _build_sheet_text() -> str:
                                           rules=load_price_rules())
         text = render_decision_package(decision, sheet=existing)
         text += _cb_research_appendix()
+        if first_fill_note:
+            text += first_fill_note
         if halt_note:
             text = halt_note + "\n" + text
         _refresh_snapshot_quietly()
@@ -219,6 +242,8 @@ def _build_sheet_text() -> str:
     if cash_note:
         text += cash_note
     text += _cb_research_appendix()
+    if first_fill_note:
+        text += first_fill_note
     _refresh_snapshot_quietly()
     return text
 

@@ -101,8 +101,43 @@ class TestPartiallyFilledReuse:
             lambda decision, sheet=None: "PKG")
         monkeypatch.setattr(cmd, "_cb_research_appendix", lambda: "")
         monkeypatch.setattr(cmd, "_refresh_snapshot_quietly", lambda: None)
+        # P1.5：首笔引导不连真实库（隔离纪律）
+        monkeypatch.setattr(cmd, "_first_fill_hint", lambda service: "")
 
         text = cmd._build_sheet_text()
 
         assert text.startswith("PKG")
         assert saved == []          # 关键断言：没有另存新单
+
+
+class TestFirstFillHint:
+    """P1.5 首笔引导（v4.2 发现#4）：零执行期间的回填操作指引。"""
+
+    def test_hint_shown_when_no_trades_ever(self):
+        from bot.commands.order_sheet import _first_fill_hint
+
+        class _Svc:
+            def list_trade_events(self, **kw):
+                return {"total": 0, "trades": []}
+
+        hint = _first_fill_hint(_Svc())
+        assert "首笔回填指引" in hint
+        assert "/对比" in hint
+
+    def test_hint_hidden_after_first_trade(self):
+        from bot.commands.order_sheet import _first_fill_hint
+
+        class _Svc:
+            def list_trade_events(self, **kw):
+                return {"total": 5, "trades": [{}]}
+
+        assert _first_fill_hint(_Svc()) == ""
+
+    def test_hint_silent_on_query_failure(self):
+        from bot.commands.order_sheet import _first_fill_hint
+
+        class _Svc:
+            def list_trade_events(self, **kw):
+                raise RuntimeError("db unavailable")
+
+        assert _first_fill_hint(_Svc()) == ""

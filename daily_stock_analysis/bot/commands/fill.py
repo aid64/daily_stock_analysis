@@ -104,9 +104,14 @@ def _do_fill(symbol_raw: str, side: str, quantity: float, price: float,
     sheet = load_latest_sheet(today.isoformat())
     matched = None
     if sheet is not None:
+        # 形态归一匹配：操作单 symbol 是持仓快照的存储形态（股票裸码
+        # 如 002475 / 转债前缀如 SH113062），回填侧统一为 canonical
+        # 前缀形态——不归一的话股票腿永远匹配不上（P1.5 验收发现的
+        # 真实缺陷：股票操作单的回填标单自 09-15 上线以来从未生效）。
         matched = next(
             (o for o in sheet.orders
-             if o.symbol == symbol and o.direction == side), None)
+             if canonical_symbol(o.symbol) == symbol and o.direction == side),
+            None)
 
     # 幂等键（批次 A1）：粒度 = 腿+日+量+价。同一笔重复发送（同量同价）
     # 被拒收；不同量/价的多次部分成交各自入账。极端场景"同腿同日两次
@@ -122,7 +127,7 @@ def _do_fill(symbol_raw: str, side: str, quantity: float, price: float,
     # 量价合理性门（批次 A5）：偏离限价 ±5% 或量超计划剩余 → 需"确认"
     if matched is not None and not confirmed:
         planned = float(matched.quantity)
-        prev_filled = float((sheet.fills.get(symbol) or {}).get(
+        prev_filled = float((sheet.fills.get(matched.symbol) or {}).get(
             "actual_quantity") or 0)
         remaining = planned - prev_filled
         deviation = abs(price - matched.limit_price) / matched.limit_price * 100
@@ -176,10 +181,12 @@ def _do_fill(symbol_raw: str, side: str, quantity: float, price: float,
                     "如需补记另一笔真实成交，请核对数量/价格后用 /持仓登记 手工登记。")
         raise
 
-    # ② 操作单标记（账本成功后；部分成交累计量）
+    # ② 操作单标记（账本成功后；部分成交累计量）——用腿的原始 symbol，
+    # 与 mark_order_filled 的精确匹配及 fills 字典 key 保持同一形态
     if matched is not None:
-        mark_order_filled(sheet, symbol, price, int(quantity), direction=side)
-        fill = sheet.fills.get(symbol) or {}
+        mark_order_filled(sheet, matched.symbol, price, int(quantity),
+                          direction=side)
+        fill = sheet.fills.get(matched.symbol) or {}
         done = int(fill.get("actual_quantity") or 0)
         planned = int(matched.quantity)
         if done < planned:

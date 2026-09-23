@@ -95,6 +95,8 @@ class TestGoldenBaseline:
         assert "卖出 002475" in text and "200股" in text
         # 破位诊断依据
         assert "止损执行（immediate）" in text
+        # 驱动规则标签（P1.5 发现#6：机制切换可见）
+        assert "[止损规则]" in text
         # 依据溯源脚注（结构锚/破位启发式/E2 实验性）
         assert "结构锚生成" in text and "破位分级=启发式" in text
         # 执行闭环指引
