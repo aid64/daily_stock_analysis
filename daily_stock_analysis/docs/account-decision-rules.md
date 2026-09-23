@@ -2,7 +2,7 @@
 
 > 编写时间：2026-09-15。目的：说清"系统凭什么建议买/卖"这一件事，包括**规则从哪来**、**验证到什么程度**、以及**目前做不到什么**。
 > 对应实现：`src/services/account_decision_service.py`。
-> 相关文档：`docs/REFACTOR-PLAN-STRATEGY-CENTRIC.md`（v4.1 规划真源）、`docs/feishu-handoff.md`（通知链路）。
+> 相关文档：`docs/REFACTOR-PLAN-STRATEGY-CENTRIC.md`（v4.2 规划真源）、`docs/feishu-handoff.md`（通知链路）。
 >
 > **⚠ 部分过时更正（2026-09-19）**：本文第一/五节称"价位=成本±固定百分比机械模板"，那是 **P0 之前的旧价位**。P0 已用**结构锚**重生价位（近 20 根收盘高低点 ± 1.5×平均日波幅，见 `scripts/regen_price_rules.py`），当前 `.env` 价位不再是成本百分比。"机械、未经验证"的判断依然成立（结构锚同样未回测），但"成本±%"这个具体形态已不准确。价位算法/破位阈值的验证纪律见 v4.1 计划 **P0.9 在线决策层回放基线**；每次重生成的判决 diff 记入 `docs/decision-layer-changelog`（P0.9 交付）。
 
