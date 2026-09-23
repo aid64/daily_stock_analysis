@@ -22,8 +22,6 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import asdict, dataclass, field
-from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -65,43 +63,8 @@ from src.services.strategies.breach import (  # noqa: E402,F401
 
 
 
-@dataclass
-class AccountDecision:
-    """当日账户决策包"""
-    trade_date: str
-    positions: List[PositionDecision] = field(default_factory=list)
-    cash: float = 0.0
-    cash_weight_pct: float = 0.0
-    cash_verdict: str = ""     # 现金决策（持有/配置）
-    cash_reason: str = ""
-    e2_percentile: Optional[float] = None   # None = 择时不可用
-    e2_as_of: str = ""
-    total_mv: float = 0.0
-    # 单票集中度阈值（%）：披露块必须显示引擎实际用的阈值，不能写死 35
-    concentration_threshold_pct: float = 35.0
-    # 买入观察池（观点非信号——未回测验证，只展示不落单）
-    buy_candidates: List[Dict[str, Any]] = field(default_factory=list)
-    buy_source_note: str = ""
-    # 策略引擎信号（active 策略：逆回购窗口/打新汇总等，见 docs/strategy-catalog.md）
-    strategy_signals: List[Dict[str, Any]] = field(default_factory=list)
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "trade_date": self.trade_date,
-            "positions": [p.to_dict() for p in self.positions],
-            "cash": round(self.cash, 2),
-            "cash_weight_pct": round(self.cash_weight_pct, 2),
-            "cash_verdict": self.cash_verdict,
-            "cash_reason": self.cash_reason,
-            "e2_percentile": (round(self.e2_percentile, 4)
-                              if self.e2_percentile is not None else None),
-            "e2_as_of": self.e2_as_of,
-            "total_mv": round(self.total_mv, 2),
-            "concentration_threshold_pct": round(self.concentration_threshold_pct, 2),
-            "buy_candidates": list(self.buy_candidates),
-            "buy_source_note": self.buy_source_note,
-            "strategy_signals": list(self.strategy_signals),
-        }
+# AccountDecision 定义已下沉 strategies/types.py（P1 收尾）；re-export 保持兼容
+from src.services.strategies.types import AccountDecision  # noqa: E402,F401
 
 
 # ── 用户规则解析 ──────────────────────────────────────────────
@@ -227,7 +190,10 @@ def build_account_decision(
     concentration_threshold_pct: float = 35.0,
     include_e2: bool = True,
 ) -> AccountDecision:
-    """从持仓快照构建账户决策包。
+    """从持仓快照构建账户决策包（门面）。
+
+    编排实现已抽到 portfolio_compositor.compose_account_decision（P1 收尾）；
+    本门面保留签名与命名空间，供 bot/命令与测试 monkeypatch 引用。
 
     Args:
         snapshot: PortfolioService.get_portfolio_snapshot() 的返回值
@@ -235,101 +201,12 @@ def build_account_decision(
         rules: 已解析规则（缺省时现场解析）
         concentration_threshold_pct: 单票集中度告警阈值（%）
     """
-    trade_date = date.today().isoformat()
-    rules = rules if rules is not None else load_price_rules()
-
-    # 1. 拆持仓（股票为主体；转债若有真实持仓也走同一规则引擎）
-    positions_raw: List[Dict[str, Any]] = []
-    cash = float(snapshot.get("total_cash") or 0)
-    for account in snapshot.get("accounts") or []:
-        for position in account.get("positions") or []:
-            qty = float(position.get("quantity") or 0)
-            if qty > 0:
-                positions_raw.append(position)
-
-    total_mv = sum(
-        float(p.get("last_price") or 0) * float(p.get("quantity") or 0)
-        for p in positions_raw)
-    total_value = total_mv + cash
-
-    symbols = [str(p.get("symbol")) for p in positions_raw]
-    ai_notes, names = _latest_ai_notes(symbols)
-
-    decisions: List[PositionDecision] = []
-    for position in sorted(positions_raw, key=lambda p: str(p.get("symbol"))):
-        symbol = str(position.get("symbol"))
-        quantity = int(float(position.get("quantity") or 0))
-        price = float(position.get("last_price") or 0)
-        if price <= 0:
-            # 无报价：不能定价的持仓不给指令（与旧操作单"缺 T-1 价"语义一致）
-            decisions.append(PositionDecision(
-                symbol=symbol, name=names.get(symbol) or symbol,
-                quantity=quantity,
-                avg_cost=float(position.get("avg_cost") or 0),
-                last_price=0.0, price_date="", pnl=0.0, pnl_pct=0.0,
-                weight_pct=0.0, verdict=VERDICT_HOLD, target_quantity=quantity,
-                rule_state="无有效报价", reason="无法定价——人工核实后处理",
-                ai_note=ai_notes.get(symbol, "")))
-            continue
-        weight = (price * quantity / total_value * 100) if total_value > 0 else 0.0
-        decisions.append(decide_position(
-            symbol=symbol,
-            name=names.get(symbol) or symbol,
-            quantity=quantity,
-            avg_cost=float(position.get("avg_cost") or 0),
-            price=price,
-            price_date=str(position.get("price_date") or ""),
-            weight_pct=weight,
-            rules=rules.get(symbol) or {},
-            concentration_threshold_pct=concentration_threshold_pct,
-            ai_note=ai_notes.get(symbol, "")))
-    # 2. 减仓数量修正：目标 = 阈值内可持有量（按当前总市值近似，整手取整）
-    #    集中度约束逻辑已抽到 strategies/concentration.py（P1 step3），此处只编排
-    apply_concentration_targets(
-        decisions,
-        total_value=total_value,
-        concentration_threshold_pct=concentration_threshold_pct)
-
-    # 3. 现金决策（E2 择时层——映射已抽到 strategies/e2_timing.py，P1 step4）
-    e2_pct, e2_as_of = compute_e2_percentile() if include_e2 else (None, "")
-    cash_weight = (cash / total_value * 100) if total_value > 0 else 0.0
-    cash_verdict, cash_reason = decide_cash_verdict(e2_pct, e2_as_of)
-
-    # 4. 买入观察池（观点层：候选池打分，展示不落单——闭合"卖出的钱去哪"）
-    buy_candidates: List[Dict[str, Any]] = []
-    buy_source_note = ""
-    try:
-        from src.services.buy_watchlist_service import build_buy_watchlist
-        watchlist = build_buy_watchlist(exclude_symbols=symbols)
-        buy_candidates = watchlist.get("candidates") or []
-        buy_source_note = watchlist.get("source_note") or ""
-    except Exception as exc:  # noqa: BLE001 - 观察池缺失不影响主决策
-        logger.warning("[account-decision] 买入观察池构建失败: %r", exc)
-        buy_source_note = f"买入观察池构建失败：{exc}"
-
-    # 5. 策略引擎信号（active 策略：逆回购窗口/打新汇总——docs/strategy-catalog.md）
-    strategy_signals: List[Dict[str, Any]] = []
-    try:
-        from src.services.strategy_engine import evaluate_strategies
-        signals = evaluate_strategies({"today": date.today(), "cash": cash})
-        strategy_signals = [s.to_dict() for s in signals]
-    except Exception as exc:  # noqa: BLE001 - 策略信号缺失不影响主决策
-        logger.warning("[account-decision] 策略引擎评估失败: %r", exc)
-
-    return AccountDecision(
-        trade_date=trade_date,
-        positions=decisions,
-        cash=round(cash, 2),
-        cash_weight_pct=round(cash_weight, 2),
-        cash_verdict=cash_verdict,
-        cash_reason=cash_reason,
-        e2_percentile=e2_pct,
-        e2_as_of=e2_as_of,
-        total_mv=round(total_mv, 2),
+    from src.services.portfolio_compositor import compose_account_decision
+    return compose_account_decision(
+        snapshot=snapshot,
+        rules=rules,
         concentration_threshold_pct=concentration_threshold_pct,
-        buy_candidates=buy_candidates,
-        buy_source_note=buy_source_note,
-        strategy_signals=strategy_signals,
+        include_e2=include_e2,
     )
 
 
