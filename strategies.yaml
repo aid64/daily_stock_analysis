@@ -8,7 +8,41 @@
 # 消费方：src/services/strategy_engine.py（只评估 active）。
 # ============================================================
 
+# ── 买侧授权（P2-7）：默认只读，用户填 universe 并把 intent 改为 signal
+#    才允许观察池候选经组合器生成买入调仓单；否则决策包只展示不落单。
+#    这是 v4.2 "买侧不无限期悬空、但授权是增强非前提"的落点。
+buy_side:
+  intent: observe            # observe（只读展示，默认）| signal（授权落单）
+  universe: []               # 允许买入的标的池（intent=signal 时生效；空=不落单）
+
 strategies:
+  # ── 系统策略（P2 注册合一：身份登记进注册表，编排由 portfolio_compositor
+  #    内的 strategies/ 模块承担——轻上下文评估器不适用，故无 evaluator；
+  #    参数真源在各自配置处，本表只登记身份/tier/status）──
+  - id: user_rules
+    name: 用户价格规则（止损/止盈）
+    tier: exit_rule
+    risk: bounded
+    status: active
+    system: true
+    params_source: .env AGENT_EVENT_ALERT_RULES_JSON（结构锚重生，见 regen_price_rules.py）
+
+  - id: concentration
+    name: 组合集中度
+    tier: risk_control
+    risk: bounded
+    status: active
+    system: true
+    params_source: mandate.yaml / config（阈值 35%；P1.5 账户规模感知保底一手）
+
+  - id: e2_timing
+    name: E2 估值择时
+    tier: cash_management
+    risk: bounded
+    status: active
+    system: true
+    params_source: quant_research PIT 转债分位（expanding，>80% 防守）
+
   # ── 现金管理层（active：规则性正期望 / 无风险，免回测）──
   - id: reverse_repo_window
     name: 国债逆回购窗口

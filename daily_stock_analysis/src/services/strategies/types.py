@@ -76,3 +76,65 @@ class AccountDecision:
             "buy_source_note": self.buy_source_note,
             "strategy_signals": list(self.strategy_signals),
         }
+
+
+# ── P2：策略统一输出契约（v4.2 B2——一切策略经此进入组合器）───────
+
+# 优先级链（v4.2 P2 深化设计#1：冲突时高优先级先满足，数字越小越优先。
+# 与社区共识对齐：离场 > 风控 > 现金管理（无风险）> 配置型（卫星））
+TIER_EXIT_RULE = "exit_rule"           # 止损/止盈（用户价格规则）
+TIER_RISK_CONTROL = "risk_control"     # 组合集中度
+TIER_CASH_MANAGEMENT = "cash_management"  # 逆回购/打新/E2 防守
+TIER_SATELLITE = "satellite"           # 配置型策略（未来）
+
+TIER_PRIORITY = {
+    TIER_EXIT_RULE: 10,
+    TIER_RISK_CONTROL: 20,
+    TIER_CASH_MANAGEMENT: 30,
+    "low_risk": 35,             # 低风险核心仓（注册表风险谱系档，先于纯卫星）
+    TIER_SATELLITE: 40,
+}
+
+
+@dataclass(frozen=True)
+class TargetLeg:
+    """目标持仓的一条腿（订单驱动语义）"""
+    symbol: str
+    target_quantity: int       # 目标数量（sell=0 / hold=当前 / reduce=计算值）
+    weight_pct: float = 0.0    # 目标权重（% 总资产，含现金；0=不声明）
+    constraint: str = ""       # 该腿约束满足情况（如"预算不足一手保底"）
+
+
+@dataclass(frozen=True)
+class StrategyOutput:
+    """策略统一输出契约（P2，v4.2 发现#3 的清偿——P1 三模块异构输出
+    （PositionDecision/原地改 list/Tuple）与 strategy_engine 纯展示
+    StrategySignal 归并为此一契约）。
+
+    语义：策略输出**目标持仓**（B2——买入=达成目标，卖出=达成目标，
+    同源）；组合器对比目标 vs 当前账户 → 调仓单。
+    """
+    strategy_id: str
+    name: str
+    tier: str                   # TIER_* 之一（决定归并优先级）
+    cadence: str                # daily / weekly / monthly / quarterly / event
+    legs: List[TargetLeg] = field(default_factory=list)
+    cash_action: str = ""       # 现金操作建议（"操作 GC001 ¥1,000"等）
+    reason: str = ""
+    constraint_notes: List[str] = field(default_factory=list)
+    meta: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def priority(self) -> int:
+        return TIER_PRIORITY.get(self.tier, TIER_PRIORITY[TIER_SATELLITE])
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "strategy_id": self.strategy_id, "name": self.name,
+            "tier": self.tier, "priority": self.priority,
+            "cadence": self.cadence,
+            "legs": [asdict(leg) for leg in self.legs],
+            "cash_action": self.cash_action, "reason": self.reason,
+            "constraint_notes": list(self.constraint_notes),
+            "meta": dict(self.meta),
+        }

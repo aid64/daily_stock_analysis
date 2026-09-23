@@ -15,16 +15,179 @@ account_decision_service 门面，本模块通过该命名空间调用——既�
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Dict, List, Optional
 
 from src.services.strategies.types import (
-    AccountDecision, PositionDecision, VERDICT_HOLD)
+    AccountDecision, PositionDecision, StrategyOutput, VERDICT_HOLD)
 from src.services.strategies.user_rules import decide_position
 from src.services.strategies.concentration import apply_concentration_targets
 from src.services.strategies.e2_timing import decide_cash_verdict
 
 logger = logging.getLogger(__name__)
+
+
+# ── P2：组合器（v4.2 深化设计——优先级归并/容忍带/cadence 排他）────
+
+@dataclass
+class ComposeResult:
+    """组合器输出：归并后的目标持仓（供 order_sheet 生成调仓单）"""
+    targets: Dict[str, int] = field(default_factory=dict)   # symbol→目标数量
+    winners: Dict[str, str] = field(default_factory=dict)   # symbol→主导策略 id
+    conflicts: List[Dict[str, Any]] = field(default_factory=list)
+    notes: List[str] = field(default_factory=list)
+
+
+def compose(strategy_outputs: List[StrategyOutput],
+            *,
+            current_positions: Dict[str, int],
+            prices: Dict[str, float],
+            tolerance_pct: Optional[float] = None) -> ComposeResult:
+    """多策略目标持仓 → 归并后的调仓目标（v4.2 P2 组合器核心）。
+
+    四步（社区调研结论，见计划附录）：
+      1. 优先级归并：同一 symbol 多策略给目标时，高优先级（priority 小）
+         先占位，低优先级让位并记入 conflicts（社区共识：相加会超配、
+         取平均适合无优先级场景——本组合器有显式优先级链）。
+      2. 容忍带：|目标-当前| 未出带的标的不进调仓。默认带宽 = 不足一手
+         （与 order_sheet 既有"差额不足一手不出单"同口径，行为等价）；
+         tolerance_pct 可选声明权重带宽（%总资产，P2-7 买侧启用前保持 None）。
+      3. cadence 排他：当日多频触发只保留最高频（再平衡优先，跳过当日
+         微调）。当前全部策略 daily——预留实现，首个多 cadence 策略
+         接入时激活（诚实边界：不提前实现无消费者的分支）。
+      4. 输出 targets → order_sheet 状态机（现有，不变）。
+
+    position_sizer 预算闸门在 decision_to_sheet 前由调用方应用（P2-5）。
+    """
+    from src.services.order_sheet_service import lot_size_for
+
+    result = ComposeResult()
+
+    # 3. cadence 排他（预留：全 daily 时无操作）
+    cadences = {o.cadence for o in strategy_outputs}
+    if len(cadences) > 1:
+        # 再平衡（weekly/monthly/quarterly）优先于 daily 微调
+        keep = {"weekly", "monthly", "quarterly"}
+        dropped = [o.strategy_id for o in strategy_outputs
+                   if o.cadence == "daily" and cadences & keep]
+        if dropped:
+            strategy_outputs = [o for o in strategy_outputs
+                                if o.strategy_id not in dropped]
+            result.notes.append(
+                f"cadence 排他：当日保留再平衡，跳过日频微调 {dropped}")
+
+    # 1. 优先级归并（priority 升序 = 高优先级先占位）
+    ordered = sorted(strategy_outputs, key=lambda o: o.priority)
+    for out in ordered:
+        for leg in out.legs:
+            if leg.symbol in result.targets:
+                result.conflicts.append({
+                    "symbol": leg.symbol,
+                    "winner": result.winners[leg.symbol],
+                    "loser": out.strategy_id,
+                    "loser_target": leg.target_quantity,
+                })
+                continue
+            result.targets[leg.symbol] = leg.target_quantity
+            result.winners[leg.symbol] = out.strategy_id
+
+    # 2. 容忍带：目标与当前一致或差额不足一手 → 不动（从 targets 剔除）
+    for symbol in list(result.targets):
+        current = int(current_positions.get(symbol) or 0)
+        target = result.targets[symbol]
+        if target == current:
+            del result.targets[symbol]
+            continue
+        lot = lot_size_for(symbol)
+        if abs(target - current) < lot:
+            # 差额不足一手：与 order_sheet 既有语义一致——不出单，
+            # 但保留在 targets 供披露（order_sheet 侧同样过滤）
+            result.notes.append(
+                f"{symbol} 目标 {target} 与当前 {current} 差额不足一手，不动")
+    return result
+
+
+def apply_budget_gate(result: "ComposeResult",
+                      *,
+                      current_positions: Dict[str, int],
+                      prices: Dict[str, float],
+                      account_equity: float,
+                      sizer: Any = None) -> "ComposeResult":
+    """P2-5：position_sizer 预算闸门——只约束**买入**目标（target > 当前）。
+
+    卖出/减仓不受预算约束（持有多少都能卖）；买入目标受三层仓位管理的
+    单票上限（max_position_pct）与总敞口上限（max_total_exposure_pct）
+    双重裁剪，整手取整。
+
+    当前买侧只读（观察池不落单，见 P2-7），故正常无买入腿——闸门空转。
+    买侧授权后（strategies.yaml buy_intent）买入腿出现，闸门自动生效。
+    就地修正 result.targets 并把裁剪动作记入 notes；返回同一对象。
+    """
+    from src.services.order_sheet_service import lot_size_for
+
+    if sizer is None:
+        from src.services.position_sizer import build_position_sizer_from_config
+        sizer = build_position_sizer_from_config()
+
+    if account_equity <= 0:
+        return result
+
+    max_pos_pct = float(sizer.config.max_position_pct)
+    max_total_pct = float(sizer.config.max_total_exposure_pct)
+
+    # 当前已投入市值（用于总敞口余量计算）
+    current_exposure = sum(
+        int(q or 0) * float(prices.get(s) or 0)
+        for s, q in current_positions.items())
+    total_budget = account_equity * max_total_pct / 100.0
+    remaining_budget = max(0.0, total_budget - current_exposure)
+
+    single_cap_value = account_equity * max_pos_pct / 100.0
+
+    for symbol in list(result.targets):
+        current = int(current_positions.get(symbol) or 0)
+        target = result.targets[symbol]
+        if target <= current:
+            continue  # 卖出/减仓/持平——不受预算约束
+        price = float(prices.get(symbol) or 0)
+        if price <= 0:
+            continue
+        lot = lot_size_for(symbol)
+        buy_value = (target - current) * price
+
+        # 单票上限：目标持仓市值（现有+新增）不超单票 cap
+        target_value = target * price
+        capped = False
+        if target_value > single_cap_value:
+            allowed_target_qty = int(single_cap_value / price / lot) * lot
+            allowed_target_qty = max(current, allowed_target_qty)
+            if allowed_target_qty < target:
+                result.targets[symbol] = allowed_target_qty
+                target = allowed_target_qty
+                buy_value = (target - current) * price
+                capped = True
+
+        # 总敞口上限：本次买入金额不超剩余预算
+        if buy_value > remaining_budget + 1e-9:
+            affordable_qty = int(remaining_budget / price / lot) * lot
+            new_target = current + max(0, affordable_qty)
+            if new_target < target:
+                result.targets[symbol] = new_target
+                buy_value = (new_target - current) * price
+                capped = True
+
+        if capped:
+            result.notes.append(
+                f"{symbol} 买入受 position_sizer 闸门裁剪 → 目标 "
+                f"{result.targets[symbol]}（单票≤{max_pos_pct:g}% · "
+                f"总敞口≤{max_total_pct:g}%）")
+            if result.targets[symbol] == current:
+                del result.targets[symbol]
+                continue
+        remaining_budget = max(0.0, remaining_budget - buy_value)
+
+    return result
 
 
 def compose_account_decision(

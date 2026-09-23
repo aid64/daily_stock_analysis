@@ -9,13 +9,14 @@
 
 ---
 
-## 三层参数清单（截至 2026-09-21）
+## 三层参数清单（截至 2026-09-23）
 
 | 层 | 参数 | 当前值 | 位置 | 验证状态 |
 |---|---|---|---|---|
 | 结构锚价位 | window / buffer_atr / min_spacing | 20 / 1.5 / 0.02 | `scripts/regen_price_rules.py` | 未回测 |
 | 破位分档 | deep_pct / shallow_pct / persist_days / volume_spike / volume_shrink / fresh_days / wait_max_consecutive | 5.0 / 2.0 / 5 / 1.3 / 0.7 / 1 / 2 | `account_decision_service.BreachThresholds` | 未回测 |
-| 组合器 | concentration_threshold_pct / E2_DEFENSIVE_THRESHOLD | 35.0 / 0.80 | `account_decision_service` | 未回测（组合器 P2 落地后并入） |
+| 组合器·集中度/择时 | concentration_threshold_pct / E2_DEFENSIVE_THRESHOLD | 35.0 / 0.80 | `account_decision_service` | 未回测 |
+| 组合器·归并（P2） | 优先级链 TIER_PRIORITY / 容忍带（默认=不足一手）/ position_sizer 单票 max_position_pct / 总敞口 max_total_exposure_pct | exit 10<risk 20<cash 30<low 35<sat 40 / 一手 / 25% / 95% | `strategies/types.py` TIER_PRIORITY、`portfolio_compositor.compose`+`apply_budget_gate`、`mandate.yaml` risk | 结构值（社区共识），未回测 |
 
 ---
 
@@ -81,3 +82,12 @@
 - **动机**：实测 002475 卖出量 200→100→200 跳变实为"止损减半"与"集中度清仓"两机制在不同交易日交替主导，文案未讲清，用户看到形似指令、背后理由已换。
 - **回放 diff**：无判决变更（纯渲染）；黄金基线渲染承载行新增 `[止损规则]` 断言。
 - **人工确认**：⏳ 待用户在下次决策包中查看标签是否符合预期。
+
+### 2026-09-23 新增：组合器归并层参数（P2）——建立回放纪律，暂无判决变更
+- **变更**：新增组合器归并层（`portfolio_compositor.compose` + `apply_budget_gate`），引入三组结构参数——优先级链 `TIER_PRIORITY`（exit 10 < risk 20 < cash 30 < low 35 < sat 40）、容忍带（默认=不足一手，与 order_sheet 既有口径一致）、position_sizer 预算闸门（单票 25% / 总敞口 95%，取自 mandate.yaml）。
+- **动机**：v4.2 发现#2/#5——组合器参数是"所有信号必经的合并层"，风险不亚于单策略，必须纳入 P0.9 回放纪律（此前 P0.9 只覆盖破位/价位锚两层，组合器层因未落地而缺席，本次补齐）。
+- **回放 diff**：**当前无判决变更**。理由：① compose() 是新增函数，现有决策链（compose_account_decision → decision_to_sheet）尚未切换到它，黄金等价性测试证明 adapters→compose 归并目标与现有路径订单一致；② apply_budget_gate 只约束**买入**腿，而买侧当前只读（观察池不落单，P2-7），真实账户无买入腿 → 闸门空转。因此本层参数上线不改变任何当日判决。
+- **敏感性**：优先级链为定性偏序（离场>风控>现金>配置，社区共识），非数值拟合；容忍带=一手为申报单位硬约束；单票/总敞口取 mandate 结构值。三者均无"邻近值扫描择优"空间——符合"结构值不网格调参"纪律。
+- **未来触发条件**：一旦买侧授权（strategies.yaml buy_intent）或现有决策链切换到 compose()，本层任一参数变更必须附回放 diff（届时买入腿出现，闸门开始改变判决）。
+- **回归钉死**：`TestCompose`（优先级归并/容忍带/cadence/黄金等价性）+ `TestBudgetGate`（卖出不裁剪/单票上限/总敞口/无买入腿空转）共 9 项。
+- **人工确认**：✅ 无需（无判决变更，纯新增能力 + 纪律登记）。

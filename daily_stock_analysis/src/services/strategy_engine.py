@@ -63,6 +63,31 @@ def load_strategies(path: Optional[Path] = None) -> List[Dict[str, Any]]:
         return []
 
 
+def load_buy_side(path: Optional[Path] = None) -> Dict[str, Any]:
+    """读 strategies.yaml 的 buy_side 授权段（P2-7）。
+
+    默认 observe（只读展示，不落单）；缺失/损坏时按 observe 降级——
+    买侧永不因配置读取失败而意外放开。
+    """
+    p = path or _STRATEGIES_PATH
+    default = {"intent": "observe", "universe": []}
+    try:
+        import yaml
+
+        with p.open(encoding="utf-8") as fh:
+            data = yaml.safe_load(fh) or {}
+        bs = data.get("buy_side") or {}
+        intent = str(bs.get("intent") or "observe").strip().lower()
+        if intent not in ("observe", "signal"):
+            intent = "observe"
+        universe = [str(s) for s in (bs.get("universe") or [])]
+        return {"intent": intent, "universe": universe}
+    except Exception as exc:  # noqa: BLE001 - fail-closed 到 observe
+        logger.warning("[strategy-engine] buy_side 读取失败（按 observe 降级）: %r",
+                       exc)
+        return default
+
+
 # ── 评估器注册表：yaml 的 evaluator 字段 → 本模块函数 ──────────
 
 
@@ -174,10 +199,18 @@ _EVALUATORS: Dict[str, Callable[[Dict[str, Any], Dict[str, Any]],
 
 def evaluate_strategies(context: Dict[str, Any],
                         path: Optional[Path] = None) -> List[StrategySignal]:
-    """评估所有 active 策略。单个策略失败只降级该策略，不影响其余。"""
+    """评估所有 active 策略。单个策略失败只降级该策略，不影响其余。
+
+    P2 注册合一：system: true 的条目（user_rules/concentration/e2_timing）
+    在此跳过——它们是重上下文系统策略（消费持仓快照/规则），由
+    portfolio_compositor 编排内经 strategies/adapters.py 适配，不走本
+    轻上下文评估入口。
+    """
     signals: List[StrategySignal] = []
     for entry in load_strategies(path):
         if str(entry.get("status") or "").lower() != "active":
+            continue
+        if entry.get("system"):
             continue
         evaluator = _EVALUATORS.get(str(entry.get("evaluator") or ""))
         if evaluator is None:
@@ -190,3 +223,17 @@ def evaluate_strategies(context: Dict[str, Any],
             logger.warning("[strategy-engine] 策略 %s 评估失败: %r",
                            entry.get("id"), exc)
     return signals
+
+
+def evaluate_strategy_outputs(context: Dict[str, Any],
+                              path: Optional[Path] = None):
+    """P2 统一契约出口：轻上下文策略 → List[StrategyOutput]。
+
+    StrategySignal 是渲染投影（决策包现金块）；StrategyOutput 是
+    组合器消费的内部统一契约（v4.2 B2）。系统策略（user_rules 等）
+    不在此列——由 adapters.decisions_to_outputs 从编排产物组装。
+    """
+    from src.services.strategies.adapters import signal_to_output
+
+    return [signal_to_output(s)
+            for s in evaluate_strategies(context, path)]

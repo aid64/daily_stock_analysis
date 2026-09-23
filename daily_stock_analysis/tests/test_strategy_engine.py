@@ -30,13 +30,33 @@ class TestRegistry:
         entries = load_strategies(_REPO_YAML)
         active = {e["id"] for e in entries if e.get("status") == "active"}
         registered = {e["id"] for e in entries if e.get("status") == "registered"}
-        # 免回测两类 active；中风险全部 registered（不产生信号）
-        assert active == {"reverse_repo_window", "cb_new_issue"}
+        # P2 注册合一：active = 免回测两类现金策略 + 3 个系统策略
+        # （user_rules/concentration/e2_timing——身份登记，编排走 compositor）
+        assert active == {"reverse_repo_window", "cb_new_issue",
+                          "user_rules", "concentration", "e2_timing"}
         assert "etf_momentum_rotation4" in registered
+        # 系统条目必须带 system 标记（engine 据此跳过轻上下文评估）
+        system_ids = {e["id"] for e in entries if e.get("system")}
+        assert system_ids == {"user_rules", "concentration", "e2_timing"}
 
     def test_missing_file_degrades_to_empty(self):
         # 不依赖 pytest tmp_path（本机存在权限问题），用确定不存在的路径
         assert load_strategies(Path("N:/nonexistent/strategies.yaml")) == []
+
+    def test_buy_side_defaults_observe(self):
+        """P2-7 买侧授权：真实注册表默认 observe（只读，不落单）。"""
+        from src.services.strategy_engine import load_buy_side
+
+        bs = load_buy_side(_REPO_YAML)
+        assert bs["intent"] == "observe"
+        assert bs["universe"] == []
+
+    def test_buy_side_missing_file_fail_closed(self):
+        """buy_side 读取失败 fail-closed 到 observe（买侧永不意外放开）。"""
+        from src.services.strategy_engine import load_buy_side
+
+        bs = load_buy_side(Path("N:/nonexistent/strategies.yaml"))
+        assert bs["intent"] == "observe"
 
 
 def _fake_calendar(trading_days):
