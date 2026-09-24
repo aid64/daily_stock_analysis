@@ -51,7 +51,7 @@
 
 - 产品面过宽而非死代码（全量引用计数，零僵尸服务）。
 - 削减目标合计约 3.5 万行：配置三件套 14,755 行 / Agent 例行模式 ~11,000 行 / screening ~7,000 行 / run_diagnostics+run_flow ~3,000 行 / 桌面端+15 渠道+三语（自用各留一条）。
-- 孤儿三件：`position_sizer`（待接线）、`bot/platforms/discord.py`（实现+测试齐全但未注册，用户用飞书→冻结）、`src/agent/web_intent_*.py`（1,192 行半孤儿，resolver 从未落地→保留待第 ⑤ 阶段复用）。
+- 孤儿三件：`position_sizer`（P2 已接为买入预算闸门）、~~`bot/platforms/discord.py`~~（✅ 2026-09-24 P5 已删除，从未注册使用）、`src/agent/web_intent_*.py`（1,192 行半孤儿，resolver 从未落地→保留待第 ⑤ 阶段复用）。
 - ~~确认废弃~~（✅ 2026-09-06 已执行）：`quant_research/trade/broker.py` 的 TDXJKBroker、`trade/pipeline.py` LiveMWU、`scripts/run_live.py` 已移除（archive/ 无跟踪文件，跳过）；回溯见 tag pre-restructure-v1。
 
 上游关系：ZhuLinsen/daily_stock_analysis 活跃（v3.31.0 后仍每周合 PR），方向为 LLM 分析深化，与本终局重叠度低。**先砍后接会让每次上游合并变成冲突地狱**——这是"布线在前、砍除在后"排序的根本原因。

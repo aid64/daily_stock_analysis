@@ -72,7 +72,6 @@ from datetime import date, datetime, timezone, timedelta
 from src.webui_frontend import prepare_webui_frontend_assets
 from src.config import get_config, Config
 from src.logging_config import setup_logging
-from src.brokers.futu.portfolio import FutuPortfolioError
 from data_provider.base import canonical_stock_code
 from src.services.stock_list_parser import (
     AnalysisTarget,
@@ -286,7 +285,6 @@ def parse_arguments() -> argparse.Namespace:
   python main.py --dry-run          # 仅获取数据，不进行 AI 分析
   python main.py --stocks 600519,000001  # 指定分析特定股票
   python main.py --stocks sh000016,000300.CSI,930955.CSI  # 指定分析已登记指数（sh/sz 前缀或 .CSI alias）
-  python main.py --portfolio futu   # 使用 Futu 真实正股持仓（覆盖 --stocks）
   python main.py --no-notify        # 不发送推送通知
   python main.py --check-notify     # 检查通知配置，不发送通知
   python main.py --single-notify    # 启用单股推送模式（每分析完一只立即推送）
@@ -311,13 +309,6 @@ def parse_arguments() -> argparse.Namespace:
         '--stocks',
         type=str,
         help='指定要分析的股票代码，逗号分隔（覆盖配置文件）；支持已登记指数：sh/sz 前缀（如 sh000016）或 .CSI alias（如 000300.CSI、930955.CSI）'
-    )
-
-    parser.add_argument(
-        '--portfolio',
-        type=str.lower,
-        choices=('futu',),
-        help='使用券商真实持仓作为股票列表；当前支持 futu，并覆盖 --stocks/STOCK_LIST'
     )
 
     parser.add_argument(
@@ -551,22 +542,16 @@ def _refresh_stock_index_cache_for_analysis(config: Config) -> None:
 
 
 def _resolve_portfolio_stock_codes(args: argparse.Namespace) -> Optional[List[str]]:
-    """Resolve an optional broker portfolio into the analysis stock list."""
+    """Resolve an optional broker portfolio into the analysis stock list.
+
+    P5：Futu 券商持仓导入已移除（港股券商，与 A 股账户主线无关）。保留
+    此入口只为兼容可能仍传 portfolio 的 API 调用方——非空 portfolio 一律
+    报错，不再静默支持任何券商。
+    """
     portfolio = str(getattr(args, "portfolio", "") or "").strip().lower()
     if not portfolio:
         return None
-    if portfolio != "futu":  # argparse prevents this for CLI callers; keep API callers safe.
-        raise ValueError(f"不支持的 portfolio: {portfolio}")
-
-    from src.brokers.futu.portfolio import load_futu_stock_codes
-
-    stock_codes = [
-        canonical_stock_code(code)
-        for code in load_futu_stock_codes()
-        if (code or "").strip()
-    ]
-    logger.info("portfolio=futu 已覆盖 stocks/STOCK_LIST，使用 %d 只真实正股", len(stock_codes))
-    return stock_codes
+    raise ValueError(f"不支持的 portfolio: {portfolio}（券商持仓导入已移除）")
 
 
 def _prime_daily_market_context(
@@ -742,27 +727,19 @@ def run_full_analysis(
     """
     执行完整的分析流程（个股 + 大盘复盘）
 
-    这是定时任务调用的主函数。Futu 持仓解析失败始终传播给调用方；
-    ``raise_errors`` 只控制持仓解析成功后的分析流程异常语义。
+    这是定时任务调用的主函数。portfolio 参数非法时始终传播给调用方；
+    ``raise_errors`` 只控制参数解析成功后的分析流程异常语义。
     ``analysis_targets`` 与 ``stock_codes`` 对齐，携带结构化分析目标
     （指数目标用于推导 market=cn 与能力矩阵）。
     """
-    # Portfolio resolution is its own CLI contract boundary. A broker import
-    # failure must reach the one-shot caller, while all later work keeps the
+    # Portfolio resolution is its own CLI contract boundary. An unsupported
+    # portfolio must reach the one-shot caller, while all later work keeps the
     # existing run_full_analysis return-value semantics.
-    portfolio_stock_codes = _resolve_portfolio_stock_codes(args)
-    portfolio_is_empty = portfolio_stock_codes == []
+    _resolve_portfolio_stock_codes(args)
     market_review_requested = (
         getattr(config, 'market_review_enabled', False)
         and not getattr(args, 'no_market_review', False)
     )
-    if portfolio_is_empty and not market_review_requested:
-        logger.info(
-            "真实账户中无符合条件的 Futu 持仓，"
-            "本轮跳过个股分析和大盘复盘。"
-        )
-        _run_auto_backtest(config)
-        return True
 
     # Import pipeline modules outside the broad try/except so that import-time
     # failures propagate to the caller instead of being silently swallowed.
@@ -778,15 +755,12 @@ def run_full_analysis(
 
     try:
         _refresh_stock_index_cache_for_analysis(config)
-        if portfolio_stock_codes is not None:
-            stock_codes = portfolio_stock_codes
-            analysis_targets = None
 
         # Issue #529: Hot-reload STOCK_LIST from .env on each scheduled run
-        if stock_codes is None and portfolio_stock_codes is None:
+        if stock_codes is None:
             config.refresh_stock_list()
 
-        using_config_stock_list = stock_codes is None and portfolio_stock_codes is None
+        using_config_stock_list = stock_codes is None
         effective_codes = stock_codes if stock_codes is not None else config.stock_list
         # Fail fast on an empty persisted watchlist before trading-day filtering.
         # Otherwise should_skip=True would mask the configuration error as success.
@@ -807,16 +781,10 @@ def run_full_analysis(
             config, args, effective_codes
         )
         if should_skip:
-            if portfolio_is_empty:
-                logger.info(
-                    "真实账户中无符合条件的 Futu 持仓，"
-                    "本轮无需执行个股分析或大盘复盘，跳过执行。"
-                )
-            else:
-                logger.info(
-                    "今日所有相关市场均为非交易日，跳过执行。"
-                    "可使用 --force-run 强制执行。"
-                )
+            logger.info(
+                "今日所有相关市场均为非交易日，跳过执行。"
+                "可使用 --force-run 强制执行。"
+            )
             return True
         if set(filtered_codes) != set(effective_codes):
             skipped = set(effective_codes) - set(filtered_codes)
@@ -834,9 +802,6 @@ def run_full_analysis(
                         break
             analysis_targets = filtered_targets
         stock_codes = filtered_codes
-        skip_futu_stock_analysis = (
-            portfolio_stock_codes is not None and not stock_codes
-        )
 
         # 命令行参数 --single-notify 覆盖配置（#55）
         if getattr(args, 'single_notify', False):
@@ -938,21 +903,14 @@ def run_full_analysis(
             )
 
         # 1. 运行个股分析
-        if skip_futu_stock_analysis:
-            if portfolio_is_empty:
-                logger.info("真实账户中无符合条件的 Futu 持仓，跳过个股分析。")
-            else:
-                logger.info("Futu 持仓经交易日过滤后无可分析股票，跳过个股分析。")
-            results = []
-        else:
-            results = pipeline.run(
-                stock_codes=stock_codes,
-                dry_run=args.dry_run,
-                send_notification=not args.no_notify,
-                merge_notification=merge_notification,
-                current_time=analysis_reference_time,
-                analysis_targets=analysis_targets,
-            )
+        results = pipeline.run(
+            stock_codes=stock_codes,
+            dry_run=args.dry_run,
+            send_notification=not args.no_notify,
+            merge_notification=merge_notification,
+            current_time=analysis_reference_time,
+            analysis_targets=analysis_targets,
+        )
 
         if should_use_daily_market_context and not market_context_summary:
             (
@@ -1070,7 +1028,6 @@ def run_full_analysis(
         expected_stock_report = (
             not getattr(args, "dry_run", False)
             and bool(stock_codes)
-            and not skip_futu_stock_analysis
         )
         deferred_failure_result = None
         if expected_stock_report and results and not getattr(
@@ -1530,8 +1487,6 @@ def main() -> int:
         ]
         analysis_targets = targets
         logger.info(f"使用命令行指定的股票列表: {stock_codes}")
-        if getattr(args, "portfolio", None):
-            logger.info("同时指定了 --portfolio；实际分析时 portfolio 将覆盖 --stocks")
 
     # === 处理 --webui / --webui-only 参数，映射到 --serve / --serve-only ===
     if args.webui:
@@ -1592,8 +1547,6 @@ def main() -> int:
             "no_context_snapshot": bool(getattr(args, "no_context_snapshot", False)),
             "workers": getattr(args, "workers", None),
         }
-        if getattr(args, "portfolio", None):
-            runtime_scheduler_args["portfolio"] = args.portfolio
         os.environ[RUNTIME_SCHEDULER_ARGS_ENV] = json.dumps(runtime_scheduler_args)
         if not prepare_webui_frontend_assets():
             logger.warning("前端静态资源未就绪，继续启动 FastAPI 服务（Web 页面可能不可用）")
@@ -1836,11 +1789,12 @@ def main() -> int:
                 analysis_ok = _run_analysis_with_runtime_scheduler_lock(
                     config, args, stock_codes, analysis_targets
                 )
-            except FutuPortfolioError as exc:
+            except ValueError as exc:
+                # portfolio 参数非法（券商导入已移除）——非 serve 模式向上抛
                 if not start_serve:
                     raise
                 logger.exception(
-                    "Futu 持仓导入失败，Web/API 服务继续运行: %s",
+                    "持仓参数解析失败，Web/API 服务继续运行: %s",
                     exc,
                 )
             else:

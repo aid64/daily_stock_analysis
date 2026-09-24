@@ -52,16 +52,17 @@ class TestSnapshotBuild:
             "pit_end": "2026-09-11", "cross_section_bonds": 283,
             "pit_sha256": "abc"})
         fake_sheet = type("S", (), {
-            "sheet_id": "s1", "status": "pending", "orders": [], "holds": [],
-            "fills": {}})()
+            "sheet_id": "s1", "trade_date": date.today().isoformat(),
+            "created_at": "", "status": "pending", "orders": [], "holds": [],
+            "fills": {}, "no_action_reason": None})()
         import src.services.order_sheet_service as oss
         monkeypatch.setattr(oss, "load_latest_sheet", lambda d: fake_sheet)
         snap = build_snapshot()
 
         assert snap["trade_date"] == date.today().isoformat()
         assert snap["snapshot_id"].startswith(snap["trade_date"])
-        for key in ("plan", "portfolio", "order_sheet", "data_versions",
-                    "quality"):
+        for key in ("plan", "portfolio", "order_sheet", "account_decision",
+                    "data_versions", "quality"):
             assert key in snap
         assert snap["data_versions"]["pit_sha256"] == "abc"
 

@@ -45,7 +45,7 @@
 | `src/agent`（agents 1135 / skills 3476 / tools 2852 / strategies 34） | 21534 | **例行模式冻结**（保留 bot 交互入口，砍多智能体例行链路） |
 | `src/services/screening` | 12379 | 冻结（配置 off） |
 | `src/notification_sender`（14 个 sender） | 3904 | **砍 13 留 1**（仅飞书） |
-| `src/brokers/futu` | — | **冻结/评估删除**（港股券商，与 A 股账户主线无关） |
+| `src/brokers/futu` | — | **已删除**（P5，港股券商，与 A 股账户主线无关；`data_provider/futu_fetcher` 数据源保留） |
 | `apps/dsa-desktop` | — | **冻结不删** |
 
 ### 事实层归属（实测结论）
@@ -168,14 +168,15 @@ def compose(strategy_outputs: list[StrategyOutput],
     # 5. 输出 RebalanceOrders → order_sheet 状态机（现有，不变）
 ```
 
-### P3：验证闭环（quant 裁决 + dsa 成绩单）
-- `strategy_intake.py`（register/replicate/promote/demote），replicate 调 quant 两段式引擎
-- **裁决报告契约（批评#4——裁决所的输入也要有契约）**：`strategy_intake` 消费的 quant 回测报告 JSON 必须带固定 schema：`{schema_version, strategy_id, pit_end, data_as_of, generated_at, oos_window, metrics{...}, verdict}`。dsa 侧准入前校验：**数据新鲜度门**——`data_as_of` 滞后超过阈值（如 >N 个交易日）时**拒绝 promote 并告警**（不静默用过期数据裁决）；schema_version 不匹配拒绝。E2 分位在生产已滞后两天，正是此门要拦的场景。
-- **免验证策略熔断（批评#6）**：逆回购/打新虽免回测 active，但必须挂降级触发器——打新：首日收益转负/破发率超阈值/弃购新规/监管变化 → 自动降 dormant + 告警；且打新的"执行日卖出"与组合器 cadence 排他规则显式定义（上市首日卖出不被再平衡覆盖）。**免验证 ≠ 免监控**。
-- 每条建议 → DecisionSignal（source_type=strategy）；autostop 挂管线
-- **promote/demote 阈值定义（批评#14）**：autostop 存在不等于阈值存在——明确"连续 N 期跑输基准 X%"降级、"命中率低于基准+样本量足"降级；所有命中率指标**必须带基准/shadow 对照**（买入建议执行率在用户零执行时是虚荣指标，改为"建议 vs 影子账本跟踪误差"这类有对照的指标）
-- 第一个走全程：ETF 四资产轮动
+### P3：验证闭环（quant 裁决 + dsa 成绩单）◐ 部分完成
+- `strategy_intake.py`（register/replicate/promote/demote），replicate 调 quant 两段式引擎 ✅（dsa 侧管道；replicate 的 quant 引擎调用属 quant 侧，走文件契约）
+- **裁决报告契约（批评#4——裁决所的输入也要有契约）**：`strategy_intake` 消费的 quant 回测报告 JSON 必须带固定 schema：`{schema_version, strategy_id, pit_end, data_as_of, generated_at, oos_window, metrics{...}, verdict}`。dsa 侧准入前校验：**数据新鲜度门**——`data_as_of` 滞后超过阈值（如 >N 个交易日）时**拒绝 promote 并告警**（不静默用过期数据裁决）；schema_version 不匹配拒绝。E2 分位在生产已滞后两天，正是此门要拦的场景。✅ 已实现（schema=strategy_intake_verdict_v1 + 新鲜度门 + fail-closed 校验）
+- **免验证策略熔断（批评#6）**：逆回购/打新虽免回测 active，但必须挂降级触发器——打新：首日收益转负/破发率超阈值/弃购新规/监管变化 → 自动降 dormant + 告警；且打新的"执行日卖出"与组合器 cadence 排他规则显式定义（上市首日卖出不被再平衡覆盖）。**免验证 ≠ 免监控**。⏳ 未做（打新破发率触发器需外部破发数据源，留待有数据后接）
+- 每条建议 → DecisionSignal（source_type=strategy）；autostop 挂管线 ✅（source_type 加 strategy；autostop 已挂每日管线 3.45 步）
+- **promote/demote 阈值定义（批评#14）**：autostop 存在不等于阈值存在——明确"连续 N 期跑输基准 X%"降级、"命中率低于基准+样本量足"降级；所有命中率指标**必须带基准/shadow 对照**（买入建议执行率在用户零执行时是虚荣指标，改为"建议 vs 影子账本跟踪误差"这类有对照的指标）◐ 跑输 X% 幅度门已实现；命中率已诚实标注为绝对口径（非基准 alpha），完整 shadow 对照度量留待首笔真实执行积累样本
+- 第一个走全程：ETF 四资产轮动 ⏳ 待 quant 侧产出该策略裁决报告
 验收：策略命中率**相对基准**可见；数据滞后能拦截 promote；免验证策略有熔断；社区策略→active 全程可审计。回滚：autostop 可关、intake 报告校验可放宽。
+> **落地**（见 CHANGELOG）：strategy_intake（schema 校验 + 数据新鲜度门拦截 promote + registered→shadow→active 状态机，apply 落盘 strategies.yaml）+ 挂每日管线 process_intake_dir；DecisionSignal 加 strategy source_type；autostop 挂管线 + 跑输幅度门 + 暂停同步注册表 dormant；命中率诚实标注绝对口径。22 新测试 + outcome/signal 回归 100 passed。**未做**：打新破发率熔断（需外部破发数据）、ETF 全程（需 quant 裁决报告）——依赖 quant 侧产物，非 dsa 侧可独立完成。
 
 ### P4：通知事件化 + 告警联动 + 非交易日门（提前到 P2 之后，批评#8/#9）
 **为何前移**：告警与决策包"两套话术"是用户已被烦到的现实问题（批评#8），不应排在最后；且"告警触发组合器增量重估"与 P2 组合器耦合，紧邻 P2 做避免集成两遍。
@@ -185,11 +186,12 @@ def compose(strategy_outputs: list[StrategyOutput],
 - ai_note 升级为针对当前决策的实时解释
 验收：出站消息统一为事件；告警与决策不打架；非交易日不发时效性挂单指令；ai_note 不过时。回滚：事件模型独立提交可 revert。
 
-### P4.5：决策包归档契约（批评#10——归档无人认领）
+### P4.5：决策包归档契约（批评#10——归档无人认领）✅ 已完成
 P1 的"决策包全文存档"只是测试对比基线，不是归档契约。补一个正式归档：
-- 决策快照除 order_sheet 外，**破位诊断/判决/依据披露脚注一并进防篡改归档**（复用现有 content_hash 机制）
-- `/操作单 历史` 回放的是**当天的完整判断**，不只是订单
+- 决策快照除 order_sheet 外，**破位诊断/判决/依据披露脚注一并进防篡改归档**（复用现有 content_hash 机制）✅
+- `/操作单 历史` 回放的是**当天的完整判断**，不只是订单 ✅
 验收：任取一天能回放出"系统当天为什么这么判"，且 hash 可校验未被篡改。回滚：归档字段增量，可空置。
+> **落地**（见 CHANGELOG）：归档改为捕获**当时生成的原判**（decision+rendered_text，execution_mode 标 generated/reused/halted）而非事后重算；content_hash 升全长 64 位 + verify_snapshot 读回校验；历史命令回放判决/破位/现金结论并标篡改；normalize_archive_day 拒绝路径穿越；落盘原子替换 + 写锁串行化。18 新测试，回归 52 passed。
 
 ### P5：模块增删收敛（第四节总表执行，批评#11）
 deprecate→删。每砍一类：.env.example 同步、CHANGELOG、全仓 grep 零残留、测试基线不降。
@@ -201,11 +203,11 @@ deprecate→删。每砍一类：.env.example 同步、CHANGELOG、全仓 grep �
 ## 四、模块增删总表（用户授权"可删可增"）
 
 ### 删除（deprecate 一版后物理删）
-| 模块 | 行数 | 理由 | 风险 |
-| --- | --- | --- | --- |
-| 13 个 notification sender（留飞书） | ~3600 | 生产只用飞书 | 低（路由表同步简化） |
-| bot 平台 dingtalk×2 + discord | — | 未注册使用 | 低 |
-| `src/brokers/futu` | — | 港股券商，与 A 股账户主线无关 | 低（确认无引用后删） |
+| 模块 | 行数 | 理由 | 风险 | 状态 |
+| --- | --- | --- | --- | --- |
+| 13 个 notification sender（留飞书） | ~3600 | 生产只用飞书 | 低（路由表同步简化） | 待做（高耦合，延后） |
+| bot 平台 discord | — | 未注册使用（`ALL_PLATFORMS` 仅 dingtalk） | 低 | ✅ 已删（P5） |
+| `src/brokers/futu` | — | 港股券商，与 A 股账户主线无关 | 低（确认无引用后删） | ✅ 已删（P5，`data_provider/futu_fetcher` 数据源保留） |
 
 ### 冻结（配置 off/保留代码，不投入不删）
 | 模块 | 行数 | 理由 |
@@ -242,10 +244,10 @@ deprecate→删。每砍一类：.env.example 同步、CHANGELOG、全仓 grep �
 | P1 ✅ (A类拆分) | A类逐字节一致（已达）；"零改主干接入"下移 P2 | 门面仅剩契约+渲染；黄金基线 29 passed | revert 拆分 commit |
 | P1.5 🆕 | 集中度对小账户不机械清仓（回放diff）；≥1笔真实成交落库+`/对比`非空；决策包标注驱动规则 | 首笔执行完成；跟踪误差成为有对照指标 | 集中度修正 revert；闭环纯增强 |
 | P2 | 现金给出操作 / 观察池有落单路径 / 组合器参数有对照 **/ StrategyOutput 契约+注册表合一** | 买侧默认形态可交付；**新策略零改主干接入成立** | 退回观察池只读 |
-| P3 | 命中率**相对基准**可见 / 数据滞后拦截 promote | 劣化按阈值自动 dormant | autostop 可关 |
+| P3 ◐ | 命中率**相对基准**可见 / 数据滞后拦截 promote | 劣化按阈值自动 dormant | autostop 可关 |
 | P4 | 出站统一事件 / 非交易日不发时效指令 | 告警不重复；两套话术消除 | 事件模型独立提交 |
-| P4.5 | 判断可回放且 hash 可校验 | `/操作单 历史` 回放完整判断 | 归档字段可空置 |
-| P5 | 零残留 grep | **活跃代码量**下降（删除+冻结移出主CI） | deprecate 限期内可恢复 |
+| P4.5 ✅ | 判断可回放且 hash 可校验 | `/操作单 历史` 回放完整判断 | 归档字段可空置 |
+| P5 ◐ | 零残留 grep | **活跃代码量**下降（删除+冻结移出主CI） | deprecate 限期内可恢复 |
 
 ## 六、顺序约束（v4.2 调整）
 ```

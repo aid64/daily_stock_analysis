@@ -1292,6 +1292,9 @@ class Config:
     strategy_autostop_enabled: bool = True
     strategy_autostop_drawdown_threshold_pct: float = 20.0
     strategy_autostop_underperform_periods: int = 5
+    # P3：跑输幅度门——一期只有跑输基准超过此百分点才计入连续跑输计数
+    # （批评#14："连续 N 期跑输基准 X%"，避免跑输 0.01% 也累计触发降级）
+    strategy_autostop_underperform_margin_pct: float = 1.0
     strategy_autostop_manual_resume_required: bool = True
     strategy_autostop_drawdown_recover_pct: float = 10.0
     strategy_autostop_underperform_recover_periods: int = 2
@@ -2444,6 +2447,12 @@ class Config:
                 5,
                 field_name='STRATEGY_AUTOSTOP_UNDERPERFORM_PERIODS',
                 minimum=1,
+            ),
+            strategy_autostop_underperform_margin_pct=parse_env_float(
+                os.getenv('STRATEGY_AUTOSTOP_UNDERPERFORM_MARGIN_PCT'),
+                1.0,
+                field_name='STRATEGY_AUTOSTOP_UNDERPERFORM_MARGIN_PCT',
+                minimum=0.0,
             ),
             strategy_autostop_manual_resume_required=parse_env_bool(
                 os.getenv('STRATEGY_AUTOSTOP_MANUAL_RESUME_REQUIRED'), default=True

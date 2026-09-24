@@ -20,6 +20,27 @@ registered（登记：规则+来源写清）
 任意阶段可 → rejected（否决，记录负结果）/ dormant（休眠，策略衰减）
 ```
 
+**准入裁决自动化（P3，`strategy_intake.py`）**：状态推进不再纯手工改 yaml——
+quant 侧把回测裁决报告 JSON（schema=`strategy_intake_verdict_v1`，含
+`data_as_of/verdict/metrics/oos_window`）写到 `quant_research/output/strategy_intake/`，
+每日管线 `process_intake_dir` 消费并按规则推进：
+
+- `verdict=promote` → 先过**数据新鲜度门**（`data_as_of` 滞后 > 阈值交易日
+  则拒绝并告警，不静默用过期数据裁决），再推进一档（registered→shadow→active，
+  不允许跳级）；
+- `verdict=reject` → rejected；`verdict=hold` → 保持现状；
+- schema_version 不匹配 / 缺字段 → fail-closed 拒绝。
+
+**运行态暂停与注册表打通**：`strategy_autostop` 触发暂停时把注册表对应策略
+状态同步为 `dormant`（此前 autostop 用独立表、与注册表脱节）。跑输判定加
+**幅度门**（`STRATEGY_AUTOSTOP_UNDERPERFORM_MARGIN_PCT`，默认 1%）——一期
+跑输基准需超过该百分点才计入连续跑输，避免跑输 0.01% 也累计触发降级。
+
+> **命中率口径诚实性（P3 批评#14）**：outcome 统计的 `hit_rate_pct` 是**绝对
+> 方向命中率**（带 `hit_rate_is_absolute` 标记），不是相对基准的策略 alpha；
+> 策略真实能力须结合影子跟踪误差（`shadow_metrics_service`）判读。买入执行率
+> 在用户零执行期是虚荣指标，不作为策略能力度量。
+
 两类策略免回测直接 active（规则性正期望/无风险利率，不属于"预测市场"）：
 - **国债逆回购**：无风险利率，不存在"验证收益"问题
 - **转债打新**：2026 年 45 只新债 32 只顶格 57.3%、首日均涨 52.95%（`bond_new_issue_calendar.py` 文档化数据）；信用申购零成本，下行被债底封住

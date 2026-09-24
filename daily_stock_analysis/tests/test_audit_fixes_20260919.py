@@ -100,7 +100,8 @@ class TestPartiallyFilledReuse:
             "src.services.account_decision_service.render_decision_package",
             lambda decision, sheet=None: "PKG")
         monkeypatch.setattr(cmd, "_cb_research_appendix", lambda: "")
-        monkeypatch.setattr(cmd, "_refresh_snapshot_quietly", lambda: None)
+        monkeypatch.setattr(cmd, "_refresh_snapshot_quietly",
+                            lambda *a, **k: None)
         # P1.5：首笔引导不连真实库（隔离纪律）
         monkeypatch.setattr(cmd, "_first_fill_hint", lambda service: "")
 

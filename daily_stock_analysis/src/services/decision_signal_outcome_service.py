@@ -867,6 +867,11 @@ class DecisionSignalOutcomeService:
             "miss": miss,
             "neutral": neutral,
             "hit_rate_pct": round(hit / denominator * 100, 2) if denominator else None,
+            # P3 批评#14：命中率是**绝对**方向命中率，不是相对基准的策略能力。
+            # 显式标注避免"绝对命中率冒充 alpha"——真正的技能度量需 shadow/基准
+            # 对照（模拟 vs 真实跟踪误差见 shadow_metrics_service）。
+            "hit_rate_is_absolute": True,
+            "hit_rate_caveat": "绝对方向命中率，非相对基准；策略能力须结合影子跟踪误差判读",
             "avg_stock_return_pct": round(sum(returns) / len(returns), 4) if returns else None,
             "unable_reasons": dict(sorted(unable_reasons.items())),
         }

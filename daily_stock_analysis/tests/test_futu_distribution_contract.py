@@ -60,7 +60,6 @@ def test_futu_sdk_is_collected_and_probed_in_desktop_backends() -> None:
 
     assert "futu_packaging:" in filters
     assert "requirements.txt" in filters
-    assert "src/brokers/futu/**" in filters
     assert "scripts/build-backend-macos.sh" in filters
     assert "scripts/build-backend.ps1" in filters
 

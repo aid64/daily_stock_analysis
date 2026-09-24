@@ -459,7 +459,8 @@ class AlertWorker:
             f"{target} 当前值 {current}，已触发 {len(grouped)} 条 {alert_type}/{direction} 规则。\n"
             f"阈值：{', '.join(thresholds) or '见规则审计'}\n"
             f"触发：{'；'.join(dict.fromkeys(reasons))}\n"
-            "建议：结合最新组合决策包人工确认；本消息仅预警，不自动下单。"
+            "建议：本消息仅预警，不给操作口径——发 /操作单 看今日待办"
+            "（同一事件的卖出/减仓由决策包统一裁决，避免两套话术）。"
         )
         kind = self._alert_kind_label(alert_type, direction)
         alert_text = NotificationBuilder.build_simple_alert(

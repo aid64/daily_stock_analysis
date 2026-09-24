@@ -19,7 +19,6 @@ ensure_litellm_stub()
 
 _ENV_BEFORE_MAIN_IMPORT = dict(os.environ)
 import main
-from src.brokers.futu.portfolio import FutuPortfolioError
 from src.config import Config
 from src.services.stock_list_parser import ParseStatus, parse_analysis_target
 
@@ -91,7 +90,6 @@ class MainScheduleModeTestCase(unittest.TestCase):
         defaults = {
             "debug": False,
             "stocks": None,
-            "portfolio": None,
             "webui": False,
             "webui_only": False,
             "serve": False,
@@ -543,71 +541,19 @@ class MainScheduleModeTestCase(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         run_with_lock.assert_called_once_with(config, args, None, None)
 
-    def test_standalone_futu_portfolio_failure_returns_nonzero(self) -> None:
+    def test_standalone_unsupported_portfolio_returns_nonzero(self) -> None:
         args = self._make_args(portfolio="futu")
         config = self._make_config(run_immediately=True)
-        error = FutuPortfolioError("OpenD unavailable")
 
         with (
             patch("main.parse_arguments", return_value=args),
             patch("main.get_config", return_value=config),
             patch("main.setup_logging"),
             patch("main._refresh_stock_index_cache_for_analysis"),
-            patch(
-                "src.brokers.futu.portfolio.load_futu_stock_codes",
-                side_effect=error,
-            ) as loader,
         ):
             exit_code = main.main()
 
         self.assertEqual(exit_code, 1)
-        loader.assert_called_once_with()
-
-    def test_standalone_futu_portfolio_success_returns_zero(self) -> None:
-        args = self._make_args(portfolio="futu")
-        config = self._make_config(run_immediately=True)
-
-        with (
-            patch("main.parse_arguments", return_value=args),
-            patch("main.get_config", return_value=config),
-            patch("main.setup_logging"),
-            patch("main._refresh_stock_index_cache_for_analysis"),
-            patch(
-                "src.brokers.futu.portfolio.load_futu_stock_codes",
-                return_value=["AAPL"],
-            ) as loader,
-            patch(
-                "main._compute_trading_day_filter",
-                return_value=([], "", True),
-            ),
-        ):
-            exit_code = main.main()
-
-        self.assertEqual(exit_code, 0)
-        loader.assert_called_once_with()
-
-    def test_standalone_futu_downstream_failure_keeps_existing_exit_semantics(self) -> None:
-        args = self._make_args(portfolio="futu")
-        config = self._make_config(run_immediately=True)
-
-        with (
-            patch("main.parse_arguments", return_value=args),
-            patch("main.get_config", return_value=config),
-            patch("main.setup_logging"),
-            patch("main._refresh_stock_index_cache_for_analysis"),
-            patch(
-                "src.brokers.futu.portfolio.load_futu_stock_codes",
-                return_value=["AAPL"],
-            ) as loader,
-            patch(
-                "main._compute_trading_day_filter",
-                side_effect=RuntimeError("calendar unavailable"),
-            ),
-        ):
-            exit_code = main.main()
-
-        self.assertEqual(exit_code, 0)
-        loader.assert_called_once_with()
 
     def test_schedule_mode_reload_uses_latest_runtime_config(self) -> None:
         args = self._make_args(schedule=True)
@@ -973,7 +919,7 @@ class MainScheduleModeTestCase(unittest.TestCase):
         run_full_analysis.assert_not_called()
         start_bots.assert_called_once_with(config)
 
-    def test_serve_mode_keeps_running_after_futu_portfolio_load_failure(self) -> None:
+    def test_serve_mode_keeps_running_after_portfolio_error(self) -> None:
         args = self._make_args(
             serve=True,
             schedule=False,
@@ -982,7 +928,7 @@ class MainScheduleModeTestCase(unittest.TestCase):
             port=8000,
         )
         config = self._make_config(webui_enabled=False, run_immediately=True)
-        error = FutuPortfolioError("OpenD unavailable")
+        error = ValueError("不支持的 portfolio: futu（券商持仓导入已移除）")
 
         with (
             patch.dict(os.environ, {"GITHUB_ACTIONS": "false"}, clear=False),
@@ -1004,7 +950,7 @@ class MainScheduleModeTestCase(unittest.TestCase):
         run_with_lock.assert_called_once_with(config, args, None, None)
         start_bots.assert_called_once_with(config)
         exception_log.assert_any_call(
-            "Futu 持仓导入失败，Web/API 服务继续运行: %s",
+            "持仓参数解析失败，Web/API 服务继续运行: %s",
             error,
         )
 

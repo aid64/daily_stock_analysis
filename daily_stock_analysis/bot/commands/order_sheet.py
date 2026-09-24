@@ -27,10 +27,21 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _render_history(day: str | None = None) -> str:
-    """/操作单 历史 [日期]：时间点查询（E2 终局）——读归档决策快照，
-    回放"系统那天说了什么"。快照不可变（content_hash 防篡改）。"""
-    from src.services.decision_snapshot_service import SNAPSHOT_DIR
+    """/操作单 历史 [日期]：时间点查询——读归档决策快照，回放"系统那天
+    为什么这么判"的完整判断（每票判决 + 破位诊断 + 现金/E2 + 依据），
+    并对每份归档用 content_hash 重算校验是否被篡改（P4.5）。"""
+    from src.services.decision_snapshot_service import (
+        SNAPSHOT_DIR, normalize_archive_day, verify_snapshot)
     from src.services.order_sheet_service import _unit_label
+
+    _VERDICT_LABEL = {"sell": "卖出", "reduce": "减仓", "hold": "持有"}
+
+    # 日期参数先过 ISO 校验（拒绝路径穿越/非法串），再谈归档是否存在
+    if day:
+        try:
+            day = normalize_archive_day(day)
+        except (ValueError, TypeError):
+            return f"日期格式非法：{day}（应为 YYYY-MM-DD）。"
 
     archive = SNAPSHOT_DIR / "archive"
     if not archive.exists():
@@ -45,6 +56,7 @@ def _render_history(day: str | None = None) -> str:
             (f.stem for f in archive.glob("????-??-??.json")), reverse=True)[:7]
         if not days_to_show:
             return "暂无历史归档快照。"
+
     lines: List[str] = ["—— 决策快照历史（content_hash 防篡改）——"]
     for d in days_to_show:
         try:
@@ -52,22 +64,36 @@ def _render_history(day: str | None = None) -> str:
         except (OSError, json.JSONDecodeError):
             lines.append(f"· {d}: 归档损坏")
             continue
+        if not isinstance(snap, dict):
+            lines.append(f"· {d}: 归档结构异常（非对象）")
+            continue
+
+        # 完整性校验：重算 hash 与存档比对（篡改/损坏可见）
+        tamper = "" if verify_snapshot(snap) else " ⚠已被篡改（hash 不符）"
         plan = snap.get("plan") or {}
         sheet = snap.get("order_sheet") or {}
+        decision = snap.get("account_decision") or {}
         quality = snap.get("quality") or {}
         orders = sheet.get("orders") or []
         blocked = plan.get("blocked") or {}
-        verdict = ("交易" if orders else
-                   "不交易/仅观察")
+        mode = snap.get("execution_mode") or ""
+        mode_tag = {"reused": "沿用", "halted": "暂停观察",
+                    "recompute": "事后重算"}.get(mode, "")
+        verdict = "交易" if orders else "不交易/仅观察"
         reasons = [r for r in (quality.get("warnings") or [])][:1]
-        line = (f"· {d} [{snap.get('snapshot_id', '?')[:15]}] "
+        head = (f"· {d} [{snap.get('snapshot_id', '?')[:15]}] "
                 f"结论:{verdict} · 订单 {len(orders)} 条 · "
                 f"PIT {plan.get('pit_end', '?')}")
+        if mode_tag:
+            head += f" · {mode_tag}"
         if blocked:
-            line += f" · 阻断 {len(blocked)}"
+            head += f" · 阻断 {len(blocked)}"
         if reasons:
-            line += f" · {reasons[0][:40]}"
-        lines.append(line)
+            head += f" · {reasons[0][:40]}"
+        head += tamper
+        lines.append(head)
+
+        # 订单腿（有具体限价的可执行动作）
         for o in orders:
             arrow = "买入" if o.get("direction") == "buy" else "卖出"
             lines.append(
@@ -75,15 +101,48 @@ def _render_history(day: str | None = None) -> str:
                 f"{_unit_label(o.get('symbol', ''))} @{o.get('limit_price')}")
         if not orders and sheet:
             lines.append("    （当日无订单）")
-    lines.append("\n校验：任意一天可用 content_hash 重算检测是否被改。")
+
+        # P4.5：完整判断回放——每票判决 + 破位诊断（不只是订单）
+        for p in decision.get("positions") or []:
+            vlabel = _VERDICT_LABEL.get(p.get("verdict"), p.get("verdict") or "?")
+            reason = str(p.get("reason") or "")[:60]
+            line = f"    〔判断〕{p.get('symbol')} {vlabel}"
+            if p.get("target_quantity") is not None:
+                line += f"→{p.get('target_quantity')}"
+            if reason:
+                line += f" · {reason}"
+            lines.append(line)
+            b = p.get("breach") or {}
+            if b:
+                lines.append(
+                    f"        破位：连续 {b.get('consecutive_days')} 日 · "
+                    f"{b.get('ma_structure')} · {b.get('volume_note')}"
+                    f" · {b.get('urgency')}")
+        # 现金/择时结论
+        if decision.get("cash_verdict"):
+            e2 = decision.get("e2_percentile")
+            e2_txt = f" · E2 {e2:.1%}" if isinstance(e2, (int, float)) else ""
+            lines.append(
+                f"    〔现金〕{decision.get('cash_verdict')}"
+                f" · {str(decision.get('cash_reason') or '')[:40]}{e2_txt}")
+        if decision.get("recomputed"):
+            lines.append("    （注：该档为事后重算，非当时生成的原判）")
+
+    lines.append("\n校验：每份归档已用 content_hash 重算比对；标⚠者正文与"
+                 "存档指纹不符（被改过或损坏）。")
     return "\n".join(lines)
 
 
-def _refresh_snapshot_quietly() -> None:
-    """刷新决策快照（异常安全：快照失败不影响操作单主流程）。"""
+def _refresh_snapshot_quietly(**kwargs) -> None:
+    """刷新决策快照（异常安全：快照失败不影响操作单主流程）。
+
+    P4.5：kwargs 透传给 refresh()→build_snapshot()——生成入口传入当时的
+    decision/rendered_text/order_sheet，使归档回放的是"系统当时说了什么"，
+    而非事后重算。无参调用（其它入口）保持重算降级。
+    """
     try:
         from src.services.decision_snapshot_service import refresh
-        refresh()
+        refresh(**kwargs)
     except Exception as exc:  # noqa: BLE001
         logger.warning("决策快照刷新失败: %r", exc)
 
@@ -207,7 +266,11 @@ def _build_sheet_text() -> str:
             text += first_fill_note
         if halt_note:
             text = halt_note + "\n" + text
-        _refresh_snapshot_quietly()
+        # P4.5：归档当时生成的判断与原文（沿用既有单据），不事后重算
+        _refresh_snapshot_quietly(decision=decision, rendered_text=text,
+                                  portfolio_snapshot=snapshot,
+                                  order_sheet=existing,
+                                  execution_mode="reused")
         return text
 
     if halt_note:
@@ -217,7 +280,10 @@ def _build_sheet_text() -> str:
         text = render_decision_package(decision, sheet=None)
         text = (halt_note + "\n（以下为只读决策视图，今日不产生可执行指令）\n"
                 + text + _cb_research_appendix())
-        _refresh_snapshot_quietly()
+        _refresh_snapshot_quietly(decision=decision, rendered_text=text,
+                                  portfolio_snapshot=snapshot,
+                                  order_sheet=None,
+                                  execution_mode="halted")
         return text
 
     # 现金闸门（R0 语义修正）：卖出/减仓不依赖现金，负现金只提示记账问题
@@ -244,7 +310,11 @@ def _build_sheet_text() -> str:
     text += _cb_research_appendix()
     if first_fill_note:
         text += first_fill_note
-    _refresh_snapshot_quietly()
+    # P4.5：归档"系统当时说了什么"——传当时的 decision/rendered_text/sheet
+    _refresh_snapshot_quietly(decision=decision, rendered_text=text,
+                              portfolio_snapshot=snapshot,
+                              order_sheet=sheet,
+                              execution_mode="generated")
     return text
 
 

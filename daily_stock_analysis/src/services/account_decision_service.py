@@ -158,7 +158,19 @@ def _latest_ai_notes(symbols: List[str], days: int = 3) -> Tuple[Dict[str, str],
                 as_of = f"（{str(created)[:10]}）"
             note = advice and f"{advice}——"
             snippet = summary.split("。")[0][:60]
-            notes[symbol] = f"{note}{snippet}{as_of}".strip()
+            # P4-5：ai_note 携带新鲜度——超过 days 窗口的分析明确标"陈旧"，
+            # 不再冒充当前观点（治"AI 层旧报告一句话、与当日决策矛盾"）。
+            stale_flag = ""
+            if created:
+                try:
+                    from datetime import date as _date
+                    age = (_date.today()
+                           - _date.fromisoformat(str(created)[:10])).days
+                    if age > days:
+                        stale_flag = f"[陈旧·{age}天前] "
+                except (ValueError, TypeError):
+                    pass
+            notes[symbol] = f"{stale_flag}{note}{snippet}{as_of}".strip()
     except Exception as exc:  # noqa: BLE001
         logger.warning("[account-decision] AI 解释读取失败: %r", exc)
     return notes, names
@@ -355,6 +367,14 @@ def render_decision_package(decision: AccountDecision,
         actions.append((s["action"], s["reason"][:52], "", ""))
 
     lines: List[str] = []
+    # 非交易日门（P4-4）：挂单边界（开盘放弃/14:50 撤单）只在交易日有意义。
+    # 非交易日渲染时在顶部加一行说明，并抑制每条动作的时效边界展示。
+    from src.services.notification_events import time_sensitive_suppressed_note
+    _nontrading_note = time_sensitive_suppressed_note("cn")
+    if _nontrading_note:
+        lines.append(_nontrading_note)
+        lines.append("")
+
     n = len(actions)
     if n:
         lines.append(f"【今日待办 {decision.trade_date}】{n} 个动作")
@@ -363,7 +383,7 @@ def render_decision_package(decision: AccountDecision,
             lines.append(f"{'①②③④⑤⑥⑦⑧⑨⑩'[i-1] if i <= 10 else i}. {title}")
             if reason:
                 lines.append(f"   依据：{reason}")
-            if boundary:
+            if boundary and not _nontrading_note:
                 lines.append(f"   边界：{boundary}")
             if fill_cmd:
                 lines.append(f"   成交后发送：{fill_cmd}")

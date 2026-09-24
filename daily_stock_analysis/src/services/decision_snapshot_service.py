@@ -14,13 +14,17 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
+import hmac
 import json
 import logging
 import os
 import uuid
-from datetime import date, timedelta
+from dataclasses import asdict
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from threading import RLock
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -29,6 +33,10 @@ SNAPSHOT_DIR = Path(__file__).resolve().parents[2] / "output" / "decision_snapsh
 _REPO_ROOT = SNAPSHOT_DIR.parent.parent.parent      # 仓库根（daily_stock_analysis 的上级）
 PIT_PARQUET = _REPO_ROOT / "quant_research" / "data" / "pit" / "convertible_pit.parquet"
 ARCHIVE_RETENTION_DAYS = 90
+SNAPSHOT_SCHEMA_VERSION = 2
+DECISION_CONTEXT_VERSION = 1
+_UNSET = object()
+_SNAPSHOT_WRITE_LOCK = RLock()
 STALE_PLAN_DAYS = 7  # 与 /健康 信号告警口径一致
 
 _FRESHNESS_STALE = (
@@ -133,9 +141,21 @@ def _is_portfolio_regression(
     return bool(prev_db and new_db and prev_db != new_db)
 
 
-def build_snapshot() -> Dict[str, Any]:
-    """构建快照（不落盘）。任何子块失败降级为 warnings，不抛异常。"""
-    from datetime import datetime
+def build_snapshot(
+    *,
+    decision: Any = None,
+    rendered_text: Optional[str] = None,
+    portfolio_snapshot: Optional[Dict[str, Any]] = None,
+    order_sheet: Any = _UNSET,
+    price_rules: Optional[Dict[str, Any]] = None,
+    execution_mode: str = "generated",
+) -> Dict[str, Any]:
+    """收集状态或捕获调用方已经生成的决策，不重新计算历史判断。"""
+    captured_at = datetime.now().isoformat(timespec="seconds")
+    trade_date = normalize_archive_day(
+        decision.trade_date if decision is not None else date.today().isoformat())
+    if decision is not None and (not isinstance(rendered_text, str) or not rendered_text.strip()):
+        raise ValueError("完整决策归档必须包含当时生成的原文")
 
     warnings: List[str] = []
     plan: Dict[str, Any] = {}
@@ -156,9 +176,11 @@ def build_snapshot() -> Dict[str, Any]:
 
     portfolio: Dict[str, Any] = {}
     try:
-        from src.services.portfolio_service import PortfolioService
-        snapshot = PortfolioService().get_portfolio_snapshot(
-            cost_method="fifo", include_realtime=False)
+        if portfolio_snapshot is None:
+            from src.services.portfolio_service import PortfolioService
+            portfolio_snapshot = PortfolioService().get_portfolio_snapshot(
+                cost_method="fifo", include_realtime=False)
+        snapshot = portfolio_snapshot
         positions = []
         for account in snapshot.get("accounts") or []:
             for position in account.get("positions") or []:
@@ -200,22 +222,21 @@ def build_snapshot() -> Dict[str, Any]:
 
     sheet_info: Dict[str, Any] = {}
     try:
-        from dataclasses import asdict
-
-        from src.services.order_sheet_service import load_latest_sheet
-        sheet = load_latest_sheet(date.today().isoformat())
-        if sheet is not None:
-            # OrderLine 是 frozen dataclass 但没有 to_dict——此前非空 orders
-            # 会在这里抛 AttributeError，导致快照永远丢失操作单块。
+        if order_sheet is _UNSET:
+            from src.services.order_sheet_service import load_latest_sheet
+            order_sheet = load_latest_sheet(trade_date)
+        if order_sheet is not None:
             sheet_info = {
-                "sheet_id": sheet.sheet_id,
-                "status": sheet.status,
-                "orders": [asdict(o) for o in sheet.orders],
-                "holds": [{"symbol": h.symbol, "quantity": h.quantity,
-                           "reason": h.reason} for h in sheet.holds],
-                "fills": sheet.fills,
+                "sheet_id": order_sheet.sheet_id,
+                "trade_date": getattr(order_sheet, "trade_date", trade_date),
+                "created_at": getattr(order_sheet, "created_at", ""),
+                "status": order_sheet.status,
+                "orders": [asdict(o) for o in order_sheet.orders],
+                "holds": [asdict(h) for h in order_sheet.holds],
+                "fills": copy.deepcopy(order_sheet.fills),
+                "no_action_reason": getattr(order_sheet, "no_action_reason", None),
             }
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         warnings.append(f"操作单读取失败: {exc}")
 
     data_version = _pit_data_version()
@@ -223,10 +244,31 @@ def build_snapshot() -> Dict[str, Any]:
     if data_version.get("pit_error"):
         warnings.append(f"PIT 数据版本读取失败: {data_version['pit_error'][:80]}")
 
-    return {
-        "snapshot_id": f"{date.today().isoformat()}_{uuid.uuid4().hex[:8]}",
-        "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "trade_date": date.today().isoformat(),
+    # P4.5 决策包归档契约：优先归档**调用方当时生成**的决策（decision +
+    # rendered_text），使 /操作单 历史 回放的是"系统当天说了什么"的原样，
+    # 而不是事后重算——盘中价格/规则/账户变化后重算会与用户收到的指令不一致。
+    # 仅在无 decision（现金/恢复交易/管线等无参 refresh()）时才降级重算。
+    account_decision: Dict[str, Any] = {}
+    try:
+        if decision is not None:
+            account_decision = _capture_decision(decision)
+        else:
+            from src.services.account_decision_service import (
+                build_account_decision, load_price_rules)
+            _rules = price_rules if price_rules is not None else load_price_rules()
+            _decision = build_account_decision(
+                snapshot=portfolio_snapshot, rules=_rules)
+            account_decision = _capture_decision(_decision)
+            account_decision["recomputed"] = True
+    except Exception as exc:  # noqa: BLE001 - 决策包归档失败不阻塞快照
+        warnings.append(f"决策包归档读取失败: {exc}")
+
+    snapshot_out = {
+        "schema_version": SNAPSHOT_SCHEMA_VERSION,
+        "snapshot_id": f"{trade_date}_{uuid.uuid4().hex[:8]}",
+        "generated_at": captured_at,
+        "trade_date": trade_date,
+        "execution_mode": execution_mode,   # generated / reused / halted / recompute
         "plan": {
             "pit_end": plan.get("pit_end"),
             "plan_generated_at": plan.get("generated_at"),
@@ -237,6 +279,8 @@ def build_snapshot() -> Dict[str, Any]:
         },
         "portfolio": portfolio,
         "order_sheet": sheet_info,
+        "account_decision": account_decision,
+        "rendered_text": rendered_text if isinstance(rendered_text, str) else "",
         "data_versions": data_version,
         "quality": {
             "fresh": fresh and not warnings,
@@ -244,33 +288,101 @@ def build_snapshot() -> Dict[str, Any]:
             "warnings": warnings,
         },
     }
+    return snapshot_out
+
+
+def _capture_decision(decision: Any) -> Dict[str, Any]:
+    """把 AccountDecision 快照为可回放的完整判断（每票判决 + 破位诊断 +
+    现金/E2 + 观察池 + 策略信号），不做二次计算。"""
+    return {
+        "context_version": DECISION_CONTEXT_VERSION,
+        "trade_date": getattr(decision, "trade_date", ""),
+        "positions": [{
+            "symbol": p.symbol,
+            "name": getattr(p, "name", ""),
+            "quantity": p.quantity,
+            "last_price": getattr(p, "last_price", 0.0),
+            "verdict": p.verdict,
+            "target_quantity": p.target_quantity,
+            "reason": p.reason,
+            "rule_state": p.rule_state,
+            "ai_note": getattr(p, "ai_note", ""),
+            "breach": p.breach,       # 破位诊断（深度/持续/均线/量能/紧急度）
+        } for p in decision.positions],
+        "cash": getattr(decision, "cash", 0.0),
+        "cash_verdict": decision.cash_verdict,
+        "cash_reason": decision.cash_reason,
+        "e2_percentile": (round(decision.e2_percentile, 4)
+                          if decision.e2_percentile is not None else None),
+        "e2_as_of": decision.e2_as_of,
+        "concentration_threshold_pct": decision.concentration_threshold_pct,
+        "buy_candidates": list(getattr(decision, "buy_candidates", []) or []),
+        "buy_source_note": getattr(decision, "buy_source_note", ""),
+        "strategy_signals": list(getattr(decision, "strategy_signals", []) or []),
+    }
+
+
+def normalize_archive_day(value: Any) -> str:
+    """把任意日期输入规整为 ISO 归档日（YYYY-MM-DD）；非法输入抛 ValueError。
+
+    历史命令的日期参数直接用于拼归档文件名，必须先过 ISO 校验——否则
+    `../` 之类的路径穿越或垃圾串会拼出目录外路径或制造无意义文件名。
+    """
+    text = str(value or "").strip()[:10]
+    parsed = date.fromisoformat(text)   # 非法输入直接抛 ValueError
+    return parsed.isoformat()
+
+
+def _canonical_body(snapshot: Dict[str, Any]) -> str:
+    body = {k: v for k, v in snapshot.items() if k != "content_hash"}
+    return json.dumps(body, ensure_ascii=False, sort_keys=True)
 
 
 def _content_hash(snapshot: Dict[str, Any]) -> str:
-    """E2 终局：快照内容指纹（canonical JSON 的 sha256）——
-    读模型不可变的可验证形态：读回后重算即知是否被改过。"""
-    body = {k: v for k, v in snapshot.items() if k != "content_hash"}
-    canonical = json.dumps(body, ensure_ascii=False, sort_keys=True)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+    """快照内容指纹（canonical JSON 的 sha256 全长）——读回后重算即知
+    是否被改过。P4.5：从 16 位截断升级为全长 64 位（截断指纹在防篡改
+    语义下抗碰撞裕度不足）。"""
+    return hashlib.sha256(_canonical_body(snapshot).encode("utf-8")).hexdigest()
+
+
+def verify_snapshot(snapshot: Dict[str, Any]) -> bool:
+    """校验归档快照未被篡改：重算 canonical body 的 sha256 与存档一致。
+
+    旧档兼容（P4.5）：
+    - 缺 content_hash → 无法校验，返回 True（不因历史缺字段误报篡改）；
+    - 旧的 16 位截断 hash → 与全长 hash 的前 16 位比对（兼容 schema<2）。
+    hmac.compare_digest 常量时间比较，避免比较时序侧信道。
+    """
+    stored = str(snapshot.get("content_hash") or "")
+    if not stored:
+        return True
+    recomputed = _content_hash(snapshot)
+    if len(stored) == 16:   # 旧截断指纹
+        return hmac.compare_digest(stored, recomputed[:16])
+    return hmac.compare_digest(stored, recomputed)
 
 
 def save_snapshot(snapshot: Dict[str, Any]) -> Path:
-    """原子写 latest.json + 每日 archive（保留 90 天）。"""
+    """原子写 latest.json + 每日 archive（保留 90 天），写锁串行化。"""
     snapshot = dict(snapshot)
     snapshot["content_hash"] = _content_hash(snapshot)
-    SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
-    latest = SNAPSHOT_DIR / "latest.json"
-    tmp = SNAPSHOT_DIR / "latest.json.tmp"
-    tmp.write_text(json.dumps(snapshot, ensure_ascii=False, indent=1),
-                   encoding="utf-8")
-    os.replace(tmp, latest)
+    body = json.dumps(snapshot, ensure_ascii=False, indent=1)
+    with _SNAPSHOT_WRITE_LOCK:
+        SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
+        latest = SNAPSHOT_DIR / "latest.json"
+        tmp = SNAPSHOT_DIR / f"latest.json.{uuid.uuid4().hex}.tmp"
+        tmp.write_text(body, encoding="utf-8")
+        os.replace(tmp, latest)
 
-    archive_day = SNAPSHOT_DIR / "archive"
-    archive_day.mkdir(exist_ok=True)
-    (archive_day / f"{snapshot.get('trade_date', date.today().isoformat())}.json"
-     ).write_text(json.dumps(snapshot, ensure_ascii=False, indent=1),
-                  encoding="utf-8")
-    _prune_archive(archive_day)
+        archive_day = SNAPSHOT_DIR / "archive"
+        archive_day.mkdir(exist_ok=True)
+        day = normalize_archive_day(
+            snapshot.get("trade_date") or date.today().isoformat())
+        arc_final = archive_day / f"{day}.json"
+        arc_tmp = archive_day / f"{day}.{uuid.uuid4().hex}.tmp"
+        arc_tmp.write_text(body, encoding="utf-8")
+        os.replace(arc_tmp, arc_final)   # 归档也走原子替换
+        _prune_archive(archive_day)
     return latest
 
 
@@ -282,27 +394,39 @@ def _prune_archive(archive_day: Path) -> None:
                 f.unlink()
         except ValueError:
             continue
+    # 清理可能残留的中间态 tmp（原子替换失败/进程中断遗留）
+    for f in archive_day.glob("*.tmp"):
+        try:
+            f.unlink()
+        except OSError:
+            continue
 
 
-def refresh() -> Optional[Dict[str, Any]]:
-    """构建并落盘快照；异常安全（操作单/管线的失败不受影响）。"""
-    try:
-        snapshot = build_snapshot()
-        previous = load_latest_snapshot()
-        if _is_portfolio_regression(previous, snapshot):
-            logger.warning(
-                "[snapshot] 拒绝降级覆盖：新快照当日持仓为空、数据库路径与既有快照不同"
-                "（既有 %s ← 本次 %s）——疑似另一进程 DATABASE_PATH 不一致，保留原快照",
-                ((previous or {}).get("data_versions") or {}).get("database_path"),
-                (snapshot.get("data_versions") or {}).get("database_path"),
-            )
-            return previous
-        save_snapshot(snapshot)
-        logger.info("[snapshot] 决策快照已更新: %s", snapshot["snapshot_id"])
-        return snapshot
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("[snapshot] 快照刷新失败（不影响主流程）: %r", exc)
-        return None
+def refresh(**kwargs: Any) -> Optional[Dict[str, Any]]:
+    """构建并落盘快照；异常安全（操作单/管线的失败不受影响）。
+
+    kwargs 透传给 build_snapshot（decision/rendered_text/portfolio_snapshot/
+    order_sheet/price_rules/execution_mode）——生成入口传入当时的决策与原文，
+    使归档回放的是"系统当时说了什么"，无参调用（现金/恢复交易等）走重算降级。
+    """
+    with _SNAPSHOT_WRITE_LOCK:
+        try:
+            snapshot = build_snapshot(**kwargs)
+            previous = load_latest_snapshot()
+            if _is_portfolio_regression(previous, snapshot):
+                logger.warning(
+                    "[snapshot] 拒绝降级覆盖：新快照当日持仓为空、数据库路径与既有快照不同"
+                    "（既有 %s ← 本次 %s）——疑似另一进程 DATABASE_PATH 不一致，保留原快照",
+                    ((previous or {}).get("data_versions") or {}).get("database_path"),
+                    (snapshot.get("data_versions") or {}).get("database_path"),
+                )
+                return previous
+            save_snapshot(snapshot)
+            logger.info("[snapshot] 决策快照已更新: %s", snapshot["snapshot_id"])
+            return snapshot
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[snapshot] 快照刷新失败（不影响主流程）: %r", exc)
+            return None
 
 
 def load_latest_snapshot() -> Optional[Dict[str, Any]]:

@@ -39,7 +39,7 @@ jobs:
               - '{daily_stock_analysis/*.py,daily_stock_analysis/api/**,daily_stock_analysis/bot/**,daily_stock_analysis/data_provider/**,daily_stock_analysis/src/**,daily_stock_analysis/strategies/**,daily_stock_analysis/apps/dsa-web/**,daily_stock_analysis/docker/**,daily_stock_analysis/requirements.txt,daily_stock_analysis/.dockerignore,.github/workflows/ci.yml}'
               - '!**/*.md'
             futu_packaging:
-              - '{daily_stock_analysis/requirements.txt,daily_stock_analysis/main.py,daily_stock_analysis/src/brokers/futu/**,daily_stock_analysis/scripts/build-backend.ps1,daily_stock_analysis/scripts/build-backend-macos.sh,daily_stock_analysis/scripts/macos-signature-audit.sh,daily_stock_analysis/scripts/build-all.ps1,daily_stock_analysis/scripts/build-all-macos.sh,daily_stock_analysis/apps/dsa-desktop/**,.github/workflows/ci.yml,.github/workflows/desktop-release.yml}'
+              - '{daily_stock_analysis/requirements.txt,daily_stock_analysis/main.py,daily_stock_analysis/scripts/build-backend.ps1,daily_stock_analysis/scripts/build-backend-macos.sh,daily_stock_analysis/scripts/macos-signature-audit.sh,daily_stock_analysis/scripts/build-all.ps1,daily_stock_analysis/scripts/build-all-macos.sh,daily_stock_analysis/apps/dsa-desktop/**,.github/workflows/ci.yml,.github/workflows/desktop-release.yml}'
               - '!**/*.md'
       - name: 🧭 Filter backend-safe frontend paths
         id: backend-filter

@@ -42,6 +42,10 @@ def _fixed_decision(monkeypatch):
     import src.services.account_decision_service as ads
 
     monkeypatch.setattr(ads, "compute_e2_percentile", lambda: (0.875, "2026-09-11"))
+    # 非交易日门（P4）：钉死为交易日，使挂单边界稳定渲染（黄金基线断言边界行）
+    monkeypatch.setattr(
+        "src.services.notification_events.is_trading_day",
+        lambda market="cn", check=None: True)
     monkeypatch.setattr(
         ads, "_latest_ai_notes",
         lambda symbols, days=3: (

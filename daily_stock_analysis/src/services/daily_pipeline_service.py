@@ -155,6 +155,25 @@ def _run_daily_pipeline_locked(force: bool = False) -> bool:
         logger.warning("[pipeline] market scan failed: %r", exc)
     _write_status("market_scan", scan_ok, scan_detail)
 
+    # 3.45: 策略准入裁决（P3）——消费 quant 侧裁决报告，按 verdict + 数据
+    # 新鲜度门推进 strategies.yaml 状态；失败不阻塞主决策。apply=True 落盘。
+    try:
+        from src.services.strategy_intake import (
+            DEFAULT_INTAKE_DIR, DEFAULT_REGISTRY_PATH, process_intake_dir)
+        intake_results = process_intake_dir(
+            DEFAULT_INTAKE_DIR, registry_path=DEFAULT_REGISTRY_PATH, apply=True)
+        promoted = [r for r in intake_results if r.action == "promoted"]
+        demoted = [r for r in intake_results if r.action in ("demoted", "rejected")
+                   and r.from_status]
+        intake_detail = (f"裁决 {len(intake_results)} 份："
+                         f"promote {len(promoted)} / demote {len(demoted)}")
+        _write_status("strategy_intake", True, intake_detail)
+        if promoted or demoted:
+            logger.info("[pipeline] strategy intake: %s", intake_detail)
+    except Exception as exc:  # noqa: BLE001 - 准入失败不阻塞管线
+        logger.warning("[pipeline] strategy intake failed: %r", exc)
+        _write_status("strategy_intake", False, str(exc))
+
     # 3.5: 决策快照（W3）——计划导出后立即落一份可追溯快照
     try:
         from src.services.decision_snapshot_service import refresh

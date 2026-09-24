@@ -46,6 +46,8 @@ class AutostopConfig:
     enabled: bool = True
     drawdown_threshold_pct: float = 20.0
     underperform_periods_threshold: int = 5
+    # P3：跑输幅度门——一期跑输基准需超过此百分点才计入连续跑输
+    underperform_margin_pct: float = 1.0
     # When True, a paused strategy stays paused until manually resumed.
     # When False, auto-resume once metrics recover below thresholds.
     manual_resume_required: bool = True
@@ -126,6 +128,9 @@ class StrategyAutostopService:
             underperform_periods_threshold=int(
                 getattr(cfg, "strategy_autostop_underperform_periods", 5)
             ),
+            underperform_margin_pct=float(
+                getattr(cfg, "strategy_autostop_underperform_margin_pct", 1.0)
+            ),
             manual_resume_required=bool(
                 getattr(cfg, "strategy_autostop_manual_resume_required", True)
             ),
@@ -179,7 +184,8 @@ class StrategyAutostopService:
 
         # Update consecutive underperform count based on this period
         is_underperforming = self._is_underperforming(
-            normalized_strategy_ret, normalized_benchmark_ret
+            normalized_strategy_ret, normalized_benchmark_ret,
+            self.autostop_config.underperform_margin_pct,
         )
         if is_underperforming:
             new_underperform_count = current_underperform + 1
@@ -242,6 +248,9 @@ class StrategyAutostopService:
                 benchmark_return_pct=normalized_benchmark_ret,
             )
             self._dispatch_notification(notification_message)
+            # P3：运行态暂停 → 注册表 dormant（打通 autostop 与 strategies.yaml，
+            # 此前两套状态脱节）。失败不影响 autostop 主判决。
+            self._sync_registry_dormant(strategy_key)
         elif should_resume:
             self._persist_resume(
                 strategy_key=strategy_key,
@@ -427,12 +436,25 @@ class StrategyAutostopService:
     def _is_underperforming(
         strategy_return: Optional[float],
         benchmark_return: Optional[float],
+        margin_pct: float = 0.0,
     ) -> bool:
         """A period counts as underperforming only when both returns are
-        available and strategy strictly trails benchmark."""
+        available and strategy trails benchmark by MORE than margin_pct
+        (P3 批评#14：跑输幅度门——跑输 0.01% 不该累计触发降级)."""
         if strategy_return is None or benchmark_return is None:
             return False
-        return strategy_return < benchmark_return
+        return (benchmark_return - strategy_return) > margin_pct
+
+    def _sync_registry_dormant(self, strategy_key: str) -> None:
+        """暂停时把注册表对应策略状态改为 dormant（跨模块状态打通）。"""
+        try:
+            from src.services.strategy_intake import (
+                DEFAULT_REGISTRY_PATH, STATUS_DORMANT, set_registry_status)
+            set_registry_status(strategy_key, STATUS_DORMANT,
+                                 registry_path=DEFAULT_REGISTRY_PATH)
+        except Exception as exc:  # noqa: BLE001 - 状态同步失败不影响主判决
+            logger.warning("[StrategyAutostop] 注册表 dormant 同步失败 %s: %r",
+                           strategy_key, exc)
 
     def _check_resume(
         self,

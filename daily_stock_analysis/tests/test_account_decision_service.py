@@ -278,6 +278,10 @@ class TestRender:
         monkeypatch.setattr(
             "src.services.account_decision_service.compute_e2_percentile",
             lambda: (0.875, "2026-09-11"))
+        # 非交易日门（P4）：钉死交易日，边界行稳定渲染
+        monkeypatch.setattr(
+            "src.services.notification_events.is_trading_day",
+            lambda market="cn", check=None: True)
         monkeypatch.setattr(
             "src.services.account_decision_service._latest_ai_notes",
             lambda symbols, days=3: ({"000899": "观望——…（2026-09-14）"},
@@ -318,6 +322,9 @@ class TestRender:
         monkeypatch.setattr(
             "src.services.account_decision_service.compute_e2_percentile",
             lambda: (None, ""))
+        monkeypatch.setattr(
+            "src.services.notification_events.is_trading_day",
+            lambda market="cn", check=None: True)
         monkeypatch.setattr(
             "src.services.account_decision_service._latest_ai_notes",
             lambda symbols, days=3: ({}, {"002475": "立讯精密"}))
