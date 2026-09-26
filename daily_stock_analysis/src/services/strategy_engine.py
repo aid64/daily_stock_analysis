@@ -223,10 +223,15 @@ def evaluate_strategies(context: Dict[str, Any],
     轻上下文评估入口。
     """
     signals: List[StrategySignal] = []
+    from src.services.rule_confirmation_service import STRATEGY_RULE_GATE, is_rule_enabled
     for entry in load_strategies(path):
         if str(entry.get("status") or "").lower() != "active":
             continue
         if entry.get("system"):
+            continue
+        # U0：用户停用的规则不产出（台账最新签署为准，fail-open）
+        gate_rule = STRATEGY_RULE_GATE.get(str(entry.get("id") or ""))
+        if gate_rule and not is_rule_enabled(gate_rule):
             continue
         evaluator = _EVALUATORS.get(str(entry.get("evaluator") or ""))
         if evaluator is None:

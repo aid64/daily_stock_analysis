@@ -26,8 +26,13 @@ def decide_position(
     rules: Dict[str, List[float]],
     concentration_threshold_pct: float,
     ai_note: str = "",
+    concentration_enabled: bool = True,
 ) -> PositionDecision:
-    """单持仓决策：规则 > 集中度 > 持有。"""
+    """单持仓决策：规则 > 集中度 > 持有。
+
+    concentration_enabled=False（U0 R2 停用）时跳过集中度分支——
+    停用语义 = 该规则完全不参与判决，而非"只跳过第二层修正"。
+    """
     pnl = (price - avg_cost) * quantity if avg_cost > 0 else 0.0
     pnl_pct = ((price - avg_cost) / avg_cost * 100) if avg_cost > 0 else 0.0
 
@@ -101,7 +106,8 @@ def decide_position(
             reason="止盈执行：止盈位已上穿（价位为系统登记的规则，见依据披露），按规则卖出全部",
             **base)
 
-    if weight_pct > concentration_threshold_pct and quantity > 0:
+    if (concentration_enabled and weight_pct > concentration_threshold_pct
+            and quantity > 0):
         # 减仓目标：把该票权重压回阈值内（按当前组合市值近似）
         return PositionDecision(
             verdict=VERDICT_REDUCE, target_quantity=quantity,  # 占位，调用方按市值修正

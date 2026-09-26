@@ -8,16 +8,16 @@ import pytest
 from bot.commands.rule_confirm import (
     RULE_INVENTORY,
     RuleConfirmCommand,
-    _ledger_path,
     load_rule_states,
     record_rule_action,
 )
+from src.services.rule_confirmation_service import _ledger_path
 
 
 @pytest.fixture()
 def isolated_ledger(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "bot.commands.rule_confirm._ledger_path",
+        "src.services.rule_confirmation_service._ledger_path",
         lambda: tmp_path / "rule_confirmations.jsonl")
     return tmp_path / "rule_confirmations.jsonl"
 
@@ -116,3 +116,117 @@ class TestRobustness:
         cmd = _cmd()
         assert cmd.name == "rule_confirm"
         assert "规则确认" in cmd.aliases
+
+
+from datetime import date as _date, timedelta as _td
+from pathlib import Path
+
+# tests/ 在 daily_stock_analysis/ 下：parents[2] 才是仓库根（同 test_strategy_engine）
+_REPO_YAML = Path(__file__).resolve().parents[2] / "strategies.yaml"
+
+
+def _fake_calendar(trading_days):
+    def _is_open(day):
+        return day in trading_days
+    return _is_open
+
+
+_TRADING = set()
+_d = _date(2026, 9, 1)
+while _d <= _date(2026, 10, 15):
+    if _d.weekday() < 5 and not (_date(2026, 10, 1) <= _d <= _date(2026, 10, 8)):
+        _TRADING.add(_d)
+    _d += _td(days=1)
+
+
+# ── U0 消费端接线（"确认/停用即时生效"）────────────────────────
+
+
+class TestIsRuleEnabled:
+    def test_no_ledger_fails_open_to_true(self, isolated_ledger):
+        from src.services.rule_confirmation_service import is_rule_enabled
+        assert is_rule_enabled("R2") is True
+
+    def test_disabled_rule_is_false(self, isolated_ledger):
+        from src.services.rule_confirmation_service import is_rule_enabled
+        record_rule_action("R2", "disabled")
+        assert is_rule_enabled("R2") is False
+
+    def test_confirmed_rule_is_true(self, isolated_ledger):
+        from src.services.rule_confirmation_service import is_rule_enabled
+        record_rule_action("R2", "disabled")
+        record_rule_action("R2", "confirmed")
+        assert is_rule_enabled("R2") is True
+
+    def test_other_rules_unaffected(self, isolated_ledger):
+        from src.services.rule_confirmation_service import is_rule_enabled
+        record_rule_action("R2", "disabled")
+        assert is_rule_enabled("R1") is True and is_rule_enabled("R5") is True
+
+
+class TestEngineGate:
+    def test_disabled_cb_new_issue_skipped(self, isolated_ledger, monkeypatch):
+        """R4 停用 → evaluate_strategies 不产打新信号（不再触达评估器）。"""
+        from src.services import strategy_engine as se
+        record_rule_action("R4", "disabled")
+        monkeypatch.setattr(se, "_is_cn_trading_day", _fake_calendar(_TRADING))
+        monkeypatch.setattr(
+            "src.services.bond_new_issue_calendar."
+            "BondNewIssueCalendarService.upcoming_reminders",
+            lambda self, days=2: [{"bond_code": "113711", "bond_name": "常青转债",
+                                   "stage": "subscribe",
+                                   "reference_date": "2026-09-28"}])
+        signals = se.evaluate_strategies(
+            {"today": _date(2026, 9, 28), "cash": 5000}, path=_REPO_YAML)
+        assert all(s.strategy_id != "cb_new_issue" for s in signals)
+
+    def test_disabled_reverse_repo_skipped(self, isolated_ledger, monkeypatch):
+        from src.services import strategy_engine as se
+        record_rule_action("R5", "disabled")
+        monkeypatch.setattr(se, "_is_cn_trading_day", _fake_calendar(_TRADING))
+        signals = se.evaluate_strategies(
+            {"today": _date(2026, 9, 18), "cash": 9999}, path=_REPO_YAML)
+        assert all(s.strategy_id != "reverse_repo_window" for s in signals)
+
+
+class TestCompositorGate:
+    def _snapshot(self):
+        return {"total_cash": 1549.0, "accounts": [{"positions": [
+            {"symbol": "002475", "name": "立讯精密", "quantity": 200,
+             "avg_cost": 56.77, "last_price": 54.37, "price_date": "2026-09-23"},
+        ]}]}
+
+    def _rules(self):
+        return {"002475": {"stop_loss": [51.63], "take_profit": [57.62]}}
+
+    def test_r2_disabled_skips_concentration(self, isolated_ledger):
+        """R2 停用 → 不再产出集中度减仓腿（002475 81.6% 也不催卖）。"""
+        from src.services.portfolio_compositor import compose_account_decision
+        record_rule_action("R2", "disabled")
+        d = compose_account_decision(
+            snapshot=self._snapshot(), rules=self._rules())
+        pos = d.positions[0]
+        assert pos.verdict != "reduce"
+        assert pos.target_quantity == 200
+
+    def test_r1_disabled_ignores_price_anchors(self, isolated_ledger):
+        """R1 停用 → 止损/止盈位不再触达决策引擎（价格跌破也不催卖）。"""
+        from src.services.portfolio_compositor import compose_account_decision
+        record_rule_action("R1", "disabled")
+        d = compose_account_decision(
+            snapshot=self._snapshot(),
+            rules={"002475": {"stop_loss": [60.0]}})  # 60 远高于现价
+        pos = d.positions[0]
+        # R1 停用后：止损位不触达引擎（否则 60 必触发 sell）；
+        # 剩下的 REDUCE（若有）只能来自 R2 集中度而非价格规则
+        assert pos.verdict != "sell"
+        assert "止损" not in pos.rule_state
+
+    def test_enabled_rules_unchanged(self, isolated_ledger):
+        """无停用记录时行为与历史一致（fail-open，黄金基线不受影响）。"""
+        from src.services.portfolio_compositor import compose_account_decision
+        d = compose_account_decision(
+            snapshot=self._snapshot(), rules=self._rules())
+        pos = d.positions[0]
+        # 未破位未超止盈 → hold；但集中度腿仍应产出（200→100 保底一手）
+        assert pos.target_quantity == 100

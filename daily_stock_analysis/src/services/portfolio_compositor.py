@@ -204,6 +204,12 @@ def compose_account_decision(
     trade_date = date.today().isoformat()
     rules = rules if rules is not None else ads.load_price_rules()
 
+    # U0 规则门控（台账最新签署为准，fail-open）：
+    # R1 停用 → 决策引擎拿不到止损/止盈位（各票退化为 wait/hold 语义）
+    from src.services.rule_confirmation_service import is_rule_enabled
+    if not is_rule_enabled("R1"):
+        rules = {}
+
     # 1. 拆持仓（股票为主体；转债若有真实持仓也走同一规则引擎）
     positions_raw: List[Dict[str, Any]] = []
     cash = float(snapshot.get("total_cash") or 0)
@@ -222,6 +228,7 @@ def compose_account_decision(
     ai_notes, names = ads._latest_ai_notes(symbols)
 
     decisions: List[PositionDecision] = []
+    concentration_on = is_rule_enabled("R2")
     for position in sorted(positions_raw, key=lambda p: str(p.get("symbol"))):
         symbol = str(position.get("symbol"))
         quantity = int(float(position.get("quantity") or 0))
@@ -248,16 +255,22 @@ def compose_account_decision(
             weight_pct=weight,
             rules=rules.get(symbol) or {},
             concentration_threshold_pct=concentration_threshold_pct,
+            concentration_enabled=concentration_on,
             ai_note=ai_notes.get(symbol, "")))
 
     # 2. 减仓数量修正：目标 = 阈值内可持有量（strategies/concentration.py）
-    apply_concentration_targets(
-        decisions,
-        total_value=total_value,
-        concentration_threshold_pct=concentration_threshold_pct)
+    # U0：R2（集中度）停用 → 跳过整层修正
+    if is_rule_enabled("R2"):
+        apply_concentration_targets(
+            decisions,
+            total_value=total_value,
+            concentration_threshold_pct=concentration_threshold_pct)
 
     # 3. 现金决策（E2 择时层——strategies/e2_timing.py）
-    e2_pct, e2_as_of = ads.compute_e2_percentile() if include_e2 else (None, "")
+    # U0：R3（E2 门）停用 → 现金决策退化为中性（不取分位）
+    e2_pct, e2_as_of = (
+        ads.compute_e2_percentile()
+        if (include_e2 and is_rule_enabled("R3")) else (None, ""))
     cash_weight = (cash / total_value * 100) if total_value > 0 else 0.0
     cash_verdict, cash_reason = decide_cash_verdict(e2_pct, e2_as_of)
 
