@@ -20,6 +20,7 @@ from bot.commands.strategies import StrategiesCommand
 from bot.commands.health import HealthCommand
 from bot.commands.compare import CompareCommand
 from bot.commands.fill import FillCommand
+from bot.commands.rule_confirm import RuleConfirmCommand
 from bot.commands.buy import BuyCommand
 from bot.commands.cancel_order import CancelOrderCommand
 from bot.commands.cash import CashDepositCommand, CashWithdrawCommand
@@ -46,6 +47,7 @@ ALL_COMMANDS = [
     HealthCommand,
     CompareCommand,
     FillCommand,
+    RuleConfirmCommand,
     BuyCommand,
     CancelOrderCommand,
     CashDepositCommand,
@@ -73,6 +75,7 @@ __all__ = [
     'HealthCommand',
     'CompareCommand',
     'FillCommand',
+    'RuleConfirmCommand',
     'BuyCommand',
     'HistoryCommand',
     'OrderSheetCommand',
