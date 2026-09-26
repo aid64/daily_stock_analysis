@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Read-only notification configuration diagnostics."""
+"""Read-only notification configuration diagnostics.
+
+P5：静态渠道收敛为仅飞书，其余 13 渠道诊断已移除。
+"""
 
 from __future__ import annotations
 
@@ -21,8 +24,6 @@ from src.notification_routing import (
     ROUTABLE_NOTIFICATION_CHANNELS,
     split_notification_route_channels,
 )
-from src.notification_sender.gotify_sender import resolve_gotify_message_endpoint
-from src.notification_sender.ntfy_sender import resolve_ntfy_endpoint
 
 KeyTier = Literal["minimal", "advanced"]
 IssueSeverity = Literal["error", "warning", "info"]
@@ -79,13 +80,6 @@ class NotificationDiagnosticResult:
 
 CHANNEL_SPECS: Tuple[NotificationChannelSpec, ...] = (
     NotificationChannelSpec(
-        channel=NotificationChannel.WECHAT.value,
-        display_name=ChannelDetector.get_channel_name(NotificationChannel.WECHAT),
-        kind="configured",
-        minimal_keys=("WECHAT_WEBHOOK_URL",),
-        advanced_keys=("WECHAT_MSG_TYPE",),
-    ),
-    NotificationChannelSpec(
         channel=NotificationChannel.FEISHU.value,
         display_name=ChannelDetector.get_channel_name(NotificationChannel.FEISHU),
         kind="configured",
@@ -94,106 +88,11 @@ CHANNEL_SPECS: Tuple[NotificationChannelSpec, ...] = (
         advanced_keys=("FEISHU_WEBHOOK_SECRET", "FEISHU_WEBHOOK_KEYWORD", "FEISHU_RECEIVE_ID_TYPE", "FEISHU_DOMAIN", "FEISHU_SEND_AS_FILE"),
     ),
     NotificationChannelSpec(
-        channel=NotificationChannel.DINGTALK.value,
-        display_name=ChannelDetector.get_channel_name(NotificationChannel.DINGTALK),
-        kind="configured",
-        minimal_keys=("DINGTALK_WEBHOOK_URL",),
-        alternative_minimal_keys=(),
-        advanced_keys=("DINGTALK_SECRET",),
-    ),
-    NotificationChannelSpec(
-        channel=NotificationChannel.TELEGRAM.value,
-        display_name=ChannelDetector.get_channel_name(NotificationChannel.TELEGRAM),
-        kind="configured",
-        minimal_keys=("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"),
-        advanced_keys=("TELEGRAM_MESSAGE_THREAD_ID",),
-    ),
-    NotificationChannelSpec(
-        channel=NotificationChannel.EMAIL.value,
-        display_name=ChannelDetector.get_channel_name(NotificationChannel.EMAIL),
-        kind="configured",
-        minimal_keys=("EMAIL_SENDER", "EMAIL_PASSWORD"),
-        advanced_keys=("EMAIL_RECEIVERS", "EMAIL_SENDER_NAME"),
-    ),
-    NotificationChannelSpec(
-        channel=NotificationChannel.PUSHOVER.value,
-        display_name=ChannelDetector.get_channel_name(NotificationChannel.PUSHOVER),
-        kind="configured",
-        minimal_keys=("PUSHOVER_USER_KEY", "PUSHOVER_API_TOKEN"),
-    ),
-    NotificationChannelSpec(
-        channel=NotificationChannel.NTFY.value,
-        display_name=ChannelDetector.get_channel_name(NotificationChannel.NTFY),
-        kind="configured",
-        minimal_keys=("NTFY_URL",),
-        advanced_keys=("NTFY_TOKEN", "WEBHOOK_VERIFY_SSL"),
-        note="NTFY_URL must include the topic path, e.g. https://ntfy.sh/my-topic.",
-    ),
-    NotificationChannelSpec(
-        channel=NotificationChannel.GOTIFY.value,
-        display_name=ChannelDetector.get_channel_name(NotificationChannel.GOTIFY),
-        kind="configured",
-        minimal_keys=("GOTIFY_URL", "GOTIFY_TOKEN"),
-        advanced_keys=("WEBHOOK_VERIFY_SSL",),
-        note="GOTIFY_URL is the server base URL; the sender appends /message.",
-    ),
-    NotificationChannelSpec(
-        channel=NotificationChannel.PUSHPLUS.value,
-        display_name=ChannelDetector.get_channel_name(NotificationChannel.PUSHPLUS),
-        kind="configured",
-        minimal_keys=("PUSHPLUS_TOKEN",),
-        advanced_keys=("PUSHPLUS_TOPIC",),
-    ),
-    NotificationChannelSpec(
-        channel=NotificationChannel.SERVERCHAN3.value,
-        display_name=ChannelDetector.get_channel_name(NotificationChannel.SERVERCHAN3),
-        kind="configured",
-        minimal_keys=("SERVERCHAN3_SENDKEY",),
-    ),
-    NotificationChannelSpec(
-        channel=NotificationChannel.CUSTOM.value,
-        display_name=ChannelDetector.get_channel_name(NotificationChannel.CUSTOM),
-        kind="configured",
-        minimal_keys=("CUSTOM_WEBHOOK_URLS",),
-        advanced_keys=("CUSTOM_WEBHOOK_BEARER_TOKEN", "CUSTOM_WEBHOOK_BODY_TEMPLATE", "WEBHOOK_VERIFY_SSL"),
-    ),
-    NotificationChannelSpec(
-        channel=NotificationChannel.DISCORD.value,
-        display_name=ChannelDetector.get_channel_name(NotificationChannel.DISCORD),
-        kind="configured",
-        minimal_keys=("DISCORD_WEBHOOK_URL",),
-        alternative_minimal_keys=(("DISCORD_BOT_TOKEN", "DISCORD_MAIN_CHANNEL_ID"),),
-        advanced_keys=("DISCORD_INTERACTIONS_PUBLIC_KEY",),
-        note="Webhook URL or bot token + channel ID can enable Discord.",
-    ),
-    NotificationChannelSpec(
-        channel=NotificationChannel.SLACK.value,
-        display_name=ChannelDetector.get_channel_name(NotificationChannel.SLACK),
-        kind="configured",
-        minimal_keys=("SLACK_WEBHOOK_URL",),
-        alternative_minimal_keys=(("SLACK_BOT_TOKEN", "SLACK_CHANNEL_ID"),),
-        note="Webhook URL or bot token + channel ID can enable Slack.",
-    ),
-    NotificationChannelSpec(
-        channel=NotificationChannel.ASTRBOT.value,
-        display_name=ChannelDetector.get_channel_name(NotificationChannel.ASTRBOT),
-        kind="configured",
-        minimal_keys=("ASTRBOT_URL",),
-        advanced_keys=("ASTRBOT_TOKEN", "WEBHOOK_VERIFY_SSL"),
-    ),
-    NotificationChannelSpec(
         channel=NotificationChannel.UNKNOWN.value,
         display_name=ChannelDetector.get_channel_name(NotificationChannel.UNKNOWN),
         kind="fallback",
         minimal_keys=(),
         note="Fallback enum value only; it is not configured from static environment keys.",
-    ),
-    NotificationChannelSpec(
-        channel="dingtalk_context",
-        display_name="钉钉会话",
-        kind="context",
-        minimal_keys=(),
-        note="Runtime-only reply channel extracted from source message context.",
     ),
     NotificationChannelSpec(
         channel="feishu_context",
@@ -234,11 +133,9 @@ KEY_SPECS: Tuple[NotificationKeySpec, ...] = tuple(
 )
 
 P0_ACTIONS_ENV_KEYS: Tuple[str, ...] = (
-    "CUSTOM_WEBHOOK_BODY_TEMPLATE",
     "WEBHOOK_VERIFY_SSL",
     "FEISHU_WEBHOOK_SECRET",
     "FEISHU_WEBHOOK_KEYWORD",
-    "PUSHPLUS_TOPIC",
 )
 
 P3_ROUTE_ENV_KEYS: Tuple[str, ...] = tuple(
@@ -247,12 +144,7 @@ P3_ROUTE_ENV_KEYS: Tuple[str, ...] = tuple(
 
 P4_NOISE_ACTIONS_ENV_KEYS: Tuple[str, ...] = P4_NOISE_ENV_KEYS
 
-P6_CHANNEL_ACTIONS_ENV_KEYS: Tuple[str, ...] = (
-    "NTFY_URL",
-    "NTFY_TOKEN",
-    "GOTIFY_URL",
-    "GOTIFY_TOKEN",
-)
+P6_CHANNEL_ACTIONS_ENV_KEYS: Tuple[str, ...] = ()
 
 
 def _value(config: Config, attr: str):
@@ -275,43 +167,6 @@ def _issue(
     return NotificationDiagnosticIssue(severity=severity, code=code, message=message, key=key)
 
 
-def _require_pair(
-    config: Config,
-    *,
-    left_attr: str,
-    right_attr: str,
-    left_key: str,
-    right_key: str,
-    channel_name: str,
-    errors: List[NotificationDiagnosticIssue],
-    warnings: Optional[List[NotificationDiagnosticIssue]] = None,
-    severity: IssueSeverity = "error",
-) -> None:
-    left = _has(config, left_attr)
-    right = _has(config, right_attr)
-    target = errors if severity == "error" else warnings
-    if target is None:
-        target = errors
-    if left and not right:
-        target.append(
-            _issue(
-                severity,
-                "partial_channel_config",
-                f"{channel_name} 已配置 {left_key}，但缺少 {right_key}，该渠道不会启用。",
-                key=right_key,
-            )
-        )
-    if right and not left:
-        target.append(
-            _issue(
-                severity,
-                "partial_channel_config",
-                f"{channel_name} 已配置 {right_key}，但缺少 {left_key}，该渠道不会启用。",
-                key=left_key,
-            )
-        )
-
-
 def run_notification_diagnostics(config: Config) -> NotificationDiagnosticResult:
     """Run read-only diagnostics for notification configuration."""
 
@@ -322,12 +177,12 @@ def run_notification_diagnostics(config: Config) -> NotificationDiagnosticResult
         _issue(
             "info",
             "context_channels_runtime_only",
-            "钉钉会话和飞书会话属于运行时消息上下文渠道，无法仅靠静态 .env 完整判断。",
+            "飞书会话属于运行时消息上下文渠道，无法仅靠静态 .env 完整判断。",
         ),
         _issue(
             "info",
             "phase_scope",
-            "通知诊断会检查渠道基线、只读诊断、Web 测试、P3 路由配置、P4 降噪配置和 P6 ntfy/Gotify 渠道。",
+            "通知诊断会检查飞书渠道基线、只读诊断、Web 测试、P3 路由配置与 P4 降噪配置。",
         ),
     ]
 
@@ -336,92 +191,9 @@ def run_notification_diagnostics(config: Config) -> NotificationDiagnosticResult
             _issue(
                 "error",
                 "no_channels_configured",
-                "0 个通知渠道已配置；如需发送通知，请至少配置一个渠道的 minimal key。",
+                "0 个通知渠道已配置；如需发送通知，请配置飞书渠道的 minimal key。",
             )
         )
-
-    if _has(config, "ntfy_url"):
-        ntfy_server_url, ntfy_topic = resolve_ntfy_endpoint(getattr(config, "ntfy_url", None))
-        if not ntfy_server_url or not ntfy_topic:
-            errors.append(
-                _issue(
-                    "error",
-                    "invalid_ntfy_url",
-                    "NTFY_URL 必须包含 topic path，例如 https://ntfy.sh/my-topic。",
-                    key="NTFY_URL",
-                )
-            )
-
-    if _has(config, "gotify_url"):
-        gotify_endpoint = resolve_gotify_message_endpoint(getattr(config, "gotify_url", None))
-        if not gotify_endpoint:
-            errors.append(
-                _issue(
-                    "error",
-                    "invalid_gotify_url",
-                    "GOTIFY_URL 必须是 Gotify server base URL，不包含 /message，例如 https://gotify.example。",
-                    key="GOTIFY_URL",
-                )
-            )
-
-    _require_pair(
-        config,
-        left_attr="telegram_bot_token",
-        right_attr="telegram_chat_id",
-        left_key="TELEGRAM_BOT_TOKEN",
-        right_key="TELEGRAM_CHAT_ID",
-        channel_name="Telegram",
-        errors=errors,
-    )
-    _require_pair(
-        config,
-        left_attr="email_sender",
-        right_attr="email_password",
-        left_key="EMAIL_SENDER",
-        right_key="EMAIL_PASSWORD",
-        channel_name="邮件",
-        errors=errors,
-    )
-    _require_pair(
-        config,
-        left_attr="pushover_user_key",
-        right_attr="pushover_api_token",
-        left_key="PUSHOVER_USER_KEY",
-        right_key="PUSHOVER_API_TOKEN",
-        channel_name="Pushover",
-        errors=errors,
-    )
-    _require_pair(
-        config,
-        left_attr="gotify_url",
-        right_attr="gotify_token",
-        left_key="GOTIFY_URL",
-        right_key="GOTIFY_TOKEN",
-        channel_name="Gotify",
-        errors=errors,
-    )
-    _require_pair(
-        config,
-        left_attr="discord_bot_token",
-        right_attr="discord_main_channel_id",
-        left_key="DISCORD_BOT_TOKEN",
-        right_key="DISCORD_MAIN_CHANNEL_ID",
-        channel_name="Discord Bot",
-        errors=errors,
-        warnings=warnings,
-        severity="warning" if _has(config, "discord_webhook_url") else "error",
-    )
-    _require_pair(
-        config,
-        left_attr="slack_bot_token",
-        right_attr="slack_channel_id",
-        left_key="SLACK_BOT_TOKEN",
-        right_key="SLACK_CHANNEL_ID",
-        channel_name="Slack Bot",
-        errors=errors,
-        warnings=warnings,
-        severity="warning" if _has(config, "slack_webhook_url") else "error",
-    )
 
     if (_has(config, "feishu_webhook_secret") or _has(config, "feishu_webhook_keyword")) and not _has(config, "feishu_webhook_url"):
         warnings.append(
@@ -430,45 +202,6 @@ def run_notification_diagnostics(config: Config) -> NotificationDiagnosticResult
                 "advanced_without_minimal",
                 "已配置飞书 Webhook 高级安全项，但缺少 FEISHU_WEBHOOK_URL，飞书 Webhook 渠道不会启用。",
                 key="FEISHU_WEBHOOK_URL",
-            )
-        )
-    if _has(config, "pushplus_topic") and not _has(config, "pushplus_token"):
-        warnings.append(
-            _issue(
-                "warning",
-                "advanced_without_minimal",
-                "已配置 PUSHPLUS_TOPIC，但缺少 PUSHPLUS_TOKEN，PushPlus 渠道不会启用。",
-                key="PUSHPLUS_TOKEN",
-            )
-        )
-    if _has(config, "ntfy_token") and not _has(config, "ntfy_url"):
-        warnings.append(
-            _issue(
-                "warning",
-                "advanced_without_minimal",
-                "已配置 NTFY_TOKEN，但缺少 NTFY_URL，ntfy 渠道不会启用。",
-                key="NTFY_URL",
-            )
-        )
-    if (
-        _has(config, "custom_webhook_bearer_token")
-        or _has(config, "custom_webhook_body_template")
-    ) and not _has(config, "custom_webhook_urls"):
-        warnings.append(
-            _issue(
-                "warning",
-                "advanced_without_minimal",
-                "已配置自定义 Webhook 高级项，但缺少 CUSTOM_WEBHOOK_URLS，自定义 Webhook 渠道不会启用。",
-                key="CUSTOM_WEBHOOK_URLS",
-            )
-        )
-    if _has(config, "astrbot_token") and not _has(config, "astrbot_url"):
-        warnings.append(
-            _issue(
-                "warning",
-                "advanced_without_minimal",
-                "已配置 ASTRBOT_TOKEN，但缺少 ASTRBOT_URL，AstrBot 渠道不会启用。",
-                key="ASTRBOT_URL",
             )
         )
 
@@ -547,9 +280,6 @@ def run_notification_diagnostics(config: Config) -> NotificationDiagnosticResult
         )
 
     if getattr(config, "notification_daily_digest_enabled", False):
-        # 摘要总线已实现（notification_digest_service：JSONL 总线 + logical_id
-        # 折叠 + 到点聚合发送）。此前这里报"预留配置、不会发送"是 P4 时代
-        # 的过时文案，与实现相反，交接时会误导——改为说明实际行为与前提。
         info.append(
             _issue(
                 "info",

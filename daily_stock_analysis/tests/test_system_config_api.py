@@ -386,42 +386,6 @@ class SystemConfigApiTestCase(unittest.TestCase):
         self.assertIn("STOCK_LIST=600519,300750", env_content)
         self.assertIn("GEMINI_API_KEY=new-secret-value", env_content)
 
-    def test_put_config_escapes_custom_webhook_template_placeholders(self) -> None:
-        template = '{"title":$title_json,"content":$content_json}'
-        current = system_config.get_system_config(
-            include_schema=False,
-            service=self.service,
-        ).model_dump()
-
-        payload = system_config.update_system_config(
-            request=UpdateSystemConfigRequest(
-                config_version=current["config_version"],
-                mask_token="******",
-                reload_now=False,
-                items=[
-                    {
-                        "key": "CUSTOM_WEBHOOK_BODY_TEMPLATE",
-                        "value": template,
-                    },
-                ],
-            ),
-            service=self.service,
-        ).model_dump()
-
-        self.assertEqual(payload["applied_count"], 1)
-        self.assertIn(
-            'CUSTOM_WEBHOOK_BODY_TEMPLATE={"title":$$title_json,"content":$$content_json}\n',
-            self.env_path.read_text(encoding="utf-8"),
-        )
-        item_map = {
-            item["key"]: item
-            for item in system_config.get_system_config(
-                include_schema=True,
-                service=self.service,
-            ).model_dump(by_alias=True)["items"]
-        }
-        self.assertEqual(item_map["CUSTOM_WEBHOOK_BODY_TEMPLATE"]["value"], template)
-
     def test_put_config_returns_conflict_when_version_is_stale(self) -> None:
         with self.assertRaises(HTTPException) as context:
             system_config.update_system_config(
@@ -890,10 +854,10 @@ class SystemConfigApiTestCase(unittest.TestCase):
                 "latency_ms": 42,
                 "attempts": [
                     {
-                        "channel": "wechat",
+                        "channel": "feishu",
                         "success": True,
                         "message": "sent",
-                        "target": "https://qyapi.example.com/cgi-bin/webhook/send?key=***",
+                        "target": "https://open.feishu.cn/open-apis/bot/v2/hook/***",
                         "error_code": None,
                         "stage": "notification_send",
                         "retryable": False,
@@ -905,8 +869,8 @@ class SystemConfigApiTestCase(unittest.TestCase):
         ) as mock_test:
             payload = system_config.test_notification_channel(
                 request=TestNotificationChannelRequest(
-                    channel="wechat",
-                    items=[{"key": "WECHAT_WEBHOOK_URL", "value": "https://example.com/hook"}],
+                    channel="feishu",
+                    items=[{"key": "FEISHU_WEBHOOK_URL", "value": "https://example.com/hook"}],
                     title="DSA 通知测试",
                     content="hello",
                     timeout_seconds=5,
@@ -915,46 +879,27 @@ class SystemConfigApiTestCase(unittest.TestCase):
             ).model_dump()
 
         self.assertTrue(payload["success"])
-        self.assertEqual(payload["attempts"][0]["channel"], "wechat")
+        self.assertEqual(payload["attempts"][0]["channel"], "feishu")
         self.assertEqual(payload["attempts"][0]["latency_ms"], 42)
         mock_test.assert_called_once()
-        self.assertEqual(mock_test.call_args.kwargs["channel"], "wechat")
+        self.assertEqual(mock_test.call_args.kwargs["channel"], "feishu")
         self.assertEqual(mock_test.call_args.kwargs["timeout_seconds"], 5)
 
     def test_test_notification_channel_schema_accepts_registered_channels(self) -> None:
-        dingtalk_request = TestNotificationChannelRequest(
-            channel="dingtalk",
+        feishu_request = TestNotificationChannelRequest(
+            channel="feishu",
             items=[
                 {
-                    "key": "DINGTALK_WEBHOOK_URL",
-                    "value": "https://oapi.dingtalk.com/robot/send?access_token=test",
+                    "key": "FEISHU_WEBHOOK_URL",
+                    "value": "https://open.feishu.cn/open-apis/bot/v2/hook/test",
                 }
-            ],
-            title="DSA 閫氱煡娴嬭瘯",
-            content="hello",
-            timeout_seconds=5,
-        )
-        ntfy_request = TestNotificationChannelRequest(
-            channel="ntfy",
-            items=[{"key": "NTFY_URL", "value": "https://ntfy.sh/dsa-topic"}],
-            title="DSA 通知测试",
-            content="hello",
-            timeout_seconds=5,
-        )
-        gotify_request = TestNotificationChannelRequest(
-            channel="gotify",
-            items=[
-                {"key": "GOTIFY_URL", "value": "https://gotify.example"},
-                {"key": "GOTIFY_TOKEN", "value": "app-token"},
             ],
             title="DSA 通知测试",
             content="hello",
             timeout_seconds=5,
         )
 
-        self.assertEqual(dingtalk_request.channel, "dingtalk")
-        self.assertEqual(ntfy_request.channel, "ntfy")
-        self.assertEqual(gotify_request.channel, "gotify")
+        self.assertEqual(feishu_request.channel, "feishu")
 
     def test_validate_returns_user_facing_model_message_without_internal_env_key_name(self) -> None:
         validation = self.service.validate(

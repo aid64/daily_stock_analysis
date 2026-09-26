@@ -16,9 +16,8 @@ class ConfigEnvCompatibilityTestCase(unittest.TestCase):
 
     @patch("src.config.setup_env")
     @patch.object(Config, "_parse_litellm_yaml", return_value=[])
-    @patch.object(Config, "_parse_stock_email_groups", return_value=[])
     def test_share_image_social_branding_is_optional_and_configurable(
-        self, _mock_parse_stock_email_groups, _mock_parse_litellm_yaml, _mock_setup_env
+        self, _mock_parse_litellm_yaml, _mock_setup_env
     ):
         with patch.dict(
             os.environ,
@@ -47,9 +46,8 @@ class ConfigEnvCompatibilityTestCase(unittest.TestCase):
 
     @patch("src.config.setup_env")
     @patch.object(Config, "_parse_litellm_yaml", return_value=[])
-    @patch.object(Config, "_parse_stock_email_groups", return_value=[])
     def test_stock_list_accepts_common_copy_paste_separators(
-        self, _mock_parse_stock_email_groups, _mock_parse_litellm_yaml, _mock_setup_env
+        self, _mock_parse_litellm_yaml, _mock_setup_env
     ):
         with patch.dict(
             os.environ,
@@ -798,97 +796,6 @@ class ConfigEnvCompatibilityTestCase(unittest.TestCase):
 
         self.assertEqual(config.stock_list, ["600519", "000001"])
 
-    @patch.object(Config, "_parse_litellm_yaml", return_value=[])
-    def test_custom_webhook_template_unescapes_compose_saved_placeholders(
-        self,
-        _mock_parse_yaml,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            env_path = Path(temp_dir) / ".env"
-            env_path.write_text(
-                'CUSTOM_WEBHOOK_BODY_TEMPLATE={"title":$$title_json,"content":$$content_json}\n',
-                encoding="utf-8",
-            )
-
-            with patch.dict(
-                os.environ,
-                {
-                    "ENV_FILE": str(env_path),
-                    "CUSTOM_WEBHOOK_BODY_TEMPLATE": '{"title":$$title_json,"content":$$content_json}',
-                },
-                clear=True,
-            ):
-                config = Config._load_from_env()
-
-        self.assertEqual(
-            config.custom_webhook_body_template,
-            '{"title":$title_json,"content":$content_json}',
-        )
-
-    @patch.object(Config, "_parse_litellm_yaml", return_value=[])
-    def test_custom_webhook_template_unescapes_compose_saved_braced_placeholders(
-        self,
-        _mock_parse_yaml,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            env_path = Path(temp_dir) / ".env"
-            env_path.write_text(
-                'CUSTOM_WEBHOOK_BODY_TEMPLATE={"content":$${content_json}}\n',
-                encoding="utf-8",
-            )
-
-            with patch.dict(
-                os.environ,
-                {"ENV_FILE": str(env_path)},
-                clear=True,
-            ):
-                config = Config._load_from_env()
-
-        self.assertEqual(
-            config.custom_webhook_body_template,
-            '{"content":${content_json}}',
-        )
-
-    @patch.object(Config, "_parse_litellm_yaml", return_value=[])
-    def test_custom_webhook_template_does_not_affect_llm_contract(
-        self,
-        _mock_parse_litellm_yaml: object,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            env_path = Path(temp_dir) / ".env"
-            env_path.write_text(
-                "\n".join(
-                    [
-                        "STOCK_LIST=600519",
-                        "LITELLM_MODEL=openai/gpt-5.5",
-                        "OPENAI_MODEL=gpt-5.5",
-                        "OPENAI_API_KEY=runtime-openai-key",
-                        "OPENAI_BASE_URL=https://openai.example/v1",
-                        "CUSTOM_WEBHOOK_BODY_TEMPLATE={\"title\":$$title_json,\"content\":$$content_json}",
-                    ]
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-
-            with patch.dict(
-                os.environ,
-                {
-                    "ENV_FILE": str(env_path),
-                },
-                clear=True,
-            ):
-                config = Config._load_from_env()
-
-        self.assertEqual(config.litellm_model, "openai/gpt-5.5")
-        self.assertEqual(config.openai_model, "gpt-5.5")
-        self.assertEqual(config.openai_api_key, "runtime-openai-key")
-        self.assertEqual(config.openai_base_url, "https://openai.example/v1")
-        self.assertEqual(
-            config.custom_webhook_body_template,
-            '{"title":$title_json,"content":$content_json}',
-        )
-
     def test_refresh_stock_list_preserves_empty_required_config(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             env_path = Path(temp_dir) / ".env"
@@ -963,55 +870,6 @@ class ConfigEnvCompatibilityTestCase(unittest.TestCase):
         self.assertEqual(config.news_max_age_days, 3)
         self.assertEqual(config.max_workers, 3)
         self.assertEqual(config.webui_port, 8000)
-
-    @patch("src.config.setup_env")
-    @patch.object(Config, "_parse_litellm_yaml", return_value=[])
-    def test_stock_email_groups_support_case_insensitive_env_names(
-        self,
-        _mock_parse_yaml,
-        _mock_setup_env,
-    ) -> None:
-        env = {
-            "STOCK_LIST": "600519,300750",
-            "Stock_Group_1": "600519",
-            "Email_Group_1": "user1@example.com",
-            "stock_group_2": "300750",
-            "email_group_2": "user2@example.com",
-        }
-
-        with patch.dict(os.environ, env, clear=True):
-            config = Config._load_from_env()
-
-        self.assertEqual(
-            config.stock_email_groups,
-            [
-                (["600519"], ["user1@example.com"]),
-                (["300750"], ["user2@example.com"]),
-            ],
-        )
-
-    @patch("src.config.setup_env")
-    @patch.object(Config, "_parse_litellm_yaml", return_value=[])
-    def test_stock_email_groups_normalize_codes_at_parse_time(
-        self,
-        _mock_parse_yaml,
-        _mock_setup_env,
-    ) -> None:
-        """STOCK_GROUP codes are canonicalized at parse time so that
-        runtime email routing matches the same equivalence used in
-        validate_structured()."""
-        env = {
-            "STOCK_LIST": "600519,HK00700",
-            "STOCK_GROUP_1": "SH600519,1810.HK",
-            "EMAIL_GROUP_1": "user@example.com",
-        }
-
-        with patch.dict(os.environ, env, clear=True):
-            config = Config._load_from_env()
-
-        stocks, emails = config.stock_email_groups[0]
-        self.assertEqual(stocks, ["600519", "HK01810"])
-        self.assertEqual(emails, ["user@example.com"])
 
 
 if __name__ == "__main__":

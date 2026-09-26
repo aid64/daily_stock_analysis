@@ -1413,7 +1413,7 @@ def test_env_allowlist_and_denylist(monkeypatch) -> None:
     monkeypatch.setenv("LONGBRIDGE_APP_KEY", "longbridge-secret")
     monkeypatch.setenv("OPENCODE_CONFIG_CONTENT", "{}")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-secret")
-    monkeypatch.setenv("PUSHOVER_USER_KEY", "pushover-secret")
+    monkeypatch.setenv("FEISHU_WEBHOOK_SECRET", "feishu-webhook-secret")
     monkeypatch.setenv("WEBHOOK_TOKEN", "token")
     monkeypatch.setenv("WECOM_ENCODING_AES_KEY", "wecom-secret")
     monkeypatch.setenv("AUTHORIZATION", "Bearer token")
@@ -1433,7 +1433,7 @@ def test_env_allowlist_and_denylist(monkeypatch) -> None:
     assert "LONGBRIDGE_APP_KEY" not in child_env
     assert "OPENCODE_CONFIG_CONTENT" not in child_env
     assert "OPENAI_API_KEY" not in child_env
-    assert "PUSHOVER_USER_KEY" not in child_env
+    assert "FEISHU_WEBHOOK_SECRET" not in child_env
     assert "WEBHOOK_TOKEN" not in child_env
     assert "WECOM_ENCODING_AES_KEY" not in child_env
     assert "AUTHORIZATION" not in child_env
@@ -1666,7 +1666,7 @@ def test_diagnostics_redacts_webhook_urls_and_preserves_adjacent_normal_urls() -
         ("AIHUBMIX_KEY=short", "short"),
         ("CUSTOM_API_KEY=abc123xyz789short", "abc123xyz789short"),
         ("LONGBRIDGE_APP_KEY=short", "short"),
-        ("NTFY_URL=https://ntfy.sh/private-topic", "https://ntfy.sh/private-topic"),
+        ("FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/private-topic", "https://open.feishu.cn/open-apis/bot/v2/hook/private-topic"),
         ("API_KEYS=short", "short"),
         ("OPENAI_API_KEYS=short", "short"),
         ("MYOPENAIKEY=short", "short"),
@@ -1675,14 +1675,14 @@ def test_diagnostics_redacts_webhook_urls_and_preserves_adjacent_normal_urls() -
         ("OPENAI_API_KEY=\\\ntiny-secret session_id=ok", "tiny-secret"),
         ("OPENAI_FOO=$(printf %s tiny-secret) session_id=ok", "tiny-secret"),
         ("export OPENAI_FOO=$(printf %s tiny-secret) session_id=ok", "tiny-secret"),
-        ("PUSHOVER_USER_KEY=short", "short"),
+        ("FEISHU_WEBHOOK_SECRET=short", "short"),
         ("R2_SECRET_ACCESS_KEY=short", "short"),
         ("My_Api_Key=myvalue", "myvalue"),
         ("API Key: tiny-secret session_id=ok", "tiny-secret"),
         ("Client Secret: tiny-secret session_id=ok", "tiny-secret"),
         ("Secret Access Key: tiny-secret session_id=ok", "tiny-secret"),
         ("DingTalk App Key: tiny-secret session_id=ok", "tiny-secret"),
-        ("Pushover User Key: tiny-secret session_id=ok", "tiny-secret"),
+        ("Feishu Webhook Secret: tiny-secret session_id=ok", "tiny-secret"),
         ('{"Database URL":"tiny-secret","session_id":"ok"}', "tiny-secret"),
         ("PASSWORD='abc def ghi' next", "abc def ghi"),
         ("SESSION_SECRET='abc def ghi' next", "abc def ghi"),
@@ -1691,7 +1691,7 @@ def test_diagnostics_redacts_webhook_urls_and_preserves_adjacent_normal_urls() -
         ('{"accessToken":"short123"}', "short123"),
         ("api_keys: short123", "short123"),
         ("bot_token: tiny", "tiny"),
-        ("telegram_bot_token: tiny", "tiny"),
+        ("feishu_webhook_secret: tiny", "tiny"),
         ("client_secret: tiny", "tiny"),
         ("clientSecret: tiny", "tiny"),
         ("database_url: sqlite-short", "sqlite-short"),
@@ -2016,12 +2016,12 @@ def test_diagnostics_redacts_indented_blocks_under_empty_sensitive_yaml_fields(
             "session_id: wecom123",
         ),
         (
-            "PUSHOVER_USER_KEY: push-short\nsession_id: push123\n",
+            "FEISHU_WEBHOOK_SECRET: push-short\nsession_id: push123\n",
             "push-short",
             "session_id: push123",
         ),
         (
-            '{"NTFY_URL":"private-topic","session_id":"ntfy123"}',
+            '{"FEISHU_WEBHOOK_URL":"private-topic","session_id":"ntfy123"}',
             "private-topic",
             '"session_id":"ntfy123"',
         ),
@@ -2521,7 +2521,7 @@ print("bot_token: tiny,trail token_budget: 1000")
 print("Authorization: Basic dGlueTpzZWNyZXQ= session_id=auth123")
 print('"api_keys": "stderr-short" token_budget: 1000', file=sys.stderr)
 print("private_key: |\\n  tiny-secret", file=sys.stderr)
-print("telegram_bot_token=tiny]} session_id=stderr123", file=sys.stderr)
+print("FEISHU_WEBHOOK_SECRET=tiny]} session_id=stderr123", file=sys.stderr)
 print("authorization=Token tiny-secret token_budget=1000", file=sys.stderr)
 print("authorization=Negotiate abc.def.ghi token_budget=2000", file=sys.stderr)
 raise SystemExit(2)
@@ -2550,7 +2550,7 @@ raise SystemExit(2)
     assert "Authorization: <redacted>" in stdout_preview
     assert '"api_keys": "<redacted>"' in stderr_preview
     assert "private_key: <redacted>" in stderr_preview
-    assert "telegram_bot_token=<redacted>" in stderr_preview
+    assert "FEISHU_WEBHOOK_SECRET=<redacted>" in stderr_preview
     assert "authorization=<redacted>" in stderr_preview
     assert "''s secret" not in stdout_preview
     assert "session_id=abc123" in stdout_preview
@@ -2869,8 +2869,8 @@ def test_nonzero_exit_diagnostic_previews_redact_repo_env_json_and_parameterized
 import sys
 print("AIHUBMIX_KEY=stdout-short session_id=stdout123")
 print("LONGBRIDGE_APP_KEY=stderr-short session_id=bridge123", file=sys.stderr)
-print("NTFY_URL=https://ntfy.sh/private-topic session_id=ntfy123", file=sys.stderr)
-print("PUSHOVER_USER_KEY=notify-short session_id=push123", file=sys.stderr)
+print("FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/private-topic session_id=ntfy123", file=sys.stderr)
+print("FEISHU_WEBHOOK_SECRET=notify-short session_id=push123", file=sys.stderr)
 print("proxyAuthorization: Basic proxy-short session_id=proxy123", file=sys.stderr)
 print('{', file=sys.stderr)
 print('  "api_key":', file=sys.stderr)
@@ -2891,7 +2891,7 @@ raise SystemExit(2)
     stderr_preview = _lf(exc_info.value.details["stderr_preview"])
     assert "stdout-short" not in stdout_preview
     assert "stderr-short" not in stderr_preview
-    assert "https://ntfy.sh/private-topic" not in stderr_preview
+    assert "private-topic" not in stderr_preview
     assert "notify-short" not in stderr_preview
     assert "proxy-short" not in stderr_preview
     assert "json-short" not in stderr_preview
@@ -2899,8 +2899,8 @@ raise SystemExit(2)
     assert "sig-short" not in stderr_preview
     assert "AIHUBMIX_KEY=<redacted> session_id=stdout123" in stdout_preview
     assert "LONGBRIDGE_APP_KEY=<redacted> session_id=bridge123" in stderr_preview
-    assert "NTFY_URL=<redacted> session_id=ntfy123" in stderr_preview
-    assert "PUSHOVER_USER_KEY=<redacted> session_id=push123" in stderr_preview
+    assert "FEISHU_WEBHOOK_URL=<redacted> session_id=ntfy123" in stderr_preview
+    assert "FEISHU_WEBHOOK_SECRET=<redacted> session_id=push123" in stderr_preview
     assert "proxyAuthorization: <redacted> session_id=proxy123" in stderr_preview
     assert '"api_key":\n    "<redacted>"' in stderr_preview
     assert '"session_id": "json123"' in stderr_preview

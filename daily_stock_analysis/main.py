@@ -1291,22 +1291,7 @@ def _is_truthy_env(var_name: str, default: str = "true") -> bool:
 
 def start_bot_stream_clients(config: Config) -> None:
     """Start bot stream clients when enabled in config."""
-    # 启动钉钉 Stream 客户端
-    if config.dingtalk_stream_enabled:
-        try:
-            from bot.platforms import start_dingtalk_stream_background, DINGTALK_STREAM_AVAILABLE
-            if DINGTALK_STREAM_AVAILABLE:
-                if start_dingtalk_stream_background():
-                    logger.info("[Main] Dingtalk Stream client started in background.")
-                else:
-                    logger.warning("[Main] Dingtalk Stream client failed to start.")
-            else:
-                logger.warning("[Main] Dingtalk Stream enabled but SDK is missing.")
-                logger.warning("[Main] Run: pip install dingtalk-stream")
-        except Exception as exc:
-            logger.error(f"[Main] Failed to start Dingtalk Stream client: {exc}")
-
-    # 启动飞书 Stream 客户端
+    # 启动飞书 Stream 客户端（P5：钉钉 Stream 已移除）
     if getattr(config, 'feishu_stream_enabled', False):
         try:
             from bot.platforms import start_feishu_stream_background, FEISHU_SDK_AVAILABLE

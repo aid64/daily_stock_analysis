@@ -1055,71 +1055,20 @@ class Config:
     etf_premium_symbol: str = "511380"  # 监控的 ETF 代码（默认转债 ETF）
     etf_premium_max_pct: float = 1.5  # 溢价率上限（%），超过提醒暂缓买入
 
-    # === 通知配置（可同时配置多个，全部推送）===
-    
-    # 企业微信 Webhook
-    wechat_webhook_url: Optional[str] = None
-    
+    # === 通知配置（P5：生产仅使用飞书，其余 13 渠道已移除）===
+
     # 飞书 Webhook
     feishu_webhook_url: Optional[str] = None
     feishu_webhook_secret: Optional[str] = None  # 自定义机器人签名密钥（可选）
     feishu_webhook_keyword: Optional[str] = None  # 自定义机器人关键词（可选）
-    dingtalk_webhook_url: Optional[str] = None
-    dingtalk_secret: Optional[str] = None
 
     # 飞书应用机器人（App Bot）通知
     feishu_chat_id: Optional[str] = None  # 目标群会话 chat_id（群聊模式），或用户 open_id（P2P 模式）
     feishu_receive_id_type: str = "chat_id"  # 接收者 ID 类型: "chat_id"(群聊) / "open_id"(私聊)
     feishu_domain: str = "feishu"  # 飞书域名: "feishu"(feishu.cn) / "lark"(larksuite.com)
-    
-    # Telegram 配置（需要同时配置 Bot Token 和 Chat ID）
-    telegram_bot_token: Optional[str] = None  # Bot Token（@BotFather 获取）
-    telegram_chat_id: Optional[str] = None  # Chat ID
-    telegram_message_thread_id: Optional[str] = None  # Topic ID (Message Thread ID) for groups
-    
-    # 邮件配置（只需邮箱和授权码，SMTP 自动识别）
-    email_sender: Optional[str] = None  # 发件人邮箱
-    email_sender_name: str = "daily_stock_analysis股票分析助手"  # 发件人显示名称
-    email_password: Optional[str] = None  # 邮箱密码/授权码
-    email_receivers: List[str] = field(default_factory=list)  # 收件人列表（留空则发给自己）
 
-    # Stock-to-email group routing (Issue #268): STOCK_GROUP_N + EMAIL_GROUP_N
-    # When configured, each group's report is sent to that group's emails only.
-    stock_email_groups: List[Tuple[List[str], List[str]]] = field(default_factory=list)
-
-    # Pushover 配置（手机/桌面推送通知）
-    pushover_user_key: Optional[str] = None  # 用户 Key（https://pushover.net 获取）
-    pushover_api_token: Optional[str] = None  # 应用 API Token
-
-    # ntfy 配置（完整 topic endpoint，例如 https://ntfy.sh/my-topic）
-    ntfy_url: Optional[str] = None
-    ntfy_token: Optional[str] = None
-
-    # Gotify 配置（server base URL；sender 会拼接 /message）
-    gotify_url: Optional[str] = None
-    gotify_token: Optional[str] = None
-    
-    # 自定义 Webhook（支持多个，逗号分隔）
-    # 适用于：钉钉、Discord、Slack、自建服务等任意支持 POST JSON 的 Webhook
-    custom_webhook_urls: List[str] = field(default_factory=list)
-    custom_webhook_bearer_token: Optional[str] = None  # Bearer Token（用于需要认证的 Webhook）
-    custom_webhook_body_template: Optional[str] = None  # 自定义 Webhook JSON body 模板
-    webhook_verify_ssl: bool = True  # Webhook HTTPS 证书校验，false 可支持自签名（有 MITM 风险）
-
-    # Discord 通知配置
-    discord_bot_token: Optional[str] = None  # Discord Bot Token
-    discord_main_channel_id: Optional[str] = None  # Discord 主频道 ID
-    discord_webhook_url: Optional[str] = None  # Discord Webhook URL
-    discord_interactions_public_key: Optional[str] = None  # Discord Interaction 入站验签公钥
-
-    # Slack 通知配置
-    slack_webhook_url: Optional[str] = None  # Slack Incoming Webhook URL
-    slack_bot_token: Optional[str] = None  # Slack Bot Token (xoxb-...)
-    slack_channel_id: Optional[str] = None  # Slack 频道 ID (Bot 模式必填)
-
-    # AstrBot 通知配置
-    astrbot_token: Optional[str] = None
-    astrbot_url: Optional[str] = None
+    # Webhook HTTPS 证书校验，false 可支持自签名（有 MITM 风险）。飞书 sender 复用。
+    webhook_verify_ssl: bool = True
 
     # 通知路由策略（Issue #1200 P3）：留空表示该类型使用全部已配置渠道
     notification_report_channels: List[str] = field(default_factory=list)
@@ -1153,13 +1102,6 @@ class Config:
     report_integrity_retry: int = 1  # Retry count when mandatory fields missing (0 = placeholder only)
     report_history_compare_n: int = 0  # History comparison count (0 = disabled)
 
-    # PushPlus 推送配置
-    pushplus_token: Optional[str] = None  # PushPlus Token
-    pushplus_topic: Optional[str] = None  # PushPlus 群组编码（一对多推送）
-
-    # Server酱3 推送配置
-    serverchan3_sendkey: Optional[str] = None  # Server酱3 SendKey
-
     # 分析间隔时间（秒）- 用于避免API限流
     analysis_delay: float = 0.0  # 个股分析与大盘分析之间的延迟
 
@@ -1169,19 +1111,6 @@ class Config:
     # 消息长度限制（字节）- 超长自动分批发送
     feishu_max_bytes: int = 20000  # 飞书限制约 20KB，默认 20000 字节
     feishu_send_as_file: bool = False  # 飞书是否以文件形式发送报告（默认文字消息）
-    wechat_max_bytes: int = 4000   # 企业微信限制 4096 字节，默认 4000 字节
-    discord_max_words: int = 2000  # Discord 限制 2000 字，默认 2000 字
-    wechat_msg_type: str = "markdown"  # 企业微信消息类型，默认 markdown 类型
-
-    # 企业微信分批推送配置（优化用户体验，避免单条消息过长）
-    wechat_batch_mode: bool = False  # 是否启用分批推送（汇总+逐条个股）
-    wechat_batch_delay_sec: float = 1.0  # 分批推送时消息间隔（秒）
-    wechat_summary_image_enabled: bool = False  # 是否生成汇总图片
-
-    # Markdown 转图片（Issue #289）：对不支持 Markdown 的渠道以图片发送
-    markdown_to_image_channels: List[str] = field(default_factory=list)  # 逗号分隔：telegram,wechat,custom,email
-    markdown_to_image_max_chars: int = 15000  # 超过此长度不转换，避免超大图片
-    md2img_engine: str = "wkhtmltoimage"  # wkhtmltoimage | markdown-to-file | playwright
     share_image_xiaohongshu_url: Optional[str] = None
     share_image_xiaohongshu_handle: Optional[str] = None
     share_image_xiaohongshu_id: Optional[str] = None
@@ -1299,9 +1228,6 @@ class Config:
     strategy_autostop_drawdown_recover_pct: float = 10.0
     strategy_autostop_underperform_recover_periods: int = 2
 
-    # Discord 机器人状态
-    discord_bot_status: str = "A股智能分析 | /help"
-
     # === 流控配置（防封禁关键参数）===
     # Akshare 请求间隔范围（秒）
     akshare_sleep_min: float = 2.0
@@ -1331,12 +1257,7 @@ class Config:
     feishu_verification_token: Optional[str] = None  # 事件订阅验证 Token
     feishu_encrypt_key: Optional[str] = None         # 消息加密密钥（可选）
     feishu_stream_enabled: bool = False              # 是否启用 Stream 长连接模式（无需公网IP）
-    
-    # 钉钉机器人
-    dingtalk_app_key: Optional[str] = None      # 应用 AppKey
-    dingtalk_app_secret: Optional[str] = None   # 应用 AppSecret
-    dingtalk_stream_enabled: bool = False       # 是否启用 Stream 模式（无需公网IP）
-    
+
     # 企业微信机器人（回调模式）
     wecom_corpid: Optional[str] = None              # 企业 ID
     wecom_token: Optional[str] = None               # 回调 Token
@@ -1767,26 +1688,6 @@ class Config:
             default=False,
         )
 
-        # 企微消息类型与最大字节数逻辑
-        wechat_msg_type = os.getenv('WECHAT_MSG_TYPE', 'markdown')
-        wechat_msg_type_lower = wechat_msg_type.lower()
-        wechat_max_bytes_env = os.getenv('WECHAT_MAX_BYTES')
-        if wechat_max_bytes_env not in (None, ''):
-            wechat_max_bytes = parse_env_int(
-                wechat_max_bytes_env,
-                2048 if wechat_msg_type_lower == 'text' else 4000,
-                field_name='WECHAT_MAX_BYTES',
-                minimum=1,
-            )
-        else:
-            # 未显式配置时，根据消息类型选择默认字节数
-            wechat_max_bytes = 2048 if wechat_msg_type_lower == 'text' else 4000
-
-        # 企业微信分批推送配置
-        wechat_batch_mode = os.getenv('WECHAT_BATCH_MODE', 'false').lower() in ('true', '1', 'yes')
-        wechat_batch_delay_sec = parse_env_float(os.getenv('WECHAT_BATCH_DELAY_SEC'), 1.0, field_name='WECHAT_BATCH_DELAY_SEC', minimum=0.1, maximum=10.0)
-        wechat_summary_image_enabled = os.getenv('WECHAT_SUMMARY_IMAGE_ENABLED', 'false').lower() in ('true', '1', 'yes')
-
         # Preserve historical semantics for startup flags: only an explicit
         # literal "true" enables immediate execution; empty strings stay False.
         legacy_run_immediately_env = cls._resolve_env_value(
@@ -2133,53 +2034,14 @@ class Config:
                 1.5,
                 field_name='ETF_PREMIUM_MAX_PCT',
             ),
-            wechat_webhook_url=os.getenv('WECHAT_WEBHOOK_URL'),
             feishu_webhook_url=os.getenv('FEISHU_WEBHOOK_URL'),
             feishu_webhook_secret=os.getenv('FEISHU_WEBHOOK_SECRET'),
             feishu_webhook_keyword=os.getenv('FEISHU_WEBHOOK_KEYWORD'),
-            dingtalk_webhook_url=os.getenv('DINGTALK_WEBHOOK_URL'),
-            dingtalk_secret=os.getenv('DINGTALK_SECRET'),
-            
 
             feishu_chat_id=os.getenv('FEISHU_CHAT_ID'),
             feishu_receive_id_type=os.getenv('FEISHU_RECEIVE_ID_TYPE', 'chat_id'),
             feishu_domain=os.getenv('FEISHU_DOMAIN', 'feishu'),
-            telegram_bot_token=os.getenv('TELEGRAM_BOT_TOKEN'),
-            telegram_chat_id=os.getenv('TELEGRAM_CHAT_ID'),
-            telegram_message_thread_id=os.getenv('TELEGRAM_MESSAGE_THREAD_ID'),
-            email_sender=os.getenv('EMAIL_SENDER'),
-            email_sender_name=os.getenv('EMAIL_SENDER_NAME', 'daily_stock_analysis股票分析助手'),
-            email_password=os.getenv('EMAIL_PASSWORD'),
-            email_receivers=[r.strip() for r in os.getenv('EMAIL_RECEIVERS', '').split(',') if r.strip()],
-            stock_email_groups=cls._parse_stock_email_groups(),
-            pushover_user_key=os.getenv('PUSHOVER_USER_KEY'),
-            pushover_api_token=os.getenv('PUSHOVER_API_TOKEN'),
-            ntfy_url=os.getenv('NTFY_URL'),
-            ntfy_token=os.getenv('NTFY_TOKEN'),
-            gotify_url=os.getenv('GOTIFY_URL'),
-            gotify_token=os.getenv('GOTIFY_TOKEN'),
-            pushplus_token=os.getenv('PUSHPLUS_TOKEN'),
-            pushplus_topic=os.getenv('PUSHPLUS_TOPIC'),
-            serverchan3_sendkey=os.getenv('SERVERCHAN3_SENDKEY'),
-            custom_webhook_urls=[u.strip() for u in os.getenv('CUSTOM_WEBHOOK_URLS', '').split(',') if u.strip()],
-            custom_webhook_bearer_token=os.getenv('CUSTOM_WEBHOOK_BEARER_TOKEN'),
-            custom_webhook_body_template=unescape_compose_sensitive_env_value(
-                'CUSTOM_WEBHOOK_BODY_TEMPLATE',
-                os.getenv('CUSTOM_WEBHOOK_BODY_TEMPLATE') or '',
-            ) or None,
             webhook_verify_ssl=os.getenv('WEBHOOK_VERIFY_SSL', 'true').lower() == 'true',
-            discord_bot_token=os.getenv('DISCORD_BOT_TOKEN'),
-            discord_main_channel_id=(
-                os.getenv('DISCORD_MAIN_CHANNEL_ID')
-                or os.getenv('DISCORD_CHANNEL_ID')
-            ),
-            discord_webhook_url=os.getenv('DISCORD_WEBHOOK_URL'),
-            discord_interactions_public_key=os.getenv('DISCORD_INTERACTIONS_PUBLIC_KEY'),
-            slack_webhook_url=os.getenv('SLACK_WEBHOOK_URL'),
-            slack_bot_token=os.getenv('SLACK_BOT_TOKEN'),
-            slack_channel_id=os.getenv('SLACK_CHANNEL_ID'),
-            astrbot_url=os.getenv('ASTRBOT_URL'),
-            astrbot_token=os.getenv('ASTRBOT_TOKEN'),
             notification_report_channels=parse_notification_route_channels(
                 os.getenv('NOTIFICATION_REPORT_CHANNELS')
             ),
@@ -2223,24 +2085,6 @@ class Config:
             merge_email_notification=os.getenv('MERGE_EMAIL_NOTIFICATION', 'false').lower() == 'true',
             feishu_max_bytes=parse_env_int(os.getenv('FEISHU_MAX_BYTES'), 20000, field_name='FEISHU_MAX_BYTES', minimum=1),
             feishu_send_as_file=os.getenv('FEISHU_SEND_AS_FILE', '').lower() in ('true', '1', 'yes'),
-            wechat_max_bytes=wechat_max_bytes,
-            wechat_msg_type=wechat_msg_type_lower,
-            wechat_batch_mode=wechat_batch_mode,
-            wechat_batch_delay_sec=wechat_batch_delay_sec,
-            wechat_summary_image_enabled=wechat_summary_image_enabled,
-            discord_max_words=parse_env_int(os.getenv('DISCORD_MAX_WORDS'), 2000, field_name='DISCORD_MAX_WORDS', minimum=1),
-            markdown_to_image_channels=[
-                c.strip().lower()
-                for c in os.getenv('MARKDOWN_TO_IMAGE_CHANNELS', '').split(',')
-                if c.strip()
-            ],
-            markdown_to_image_max_chars=parse_env_int(
-                os.getenv('MARKDOWN_TO_IMAGE_MAX_CHARS'),
-                15000,
-                field_name='MARKDOWN_TO_IMAGE_MAX_CHARS',
-                minimum=1,
-            ),
-            md2img_engine=cls._parse_md2img_engine(os.getenv('MD2IMG_ENGINE', 'wkhtmltoimage')),
             share_image_xiaohongshu_url=(os.getenv('SHARE_IMAGE_XIAOHONGSHU_URL') or '').strip() or None,
             share_image_xiaohongshu_handle=(os.getenv('SHARE_IMAGE_XIAOHONGSHU_HANDLE') or '').strip() or None,
             share_image_xiaohongshu_id=(os.getenv('SHARE_IMAGE_XIAOHONGSHU_ID') or '').strip() or None,
@@ -2318,10 +2162,6 @@ class Config:
             feishu_verification_token=os.getenv('FEISHU_VERIFICATION_TOKEN'),
             feishu_encrypt_key=os.getenv('FEISHU_ENCRYPT_KEY'),
             feishu_stream_enabled=os.getenv('FEISHU_STREAM_ENABLED', 'false').lower() == 'true',
-            # 钉钉机器人
-            dingtalk_app_key=os.getenv('DINGTALK_APP_KEY'),
-            dingtalk_app_secret=os.getenv('DINGTALK_APP_SECRET'),
-            dingtalk_stream_enabled=os.getenv('DINGTALK_STREAM_ENABLED', 'false').lower() == 'true',
             # 企业微信机器人
             wecom_corpid=os.getenv('WECOM_CORPID'),
             wecom_token=os.getenv('WECOM_TOKEN'),
@@ -2329,8 +2169,6 @@ class Config:
             wecom_agent_id=os.getenv('WECOM_AGENT_ID'),
             # Telegram
             telegram_webhook_secret=os.getenv('TELEGRAM_WEBHOOK_SECRET'),
-            # Discord 机器人扩展配置
-            discord_bot_status=os.getenv('DISCORD_BOT_STATUS', 'A股智能分析 | /help'),
             # 实时行情增强数据配置
             enable_realtime_quote=os.getenv('ENABLE_REALTIME_QUOTE', 'true').lower() == 'true',
             enable_realtime_technical_indicators=os.getenv(
@@ -3269,37 +3107,6 @@ class Config:
                 message="未配置 STOCK_LIST。请设置至少一个股票代码，例如：600519,hk00700,AAPL。",
                 field="STOCK_LIST",
             ))
-        elif self.stock_email_groups:
-            from data_provider.base import normalize_stock_code
-            configured_stock_set = {
-                normalize_stock_code(code)
-                for code in self.stock_list
-                if (code or "").strip()
-            }
-            missing_group_stocks_dict: Dict[str, None] = {}
-            for stocks, _emails in self.stock_email_groups:
-                for stock in stocks:
-                    raw = (stock or "").strip()
-                    if not raw:
-                        continue
-                    normalized_stock = normalize_stock_code(stock)
-                    if normalized_stock in configured_stock_set:
-                        continue
-                    if normalized_stock in missing_group_stocks_dict:
-                        continue
-                    missing_group_stocks_dict[normalized_stock] = None
-            missing_group_stocks = list(missing_group_stocks_dict.keys())
-            if missing_group_stocks:
-                issues.append(ConfigIssue(
-                    severity="warning",
-                    message=(
-                        "检测到 STOCK_GROUP_N 中存在未包含在 STOCK_LIST 内的股票："
-                        f"{', '.join(missing_group_stocks[:6])}。"
-                        "STOCK_GROUP_N 仅用于邮件路由，不会扩大分析范围；"
-                        "请先将这些股票加入 STOCK_LIST。"
-                    ),
-                    field="STOCK_GROUP_N",
-                ))
 
         # --- Data sources (informational only) ---
         if not self.tushare_token:
@@ -3609,58 +3416,21 @@ class Config:
                 field="BOCHA_API_KEYS",
             ))
 
-        # --- Notification channels ---
+        # --- Notification channels (P5：仅飞书) ---
         has_notification = bool(
-            self.wechat_webhook_url
-            or self.dingtalk_webhook_url
-            or self.feishu_webhook_url
+            self.feishu_webhook_url
             or (
                 (self.feishu_app_id or "")
                 and (self.feishu_app_secret or "")
                 and (self.feishu_chat_id or "")
             )
-            or (self.telegram_bot_token and self.telegram_chat_id)
-            or (self.email_sender and self.email_password)
-            or (self.pushover_user_key and self.pushover_api_token)
-            or _has_ntfy_topic_endpoint(self.ntfy_url)
-            or (
-                self.gotify_url
-                and (self.gotify_token or "").strip()
-                and _has_gotify_base_url(self.gotify_url)
-            )
-            or self.pushplus_token
-            or self.serverchan3_sendkey
-            or self.custom_webhook_urls
-            or self.astrbot_url
-            or (self.discord_bot_token and self.discord_main_channel_id)
-            or self.discord_webhook_url
-            or self.slack_webhook_url
-            or (self.slack_bot_token and self.slack_channel_id)
         )
 
         if not has_notification:
             issues.append(ConfigIssue(
                 severity="warning",
                 message="未配置通知渠道，将不发送推送通知",
-                field="WECHAT_WEBHOOK_URL",
-            ))
-
-        has_telegram_token = bool((self.telegram_bot_token or "").strip())
-        has_telegram_chat_id = bool((self.telegram_chat_id or "").strip())
-        if has_telegram_token != has_telegram_chat_id:
-            issues.append(ConfigIssue(
-                severity="error",
-                message="Telegram 通知配置不完整：TELEGRAM_BOT_TOKEN 和 TELEGRAM_CHAT_ID 必须同时配置。",
-                field="TELEGRAM_CHAT_ID" if has_telegram_token else "TELEGRAM_BOT_TOKEN",
-            ))
-
-        has_email_sender = bool((self.email_sender or "").strip())
-        has_email_password = bool((self.email_password or "").strip())
-        if has_email_sender != has_email_password:
-            issues.append(ConfigIssue(
-                severity="error",
-                message="邮件通知配置不完整：EMAIL_SENDER 和 EMAIL_PASSWORD 必须同时配置。",
-                field="EMAIL_PASSWORD" if has_email_sender else "EMAIL_SENDER",
+                field="FEISHU_WEBHOOK_URL",
             ))
 
         def _warn_if_webhook_url_invalid(field: str, value: Optional[str]) -> None:
@@ -3676,43 +3446,7 @@ class Config:
                 field=field,
             ))
 
-        for field, value in (
-            ("WECHAT_WEBHOOK_URL", self.wechat_webhook_url),
-            ("FEISHU_WEBHOOK_URL", self.feishu_webhook_url),
-            ("DINGTALK_WEBHOOK_URL", self.dingtalk_webhook_url),
-            ("DISCORD_WEBHOOK_URL", self.discord_webhook_url),
-            ("SLACK_WEBHOOK_URL", self.slack_webhook_url),
-            ("ASTRBOT_URL", self.astrbot_url),
-        ):
-            _warn_if_webhook_url_invalid(field, value)
-
-        for custom_url in self.custom_webhook_urls:
-            _warn_if_webhook_url_invalid("CUSTOM_WEBHOOK_URLS", custom_url)
-
-        if self.ntfy_url and not _has_ntfy_topic_endpoint(self.ntfy_url):
-            issues.append(ConfigIssue(
-                severity="error",
-                message="NTFY_URL 必须包含 topic path，例如 https://ntfy.sh/my-topic",
-                field="NTFY_URL",
-            ))
-
-        if self.gotify_url and not _has_gotify_base_url(self.gotify_url):
-            issues.append(ConfigIssue(
-                severity="error",
-                message="GOTIFY_URL 必须是 Gotify server base URL，不包含 /message，例如 https://gotify.example",
-                field="GOTIFY_URL",
-            ))
-
-        if (
-            self.gotify_url
-            and _has_gotify_base_url(self.gotify_url)
-            and not (self.gotify_token or "").strip()
-        ):
-            issues.append(ConfigIssue(
-                severity="warning",
-                message="已配置 GOTIFY_URL，但缺少 GOTIFY_TOKEN，Gotify 渠道不会启用",
-                field="GOTIFY_TOKEN",
-            ))
+        _warn_if_webhook_url_invalid("FEISHU_WEBHOOK_URL", self.feishu_webhook_url)
 
         if self.notification_quiet_hours:
             try:

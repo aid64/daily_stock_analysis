@@ -56,14 +56,10 @@ bot/
 │   ├── market.py           # /market 大盘复盘
 │   ├── help.py             # /help 帮助信息
 │   └── status.py           # /status 系统状态
-└── platforms/              # 平台适配器
+└── platforms/              # 平台适配器（P5：仅保留飞书）
     ├── __init__.py
     ├── base.py             # 平台抽象基类
-    ├── feishu.py           # 飞书机器人
-    ├── dingtalk.py         # 钉钉机器人
-    ├── dingtalk_stream.py  # 钉钉机器人Stream
-    ├── wecom.py            # 企业微信机器人 （开发中）
-    └── telegram.py         # Telegram 机器人 （开发中）
+    └── feishu_stream.py    # 飞书 Stream 机器人
 ```
 
 ## 三、核心抽象设计
@@ -320,17 +316,9 @@ feishu_app_secret: str                 # 已有
 feishu_verification_token: str         # 新增：事件校验 Token
 feishu_encrypt_key: str                # 新增：加密密钥
 
-# 钉钉机器人（应用）
-dingtalk_app_key: str                  # 新增
-dingtalk_app_secret: str               # 新增
-
-# 企业微信机器人（开发中）
-wecom_token: str                       # 新增：回调 Token
-wecom_encoding_aes_key: str            # 新增：EncodingAESKey
-
-# Telegram 机器人（开发中）
-telegram_bot_token: str                # 已有
-telegram_webhook_secret: str           # 新增：Webhook 密钥
+# 企业微信机器人（回调模式，未启用）
+wecom_token: str                       # 回调 Token
+wecom_encoding_aes_key: str            # EncodingAESKey
 ```
 
 ## 扩展说明

@@ -83,8 +83,6 @@ from src.notification_contracts import (
     is_feishu_static_env_configured,
 )
 from src.notification_noise import validate_notification_timezone
-from src.notification_sender.gotify_sender import resolve_gotify_message_endpoint
-from src.notification_sender.ntfy_sender import resolve_ntfy_endpoint
 from src.services.stock_list_parser import split_stock_list
 from src.services.generation_backend_status_service import GenerationBackendStatusService
 from src.services.agent_backend_status_service import AgentBackendStatusService
@@ -207,99 +205,26 @@ class SystemConfigService:
         "LLM_USAGE_HMAC_SECRET",
     }
     _NOTIFICATION_TEST_CHANNELS: Tuple[str, ...] = (
-        "wechat",
-        "dingtalk",
         "feishu",
-        "telegram",
-        "email",
-        "pushover",
-        "ntfy",
-        "gotify",
-        "pushplus",
-        "serverchan3",
-        "custom",
-        "discord",
-        "slack",
-        "astrbot",
     )
     _NOTIFICATION_TEST_KEY_MAP: Dict[str, Tuple[str, str]] = {
-        "WECHAT_WEBHOOK_URL": ("wechat_webhook_url", "string"),
-        "WECHAT_MSG_TYPE": ("wechat_msg_type", "string"),
-        "WECHAT_MAX_BYTES": ("wechat_max_bytes", "int"),
         "FEISHU_WEBHOOK_URL": ("feishu_webhook_url", "string"),
         "FEISHU_WEBHOOK_SECRET": ("feishu_webhook_secret", "string"),
         "FEISHU_WEBHOOK_KEYWORD": ("feishu_webhook_keyword", "string"),
         "FEISHU_MAX_BYTES": ("feishu_max_bytes", "int"),
         "FEISHU_SEND_AS_FILE": ("feishu_send_as_file", "bool"),
-        "DINGTALK_WEBHOOK_URL": ("dingtalk_webhook_url", "string"),
-        "DINGTALK_SECRET": ("dingtalk_secret", "string"),
         "FEISHU_APP_ID": ("feishu_app_id", "string"),
         "FEISHU_APP_SECRET": ("feishu_app_secret", "string"),
         "FEISHU_CHAT_ID": ("feishu_chat_id", "string"),
         "FEISHU_RECEIVE_ID_TYPE": ("feishu_receive_id_type", "string"),
         "FEISHU_DOMAIN": ("feishu_domain", "string"),
-        "TELEGRAM_BOT_TOKEN": ("telegram_bot_token", "string"),
-        "TELEGRAM_CHAT_ID": ("telegram_chat_id", "string"),
-        "TELEGRAM_MESSAGE_THREAD_ID": ("telegram_message_thread_id", "string"),
-        "EMAIL_SENDER": ("email_sender", "string"),
-        "EMAIL_SENDER_NAME": ("email_sender_name", "string"),
-        "EMAIL_PASSWORD": ("email_password", "string"),
-        "EMAIL_RECEIVERS": ("email_receivers", "csv"),
-        "PUSHOVER_USER_KEY": ("pushover_user_key", "string"),
-        "PUSHOVER_API_TOKEN": ("pushover_api_token", "string"),
-        "NTFY_URL": ("ntfy_url", "string"),
-        "NTFY_TOKEN": ("ntfy_token", "string"),
-        "GOTIFY_URL": ("gotify_url", "string"),
-        "GOTIFY_TOKEN": ("gotify_token", "string"),
-        "PUSHPLUS_TOKEN": ("pushplus_token", "string"),
-        "PUSHPLUS_TOPIC": ("pushplus_topic", "string"),
-        "SERVERCHAN3_SENDKEY": ("serverchan3_sendkey", "string"),
-        "CUSTOM_WEBHOOK_URLS": ("custom_webhook_urls", "csv"),
-        "CUSTOM_WEBHOOK_BEARER_TOKEN": ("custom_webhook_bearer_token", "string"),
-        "CUSTOM_WEBHOOK_BODY_TEMPLATE": ("custom_webhook_body_template", "string"),
         "WEBHOOK_VERIFY_SSL": ("webhook_verify_ssl", "bool"),
-        "DISCORD_WEBHOOK_URL": ("discord_webhook_url", "string"),
-        "DISCORD_BOT_TOKEN": ("discord_bot_token", "string"),
-        "DISCORD_MAIN_CHANNEL_ID": ("discord_main_channel_id", "string"),
-        "DISCORD_CHANNEL_ID": ("discord_main_channel_id", "string"),
-        "DISCORD_MAX_WORDS": ("discord_max_words", "int"),
-        "SLACK_WEBHOOK_URL": ("slack_webhook_url", "string"),
-        "SLACK_BOT_TOKEN": ("slack_bot_token", "string"),
-        "SLACK_CHANNEL_ID": ("slack_channel_id", "string"),
-        "ASTRBOT_URL": ("astrbot_url", "string"),
-        "ASTRBOT_TOKEN": ("astrbot_token", "string"),
     }
     _NOTIFICATION_REQUIRED_KEY_GROUPS: Dict[str, Tuple[Tuple[str, ...], ...]] = {
-        "wechat": (("WECHAT_WEBHOOK_URL",),),
-        "dingtalk": (("DINGTALK_WEBHOOK_URL",),),
         "feishu": (FEISHU_WEBHOOK_ENV_GROUP, FEISHU_APP_BOT_ENV_GROUP),
-        "telegram": (("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"),),
-        "email": (("EMAIL_SENDER", "EMAIL_PASSWORD"),),
-        "pushover": (("PUSHOVER_USER_KEY", "PUSHOVER_API_TOKEN"),),
-        "ntfy": (("NTFY_URL",),),
-        "gotify": (("GOTIFY_URL", "GOTIFY_TOKEN"),),
-        "pushplus": (("PUSHPLUS_TOKEN",),),
-        "serverchan3": (("SERVERCHAN3_SENDKEY",),),
-        "custom": (("CUSTOM_WEBHOOK_URLS",),),
-        "discord": (("DISCORD_WEBHOOK_URL",), ("DISCORD_BOT_TOKEN", "DISCORD_MAIN_CHANNEL_ID"), ("DISCORD_BOT_TOKEN", "DISCORD_CHANNEL_ID")),
-        "slack": (("SLACK_WEBHOOK_URL",), ("SLACK_BOT_TOKEN", "SLACK_CHANNEL_ID")),
-        "astrbot": (("ASTRBOT_URL",),),
     }
     _NOTIFICATION_TEST_TARGET_KEYS: Dict[str, Tuple[str, ...]] = {
-        "wechat": ("WECHAT_WEBHOOK_URL",),
-        "dingtalk": ("DINGTALK_WEBHOOK_URL",),
         "feishu": FEISHU_WEBHOOK_ENV_GROUP + FEISHU_APP_BOT_ENV_GROUP,
-        "telegram": ("TELEGRAM_BOT_TOKEN",),
-        "email": ("EMAIL_RECEIVERS", "EMAIL_SENDER"),
-        "pushover": ("PUSHOVER_USER_KEY",),
-        "ntfy": ("NTFY_URL",),
-        "gotify": ("GOTIFY_URL",),
-        "pushplus": ("PUSHPLUS_TOPIC",),
-        "serverchan3": ("SERVERCHAN3_SENDKEY",),
-        "custom": ("CUSTOM_WEBHOOK_URLS",),
-        "discord": ("DISCORD_WEBHOOK_URL", "DISCORD_MAIN_CHANNEL_ID", "DISCORD_CHANNEL_ID"),
-        "slack": ("SLACK_WEBHOOK_URL", "SLACK_CHANNEL_ID"),
-        "astrbot": ("ASTRBOT_URL",),
     }
 
     def __init__(self, manager: Optional[ConfigManager] = None, runtime_scheduler: Optional[Any] = None):
@@ -2742,38 +2667,6 @@ class SystemConfigService:
                     }
                 )
 
-        if key == "NTFY_URL" and value.strip():
-            allowed_schemes = tuple(validation.get("allowed_schemes", ["http", "https"]))
-            if SystemConfigService._is_valid_url(value.strip(), allowed_schemes=allowed_schemes):
-                ntfy_server_url, ntfy_topic = resolve_ntfy_endpoint(value)
-                if not ntfy_server_url or not ntfy_topic:
-                    issues.append(
-                        {
-                            "key": key,
-                            "code": "invalid_ntfy_url",
-                            "message": "NTFY_URL must include a topic path, e.g. https://ntfy.sh/my-topic",
-                            "severity": "error",
-                            "expected": "ntfy publish endpoint with topic path",
-                            "actual": value,
-                        }
-                    )
-
-        if key == "GOTIFY_URL" and value.strip():
-            allowed_schemes = tuple(validation.get("allowed_schemes", ["http", "https"]))
-            if SystemConfigService._is_valid_url(value.strip(), allowed_schemes=allowed_schemes):
-                gotify_endpoint = resolve_gotify_message_endpoint(value)
-                if not gotify_endpoint:
-                    issues.append(
-                        {
-                            "key": key,
-                            "code": "invalid_gotify_url",
-                            "message": "GOTIFY_URL must be a Gotify server base URL and must not include /message",
-                            "severity": "error",
-                            "expected": "Gotify server base URL, e.g. https://gotify.example",
-                            "actual": value,
-                        }
-                    )
-
         return issues
 
     @staticmethod
@@ -2953,21 +2846,6 @@ class SystemConfigService:
         channel: str,
         effective_map: Dict[str, str],
     ) -> Optional[str]:
-        if channel == "ntfy":
-            ntfy_url = (effective_map.get("NTFY_URL") or "").strip()
-            if not ntfy_url:
-                return None
-            ntfy_server_url, ntfy_topic = resolve_ntfy_endpoint(ntfy_url)
-            if ntfy_server_url and ntfy_topic:
-                return None
-            return "NTFY_URL 必须包含 topic path，例如 https://ntfy.sh/my-topic。"
-        if channel == "gotify":
-            gotify_url = (effective_map.get("GOTIFY_URL") or "").strip()
-            if not gotify_url:
-                return None
-            if resolve_gotify_message_endpoint(gotify_url):
-                return None
-            return "GOTIFY_URL 必须是 Gotify server base URL，不包含 /message。"
         return None
 
     def _build_notification_test_config(self, effective_map: Dict[str, str]) -> Config:
@@ -2975,8 +2853,6 @@ class SystemConfigService:
         kwargs: Dict[str, Any] = {"stock_list": []}
         for key, (attr, value_type) in self._NOTIFICATION_TEST_KEY_MAP.items():
             if key not in effective_map:
-                continue
-            if key == "DISCORD_CHANNEL_ID" and (effective_map.get("DISCORD_MAIN_CHANNEL_ID") or "").strip():
                 continue
             raw_value = effective_map.get(key, "")
             kwargs[attr] = self._parse_notification_test_value(key, raw_value, value_type)
@@ -2989,9 +2865,7 @@ class SystemConfigService:
             return parse_env_bool(value, default=True)
         if value_type == "int":
             defaults = {
-                "WECHAT_MAX_BYTES": 4000,
                 "FEISHU_MAX_BYTES": 20000,
-                "DISCORD_MAX_WORDS": 2000,
             }
             return parse_env_int(value, defaults.get(key, 0), field_name=key, minimum=1)
         stripped = (value or "").strip()
@@ -3007,66 +2881,14 @@ class SystemConfigService:
         content: str,
         timeout_seconds: float,
     ) -> Dict[str, Any]:
-        from src.notification_sender import (
-            AstrbotSender,
-            CustomWebhookSender,
-            DiscordSender,
-            EmailSender,
-            FeishuSender,
-            GotifySender,
-            NtfySender,
-            PushoverSender,
-            PushplusSender,
-            Serverchan3Sender,
-            SlackSender,
-            TelegramSender,
-            WechatSender,
-            DingtalkSender,
-        )
+        from src.notification_sender import FeishuSender
 
         started_at = time.perf_counter()
         target = self._resolve_notification_test_target(channel, effective_map)
         titled_content = self._build_notification_test_content(title, content)
 
-        if channel == "custom":
-            attempts = CustomWebhookSender(config).test_custom_webhooks(
-                titled_content,
-                timeout_seconds=timeout_seconds,
-            )
-            latency_ms = int((time.perf_counter() - started_at) * 1000)
-            success_count = sum(1 for attempt in attempts if bool(attempt.get("success")))
-            total_count = len(attempts)
-            success = success_count > 0
-            if success_count == total_count and total_count > 0:
-                message = f"自定义 Webhook 通知测试成功（{success_count}/{total_count}）"
-            elif success_count > 0:
-                message = f"自定义 Webhook 通知测试部分成功（{success_count}/{total_count}）"
-            else:
-                message = f"自定义 Webhook 通知测试失败（{success_count}/{total_count}）"
-            return self._build_notification_test_result(
-                success=success,
-                message=message,
-                error_code=None if success else "send_failed",
-                stage="notification_send",
-                retryable=any(bool(attempt.get("retryable")) for attempt in attempts),
-                latency_ms=latency_ms,
-                attempts=attempts,
-            )
-
         dispatch = {
-            "wechat": lambda: WechatSender(config).send_to_wechat(titled_content, timeout_seconds=timeout_seconds),
-            "dingtalk": lambda: DingtalkSender(config).send_to_dingtalk(titled_content, title="Test Message", timeout_seconds=timeout_seconds),
             "feishu": lambda: FeishuSender(config).send_to_feishu(titled_content, timeout_seconds=timeout_seconds),
-            "telegram": lambda: TelegramSender(config).send_to_telegram(titled_content, timeout_seconds=timeout_seconds),
-            "email": lambda: EmailSender(config).send_to_email(content, subject=title, timeout_seconds=timeout_seconds),
-            "pushover": lambda: PushoverSender(config).send_to_pushover(content, title=title, timeout_seconds=timeout_seconds),
-            "ntfy": lambda: NtfySender(config).send_to_ntfy(content, title=title, timeout_seconds=timeout_seconds),
-            "gotify": lambda: GotifySender(config).send_to_gotify(content, title=title, timeout_seconds=timeout_seconds),
-            "pushplus": lambda: PushplusSender(config).send_to_pushplus(content, title=title, timeout_seconds=timeout_seconds),
-            "serverchan3": lambda: Serverchan3Sender(config).send_to_serverchan3(content, title=title, timeout_seconds=timeout_seconds),
-            "discord": lambda: DiscordSender(config).send_to_discord(titled_content, timeout_seconds=timeout_seconds),
-            "slack": lambda: SlackSender(config).send_to_slack(titled_content, timeout_seconds=timeout_seconds),
-            "astrbot": lambda: AstrbotSender(config).send_to_astrbot(titled_content, timeout_seconds=timeout_seconds),
         }
 
         ok = bool(dispatch[channel]())
@@ -3368,18 +3190,6 @@ class SystemConfigService:
     @staticmethod
     def _has_any_config_value(effective_map: Dict[str, str], keys: Sequence[str]) -> bool:
         return any((effective_map.get(key) or "").strip() for key in keys)
-
-    @staticmethod
-    def _has_valid_ntfy_endpoint(effective_map: Dict[str, str]) -> bool:
-        ntfy_server_url, ntfy_topic = resolve_ntfy_endpoint(effective_map.get("NTFY_URL"))
-        return bool(ntfy_server_url and ntfy_topic)
-
-    @staticmethod
-    def _has_valid_gotify_config(effective_map: Dict[str, str]) -> bool:
-        return bool(
-            resolve_gotify_message_endpoint(effective_map.get("GOTIFY_URL"))
-            and (effective_map.get("GOTIFY_TOKEN") or "").strip()
-        )
 
     @classmethod
     def _anspire_legacy_llm_enabled(cls, effective_map: Dict[str, str]) -> bool:
@@ -3807,47 +3617,7 @@ class SystemConfigService:
         )
 
     def _build_setup_notification_check(self, effective_map: Dict[str, str]) -> Dict[str, Any]:
-        configured = (
-            self._has_any_config_value(effective_map, ("WECHAT_WEBHOOK_URL", "DISCORD_WEBHOOK_URL", "DINGTALK_WEBHOOK_URL"))
-            or is_feishu_static_env_configured(effective_map)
-            or (
-                self._has_any_config_value(effective_map, ("TELEGRAM_BOT_TOKEN",))
-                and self._has_any_config_value(effective_map, ("TELEGRAM_CHAT_ID",))
-            )
-            or (
-                self._has_any_config_value(effective_map, ("EMAIL_SENDER",))
-                and self._has_any_config_value(effective_map, ("EMAIL_PASSWORD",))
-            )
-            or (
-                self._has_any_config_value(effective_map, ("DINGTALK_APP_KEY",))
-                and self._has_any_config_value(effective_map, ("DINGTALK_APP_SECRET",))
-            )
-            or (
-                self._has_any_config_value(effective_map, ("DISCORD_BOT_TOKEN",))
-                and self._has_any_config_value(effective_map, ("DISCORD_MAIN_CHANNEL_ID", "DISCORD_CHANNEL_ID"))
-            )
-            or (
-                self._has_any_config_value(effective_map, ("PUSHOVER_USER_KEY",))
-                and self._has_any_config_value(effective_map, ("PUSHOVER_API_TOKEN",))
-            )
-            or self._has_any_config_value(effective_map, ("SLACK_WEBHOOK_URL",))
-            or (
-                self._has_any_config_value(effective_map, ("SLACK_BOT_TOKEN",))
-                and self._has_any_config_value(effective_map, ("SLACK_CHANNEL_ID",))
-            )
-            or self._has_any_config_value(
-                effective_map,
-                (
-                    "PUSHPLUS_TOKEN",
-                    "SERVERCHAN3_SENDKEY",
-                    "CUSTOM_WEBHOOK_URLS",
-                    "WECOM_WEBHOOK_URL",
-                    "ASTRBOT_URL",
-                ),
-            )
-            or self._has_valid_ntfy_endpoint(effective_map)
-            or self._has_valid_gotify_config(effective_map)
-        )
+        configured = is_feishu_static_env_configured(effective_map)
         if configured:
             return self._setup_check(
                 "notification",

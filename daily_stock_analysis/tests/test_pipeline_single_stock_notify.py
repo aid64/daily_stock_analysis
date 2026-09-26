@@ -223,7 +223,6 @@ class TestPipelineSingleStockNotify(unittest.TestCase):
         pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
         pipeline.save_context_snapshot = True
         pipeline.db = MagicMock()
-        pipeline.config = SimpleNamespace(stock_email_groups=[])
         pipeline.notifier = MagicMock()
         pipeline.notifier.generate_aggregate_report.return_value = "report"
         results = [_make_result("000001"), _make_result("600519")]

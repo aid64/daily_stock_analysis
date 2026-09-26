@@ -1247,7 +1247,7 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         )
 
         payload = self.service.preview_generation_backend_status(
-            items=[{"key": "WECHAT_WEBHOOK_URL", "value": "not-a-url"}],
+            items=[{"key": "FEISHU_WEBHOOK_URL", "value": "not-a-url"}],
             mask_token="******",
         )
 
@@ -1520,59 +1520,17 @@ class SystemConfigServiceTestCase(unittest.TestCase):
             "STOCK_LIST=600519",
         ]
 
-        self._rewrite_env(*base_lines, "PUSHOVER_USER_KEY=user-key")
+        self._rewrite_env(*base_lines)
         with patch.dict(os.environ, {}, clear=True):
             status = self.service.get_setup_status()
-        pushover_partial = next(check for check in status["checks"] if check["key"] == "notification")
-        self.assertEqual(pushover_partial["status"], "optional")
+        no_notification = next(check for check in status["checks"] if check["key"] == "notification")
+        self.assertEqual(no_notification["status"], "optional")
 
-        self._rewrite_env(*base_lines, "PUSHOVER_USER_KEY=user-key", "PUSHOVER_API_TOKEN=app-token")
+        self._rewrite_env(*base_lines, "FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/xxx")
         with patch.dict(os.environ, {}, clear=True):
             status = self.service.get_setup_status()
-        pushover_complete = next(check for check in status["checks"] if check["key"] == "notification")
-        self.assertEqual(pushover_complete["status"], "configured")
-
-        self._rewrite_env(*base_lines, "SLACK_BOT_TOKEN=xoxb-test", "SLACK_CHANNEL_ID=C123")
-        with patch.dict(os.environ, {}, clear=True):
-            status = self.service.get_setup_status()
-        slack_complete = next(check for check in status["checks"] if check["key"] == "notification")
-        self.assertEqual(slack_complete["status"], "configured")
-
-        self._rewrite_env(*base_lines, "ASTRBOT_URL=https://astrbot.example/webhook")
-        with patch.dict(os.environ, {}, clear=True):
-            status = self.service.get_setup_status()
-        astrbot_complete = next(check for check in status["checks"] if check["key"] == "notification")
-        self.assertEqual(astrbot_complete["status"], "configured")
-
-        self._rewrite_env(*base_lines, "NTFY_URL=https://ntfy.sh/dsa-topic")
-        with patch.dict(os.environ, {}, clear=True):
-            status = self.service.get_setup_status()
-        ntfy_complete = next(check for check in status["checks"] if check["key"] == "notification")
-        self.assertEqual(ntfy_complete["status"], "configured")
-
-        self._rewrite_env(*base_lines, "NTFY_URL=https://ntfy.sh")
-        with patch.dict(os.environ, {}, clear=True):
-            status = self.service.get_setup_status()
-        ntfy_without_topic = next(check for check in status["checks"] if check["key"] == "notification")
-        self.assertEqual(ntfy_without_topic["status"], "optional")
-
-        self._rewrite_env(*base_lines, "GOTIFY_URL=https://gotify.example")
-        with patch.dict(os.environ, {}, clear=True):
-            status = self.service.get_setup_status()
-        gotify_partial = next(check for check in status["checks"] if check["key"] == "notification")
-        self.assertEqual(gotify_partial["status"], "optional")
-
-        self._rewrite_env(*base_lines, "GOTIFY_URL=https://gotify.example", "GOTIFY_TOKEN=app-token")
-        with patch.dict(os.environ, {}, clear=True):
-            status = self.service.get_setup_status()
-        gotify_complete = next(check for check in status["checks"] if check["key"] == "notification")
-        self.assertEqual(gotify_complete["status"], "configured")
-
-        self._rewrite_env(*base_lines, "GOTIFY_URL=https://gotify.example/message", "GOTIFY_TOKEN=app-token")
-        with patch.dict(os.environ, {}, clear=True):
-            status = self.service.get_setup_status()
-        gotify_with_message = next(check for check in status["checks"] if check["key"] == "notification")
-        self.assertEqual(gotify_with_message["status"], "optional")
+        feishu_complete = next(check for check in status["checks"] if check["key"] == "notification")
+        self.assertEqual(feishu_complete["status"], "configured")
 
     def test_get_setup_status_accepts_feishu_app_bot_triad(self) -> None:
         self._rewrite_env(
@@ -1884,35 +1842,9 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         self.assertFalse(validation["valid"])
         self.assertTrue(any(issue["code"] == "invalid_url" for issue in validation["issues"]))
 
-    def test_validate_reports_ntfy_url_without_topic(self) -> None:
-        validation = self.service.validate(
-            items=[{"key": "NTFY_URL", "value": "https://ntfy.sh"}]
-        )
-
-        self.assertFalse(validation["valid"])
-        self.assertTrue(
-            any(
-                issue["key"] == "NTFY_URL" and issue["code"] == "invalid_ntfy_url"
-                for issue in validation["issues"]
-            )
-        )
-
-    def test_validate_reports_gotify_url_with_message_endpoint(self) -> None:
-        validation = self.service.validate(
-            items=[{"key": "GOTIFY_URL", "value": "https://gotify.example/message"}]
-        )
-
-        self.assertFalse(validation["valid"])
-        self.assertTrue(
-            any(
-                issue["key"] == "GOTIFY_URL" and issue["code"] == "invalid_gotify_url"
-                for issue in validation["issues"]
-            )
-        )
-
     def test_validate_reports_invalid_notification_route_channel(self) -> None:
         validation = self.service.validate(
-            items=[{"key": "NOTIFICATION_REPORT_CHANNELS", "value": "wechat,not-a-channel,email"}]
+            items=[{"key": "NOTIFICATION_REPORT_CHANNELS", "value": "not-a-channel,also-bad"}]
         )
         self.assertFalse(validation["valid"])
         self.assertTrue(
@@ -2960,51 +2892,8 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         self.assertFalse(validation["valid"])
         self.assertTrue(any(issue["key"] == "LITELLM_MODEL" and issue["code"] == "missing_runtime_source" for issue in validation["issues"]))
 
-    @staticmethod
-    def _mock_http_response(status_code: int, json_body: Optional[Dict[str, Any]] = None):
-        response = Mock()
-        response.status_code = status_code
-        response.text = "ok" if status_code == 200 else "error"
-        response.json.return_value = json_body or {"errcode": 0}
-        return response
-
     def _notification_test_env(self):
         return patch.dict(os.environ, {"ENV_FILE": str(self.env_path)}, clear=True)
-
-    @patch("src.notification_sender.wechat_sender.requests.post")
-    def test_test_notification_channel_uses_temporary_items_without_persisting(self, mock_post) -> None:
-        mock_post.return_value = self._mock_http_response(200, {"errcode": 0})
-
-        with self._notification_test_env():
-            before_instance = Config.get_instance()
-            payload = self.service.test_notification_channel(
-                channel="wechat",
-                items=[{"key": "WECHAT_WEBHOOK_URL", "value": "https://qyapi.example.com/cgi-bin/webhook/send?key=secret"}],
-                title="Test title",
-                content="hello",
-                timeout_seconds=3,
-            )
-            self.assertIs(Config.get_instance(), before_instance)
-
-        self.assertTrue(payload["success"])
-        self.assertEqual(payload["attempts"][0]["latency_ms"] >= 0, True)
-        self.assertIn("key=***", payload["attempts"][0]["target"])
-        self.assertNotIn("WECHAT_WEBHOOK_URL", self.env_path.read_text(encoding="utf-8"))
-        self.assertEqual(mock_post.call_args.kwargs["timeout"], 3)
-
-    def test_test_notification_channel_reports_missing_config(self) -> None:
-        with self._notification_test_env():
-            payload = self.service.test_notification_channel(
-                channel="telegram",
-                items=[{"key": "TELEGRAM_BOT_TOKEN", "value": "token"}],
-                title="Test title",
-                content="hello",
-                timeout_seconds=3,
-            )
-
-        self.assertFalse(payload["success"])
-        self.assertEqual(payload["error_code"], "config_missing")
-        self.assertIn("TELEGRAM_CHAT_ID", payload["message"])
 
     def test_test_notification_channel_reports_nearest_feishu_app_bot_missing_key(self) -> None:
         with self._notification_test_env():
@@ -3059,272 +2948,6 @@ class SystemConfigServiceTestCase(unittest.TestCase):
 
         self.assertTrue(payload["success"])
         self.assertEqual(captured["config"].feishu_domain, "lark")
-
-    @patch("src.notification_sender.wechat_sender.requests.post")
-    def test_test_notification_channel_skips_masked_secret_overwrite(self, mock_post) -> None:
-        self._rewrite_env("WECHAT_WEBHOOK_URL=https://saved.example.com/hook?key=savedsecret")
-        mock_post.return_value = self._mock_http_response(200, {"errcode": 0})
-
-        with self._notification_test_env():
-            payload = self.service.test_notification_channel(
-                channel="wechat",
-                items=[{"key": "WECHAT_WEBHOOK_URL", "value": "******"}],
-                mask_token="******",
-                title="Test title",
-                content="hello",
-                timeout_seconds=3,
-            )
-
-        self.assertTrue(payload["success"])
-        self.assertEqual(mock_post.call_args[0][0], "https://saved.example.com/hook?key=savedsecret")
-
-    @patch("src.notification_sender.custom_webhook_sender.requests.post")
-    def test_test_notification_channel_returns_custom_webhook_attempts(self, mock_post) -> None:
-        mock_post.side_effect = [
-            self._mock_http_response(500),
-            self._mock_http_response(200),
-        ]
-
-        with self._notification_test_env():
-            payload = self.service.test_notification_channel(
-                channel="custom",
-                items=[
-                    {
-                        "key": "CUSTOM_WEBHOOK_URLS",
-                        "value": (
-                            "https://example.com/robot/send?access_token=first,"
-                            "https://example.com/verylongsecrettoken1234567890"
-                        ),
-                    }
-                ],
-                title="Test title",
-                content="hello",
-                timeout_seconds=4,
-            )
-
-        self.assertTrue(payload["success"])
-        self.assertIn("部分成功", payload["message"])
-        self.assertIn("1/2", payload["message"])
-        self.assertEqual(len(payload["attempts"]), 2)
-        self.assertFalse(payload["attempts"][0]["success"])
-        self.assertTrue(payload["attempts"][1]["success"])
-        self.assertIn("access_token=***", payload["attempts"][0]["target"])
-        self.assertNotIn("verylongsecrettoken1234567890", payload["attempts"][1]["target"])
-        self.assertNotIn("access_token=first", str(payload))
-        self.assertEqual(mock_post.call_args_list[0].kwargs["timeout"], 4)
-
-    @patch("src.notification_sender.custom_webhook_sender.requests.post")
-    def test_test_notification_channel_custom_webhook_all_failures_are_retryable(self, mock_post) -> None:
-        mock_post.side_effect = [
-            self._mock_http_response(500),
-            self._mock_http_response(429),
-        ]
-
-        with self._notification_test_env():
-            payload = self.service.test_notification_channel(
-                channel="custom",
-                items=[
-                    {
-                        "key": "CUSTOM_WEBHOOK_URLS",
-                        "value": (
-                            "https://example.com/robot/send?access_token=first,"
-                            "https://example.com/robot/send?token=second"
-                        ),
-                    }
-                ],
-                title="Test title",
-                content="hello",
-                timeout_seconds=4,
-            )
-
-        self.assertFalse(payload["success"])
-        self.assertEqual(payload["error_code"], "send_failed")
-        self.assertTrue(payload["retryable"])
-        self.assertIn("失败", payload["message"])
-        self.assertIn("0/2", payload["message"])
-        self.assertEqual(len(payload["attempts"]), 2)
-        self.assertTrue(all(attempt["retryable"] for attempt in payload["attempts"]))
-        self.assertNotIn("access_token=first", str(payload))
-        self.assertNotIn("token=second", str(payload))
-
-    @patch("src.notification_sender.ntfy_sender.requests.post")
-    def test_test_notification_channel_supports_ntfy_and_masks_topic_target(self, mock_post) -> None:
-        mock_post.return_value = self._mock_http_response(200)
-
-        with self._notification_test_env():
-            payload = self.service.test_notification_channel(
-                channel="ntfy",
-                items=[
-                    {"key": "NTFY_URL", "value": "https://ntfy.sh/private-topic"},
-                    {"key": "NTFY_TOKEN", "value": "secret-token"},
-                ],
-                title="Test title",
-                content="hello",
-                timeout_seconds=4,
-            )
-
-        self.assertTrue(payload["success"])
-        self.assertEqual(mock_post.call_args.args[0], "https://ntfy.sh")
-        self.assertEqual(mock_post.call_args.kwargs["json"]["topic"], "private-topic")
-        self.assertEqual(mock_post.call_args.kwargs["headers"]["Authorization"], "Bearer secret-token")
-        self.assertEqual(mock_post.call_args.kwargs["timeout"], 4)
-        self.assertIn("https://ntfy.sh/***", payload["attempts"][0]["target"])
-        self.assertNotIn("private-topic", str(payload))
-        self.assertNotIn("NTFY_URL", self.env_path.read_text(encoding="utf-8"))
-
-    @patch("src.notification_sender.ntfy_sender.requests.post")
-    def test_test_notification_channel_rejects_ntfy_url_without_topic(self, mock_post) -> None:
-        with self._notification_test_env():
-            payload = self.service.test_notification_channel(
-                channel="ntfy",
-                items=[{"key": "NTFY_URL", "value": "https://ntfy.sh"}],
-                title="Test title",
-                content="hello",
-                timeout_seconds=4,
-            )
-
-        self.assertFalse(payload["success"])
-        self.assertEqual(payload["error_code"], "config_invalid")
-        self.assertEqual(payload["stage"], "config_validation")
-        self.assertIn("NTFY_URL", payload["message"])
-        mock_post.assert_not_called()
-
-    @patch("src.notification_sender.gotify_sender.requests.post")
-    def test_test_notification_channel_supports_gotify_and_keeps_token_out_of_url(self, mock_post) -> None:
-        mock_post.return_value = self._mock_http_response(200)
-
-        with self._notification_test_env():
-            payload = self.service.test_notification_channel(
-                channel="gotify",
-                items=[
-                    {"key": "GOTIFY_URL", "value": "https://gotify.example"},
-                    {"key": "GOTIFY_TOKEN", "value": "secret-token"},
-                ],
-                title="Test title",
-                content="hello",
-                timeout_seconds=4,
-            )
-
-        self.assertTrue(payload["success"])
-        self.assertEqual(mock_post.call_args.args[0], "https://gotify.example/message")
-        self.assertEqual(mock_post.call_args.kwargs["headers"]["X-Gotify-Key"], "secret-token")
-        self.assertEqual(mock_post.call_args.kwargs["timeout"], 4)
-        self.assertEqual(payload["attempts"][0]["target"], "https://gotify.example")
-        self.assertNotIn("secret-token", str(payload))
-        self.assertNotIn("GOTIFY_URL", self.env_path.read_text(encoding="utf-8"))
-
-    @patch("src.notification_sender.gotify_sender.requests.post")
-    def test_test_notification_channel_rejects_gotify_message_endpoint(self, mock_post) -> None:
-        with self._notification_test_env():
-            payload = self.service.test_notification_channel(
-                channel="gotify",
-                items=[
-                    {"key": "GOTIFY_URL", "value": "https://gotify.example/message"},
-                    {"key": "GOTIFY_TOKEN", "value": "secret-token"},
-                ],
-                title="Test title",
-                content="hello",
-                timeout_seconds=4,
-            )
-
-        self.assertFalse(payload["success"])
-        self.assertEqual(payload["error_code"], "config_invalid")
-        self.assertEqual(payload["stage"], "config_validation")
-        self.assertIn("GOTIFY_URL", payload["message"])
-        mock_post.assert_not_called()
-
-    @patch(
-        "src.notification_sender.WechatSender.send_to_wechat",
-        side_effect=requests.exceptions.Timeout(
-            "timeout for https://qyapi.example.com/cgi-bin/webhook/send?key=secret token=abc123"
-        ),
-    )
-    def test_test_notification_channel_classifies_escaped_timeout(self, _mock_send) -> None:
-        with self._notification_test_env():
-            payload = self.service.test_notification_channel(
-                channel="wechat",
-                items=[
-                    {
-                        "key": "WECHAT_WEBHOOK_URL",
-                        "value": "https://qyapi.example.com/cgi-bin/webhook/send?key=secret",
-                    }
-                ],
-                title="Test title",
-                content="hello",
-                timeout_seconds=3,
-            )
-
-        self.assertFalse(payload["success"])
-        self.assertEqual(payload["error_code"], "timeout")
-        self.assertTrue(payload["retryable"])
-        self.assertEqual(payload["attempts"][0]["error_code"], "timeout")
-        self.assertIn("key=***", payload["attempts"][0]["target"])
-        self.assertNotIn("key=secret", str(payload))
-        self.assertNotIn("abc123", str(payload))
-
-    @patch("src.notification_sender.telegram_sender.requests.post")
-    def test_test_notification_channel_masks_short_sensitive_target(self, mock_post) -> None:
-        mock_post.return_value = self._mock_http_response(200, {"ok": True})
-
-        with self._notification_test_env():
-            payload = self.service.test_notification_channel(
-                channel="telegram",
-                items=[
-                    {"key": "TELEGRAM_BOT_TOKEN", "value": "tok123"},
-                    {"key": "TELEGRAM_CHAT_ID", "value": "chat-id"},
-                ],
-                title="Test title",
-                content="hello",
-                timeout_seconds=3,
-            )
-
-        self.assertTrue(payload["success"])
-        self.assertEqual(payload["attempts"][0]["target"], "***")
-        self.assertNotIn("tok123", str(payload))
-
-    @patch("src.notification_sender.wechat_sender.requests.post")
-    def test_test_notification_channel_strips_url_userinfo_from_target(self, mock_post) -> None:
-        mock_post.return_value = self._mock_http_response(200, {"errcode": 0})
-
-        with self._notification_test_env():
-            payload = self.service.test_notification_channel(
-                channel="wechat",
-                items=[
-                    {
-                        "key": "WECHAT_WEBHOOK_URL",
-                        "value": "https://user:password@example.com/cgi-bin/webhook/send?key=secret",
-                    }
-                ],
-                title="Test title",
-                content="hello",
-                timeout_seconds=3,
-            )
-
-        self.assertTrue(payload["success"])
-        target = payload["attempts"][0]["target"]
-        self.assertIn("https://example.com/cgi-bin/webhook/send?key=***", target)
-        self.assertNotIn("user", target)
-        self.assertNotIn("password", target)
-
-    @patch("src.notification_sender.discord_sender.requests.post")
-    def test_test_notification_channel_prefers_discord_main_channel_alias(self, mock_post) -> None:
-        mock_post.return_value = self._mock_http_response(200)
-
-        with self._notification_test_env():
-            payload = self.service.test_notification_channel(
-                channel="discord",
-                items=[
-                    {"key": "DISCORD_BOT_TOKEN", "value": "bot-token"},
-                    {"key": "DISCORD_MAIN_CHANNEL_ID", "value": "main-channel"},
-                    {"key": "DISCORD_CHANNEL_ID", "value": "legacy-channel"},
-                ],
-                title="Test title",
-                content="hello",
-                timeout_seconds=3,
-            )
-
-        self.assertTrue(payload["success"])
-        self.assertIn("/channels/main-channel/messages", mock_post.call_args[0][0])
 
     @patch("litellm.completion")
     def test_test_llm_channel_returns_success_payload(self, mock_completion) -> None:
@@ -4196,58 +3819,6 @@ class SystemConfigServiceTestCase(unittest.TestCase):
 
         self.assertTrue(response["success"])
         self.assertEqual(Config.get_instance().stock_list, ["300750", "TSLA"])
-
-    @patch.object(SystemConfigService, "_reload_runtime_singletons")
-    def test_update_escapes_custom_webhook_template_and_runtime_reads_literals(
-        self,
-        _mock_reload_runtime_singletons,
-    ) -> None:
-        template = '{"title":$title_json,"content":$content_json}'
-
-        response = self.service.update(
-            config_version=self.manager.get_config_version(),
-            items=[{"key": "CUSTOM_WEBHOOK_BODY_TEMPLATE", "value": template}],
-            reload_now=True,
-        )
-
-        self.assertTrue(response["success"])
-        self.assertIn(
-            'CUSTOM_WEBHOOK_BODY_TEMPLATE={"title":$$title_json,"content":$$content_json}\n',
-            self.env_path.read_text(encoding="utf-8"),
-        )
-        self.assertEqual(Config.get_instance().custom_webhook_body_template, template)
-
-        items = {
-            item["key"]: item
-            for item in self.service.get_config(include_schema=True)["items"]
-        }
-        self.assertEqual(items["CUSTOM_WEBHOOK_BODY_TEMPLATE"]["value"], template)
-
-    @patch.object(SystemConfigService, "_reload_runtime_singletons")
-    def test_update_escapes_braced_custom_webhook_template_and_runtime_reads_literals(
-        self,
-        _mock_reload_runtime_singletons,
-    ) -> None:
-        template = '{"content":${content_json}}'
-
-        response = self.service.update(
-            config_version=self.manager.get_config_version(),
-            items=[{"key": "CUSTOM_WEBHOOK_BODY_TEMPLATE", "value": template}],
-            reload_now=True,
-        )
-
-        self.assertTrue(response["success"])
-        self.assertIn(
-            'CUSTOM_WEBHOOK_BODY_TEMPLATE={"content":$${content_json}}\n',
-            self.env_path.read_text(encoding="utf-8"),
-        )
-        self.assertEqual(Config.get_instance().custom_webhook_body_template, template)
-
-        items = {
-            item["key"]: item
-            for item in self.service.get_config(include_schema=True)["items"]
-        }
-        self.assertEqual(items["CUSTOM_WEBHOOK_BODY_TEMPLATE"]["value"], template)
 
     def test_update_raises_conflict_for_stale_version(self) -> None:
         with self.assertRaises(ConfigConflictError):

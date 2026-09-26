@@ -109,7 +109,7 @@ def check_config():
     print(f"  Gemini 主模型: {config.gemini_model}")
     print(f"  Gemini 备选模型: {config.gemini_model_fallback}")
     
-    print(f"  企业微信 Webhook: {'已配置 ✓' if config.wechat_webhook_url else '未配置 ✗'}")
+    print(f"  飞书 Webhook: {'已配置 ✓' if config.feishu_webhook_url else '未配置 ✗'}")
     
     print_section("配置验证")
     issues = config.validate_structured()
@@ -346,18 +346,15 @@ def check_notification():
     print_header("5. 通知推送测试")
     
     from src.notification import NotificationService
-    from src.config import get_config
-    
-    config = get_config()
+
     service = NotificationService()
     
     print_section("配置检查")
     if service.is_available():
-        print(f"  ✓ 企业微信 Webhook 已配置")
-        webhook_preview = config.wechat_webhook_url[:50] + "..." if len(config.wechat_webhook_url) > 50 else config.wechat_webhook_url
-        print(f"    URL: {webhook_preview}")
+        print(f"  ✓ 飞书通知渠道已配置")
+        print(f"    渠道: {service.get_channel_names()}")
     else:
-        print(f"  ✗ 企业微信 Webhook 未配置")
+        print(f"  ✗ 飞书通知渠道未配置")
         return False
     
     print_section("发送测试消息")
@@ -367,17 +364,17 @@ def check_notification():
 这是一条来自 **A股自选股智能分析系统** 的测试消息。
 
 - 测试时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-- 测试目的: 验证企业微信 Webhook 配置
+- 测试目的: 验证飞书通知渠道配置
 
 如果您收到此消息，说明通知功能配置正确 ✓"""
     
     print(f"  正在发送...")
     
     try:
-        success = service.send_to_wechat(test_message)
+        success = service.send_to_feishu(test_message)
         
         if success:
-            print(f"  ✓ 消息发送成功，请检查企业微信")
+            print(f"  ✓ 消息发送成功，请检查飞书")
         else:
             print(f"  ✗ 消息发送失败")
         

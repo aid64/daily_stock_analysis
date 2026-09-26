@@ -29,15 +29,12 @@ class NotificationCapabilityProfileTestCase(unittest.TestCase):
 
     def test_get_channel_profile_accepts_enum_or_string(self):
         self.assertEqual(get_channel_profile(NotificationChannel.FEISHU).channel, "feishu")
-        self.assertEqual(get_channel_profile("SLACK").markdown, "mrkdwn")
+        self.assertEqual(get_channel_profile("FEISHU").markdown, "lark_md")
         self.assertEqual(get_channel_profile("missing").channel, "unknown")
 
-    def test_core_channels_keep_full_report_defaults(self):
+    def test_feishu_keeps_full_report_defaults(self):
         self.assertEqual(CHANNEL_PROFILES["feishu"].default_mode, "full_report")
-        self.assertEqual(CHANNEL_PROFILES["telegram"].default_mode, "full_report")
-        self.assertEqual(CHANNEL_PROFILES["slack"].default_mode, "full_report")
-        self.assertEqual(CHANNEL_PROFILES["wechat"].default_mode, "full_report")
-        self.assertEqual(CHANNEL_PROFILES["email"].default_mode, "full_html")
+        self.assertEqual(CHANNEL_PROFILES["unknown"].default_mode, "plain_fallback")
 
     def test_prepared_message_keeps_legacy_text_fallback(self):
         prepared = PreparedMessage(
@@ -49,24 +46,23 @@ class NotificationCapabilityProfileTestCase(unittest.TestCase):
 
         self.assertEqual(prepared.content_for_text_send, "formatted report")
 
-        fallback = PreparedMessage(channel="custom", text="raw report", fallback_text="fallback report")
+        fallback = PreparedMessage(channel="unknown", text="raw report", fallback_text="fallback report")
         self.assertEqual(fallback.content_for_text_send, "fallback report")
 
     def test_normalize_channel_name_handles_empty_values(self):
         self.assertEqual(normalize_channel_name(None), "unknown")
-        self.assertEqual(normalize_channel_name("  Telegram  "), "telegram")
+        self.assertEqual(normalize_channel_name("  FEISHU  "), "feishu")
 
     def test_renderer_presets_are_reserved_and_disabled_by_default(self):
         preset_channels = {preset.channel for preset in all_renderer_presets()}
 
-        self.assertTrue({"wechat", "feishu", "telegram", "slack", "dingtalk"}.issubset(preset_channels))
+        self.assertTrue({"feishu"}.issubset(preset_channels))
         self.assertEqual(CHANNEL_RENDERER_PRESETS["feishu"].rich_renderer, "feishu_interactive_card")
-        self.assertEqual(CHANNEL_RENDERER_PRESETS["telegram"].markdown, "markdown_v2")
         self.assertTrue(all(not preset.enabled_by_default for preset in all_renderer_presets()))
 
     def test_get_renderer_preset_accepts_enum_or_string(self):
-        self.assertEqual(get_renderer_preset(NotificationChannel.WECHAT).text_renderer, "wecom_markdown")
-        self.assertEqual(get_renderer_preset("DINGTALK").rich_renderer, "dingtalk_action_card")
+        self.assertEqual(get_renderer_preset(NotificationChannel.FEISHU).text_renderer, "feishu_lark_md")
+        self.assertEqual(get_renderer_preset("FEISHU").rich_renderer, "feishu_interactive_card")
         self.assertEqual(get_renderer_preset("missing").fallback_renderer, "legacy_text")
 
 

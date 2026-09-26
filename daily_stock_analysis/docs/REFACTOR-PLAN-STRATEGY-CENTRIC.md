@@ -205,8 +205,9 @@ deprecate→删。每砍一类：.env.example 同步、CHANGELOG、全仓 grep �
 ### 删除（deprecate 一版后物理删）
 | 模块 | 行数 | 理由 | 风险 | 状态 |
 | --- | --- | --- | --- | --- |
-| 13 个 notification sender（留飞书） | ~3600 | 生产只用飞书 | 低（路由表同步简化） | 待做（高耦合，延后） |
-| bot 平台 discord | — | 未注册使用（`ALL_PLATFORMS` 仅 dingtalk） | 低 | ✅ 已删（P5） |
+| 13 个 notification sender（留飞书） | ~3600 | 生产只用飞书 | 低（路由表同步简化） | ✅ 已删（P5 高耦合批：sender/枚举/分派/config/诊断/路由/schema/测试全链收敛为仅飞书） |
+| bot 平台 discord | — | 未注册使用 | 低 | ✅ 已删（P5） |
+| bot 平台 dingtalk（含 Stream） | — | 生产用飞书，钉钉平台/Stream 一并移除 | 低 | ✅ 已删（P5 高耦合批） |
 | `src/brokers/futu` | — | 港股券商，与 A 股账户主线无关 | 低（确认无引用后删） | ✅ 已删（P5，`data_provider/futu_fetcher` 数据源保留） |
 
 ### 冻结（配置 off/保留代码，不投入不删）

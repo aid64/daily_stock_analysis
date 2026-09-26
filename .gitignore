@@ -140,3 +140,6 @@ daily_stock_analysis/output/
 quant_research/output/
 quant_research/data/pit/*.parquet
 quant_research/data/pit/*.json
+
+# 工具本地忽略副本
+.zcodeignore

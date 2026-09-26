@@ -208,18 +208,3 @@ async def handle_webhook_async(
 def handle_feishu_webhook(headers: Dict[str, str], body: bytes) -> WebhookResponse:
     """处理飞书 Webhook"""
     return handle_webhook('feishu', headers, body)
-
-
-def handle_dingtalk_webhook(headers: Dict[str, str], body: bytes) -> WebhookResponse:
-    """处理钉钉 Webhook"""
-    return handle_webhook('dingtalk', headers, body)
-
-
-def handle_wecom_webhook(headers: Dict[str, str], body: bytes) -> WebhookResponse:
-    """处理企业微信 Webhook"""
-    return handle_webhook('wecom', headers, body)
-
-
-def handle_telegram_webhook(headers: Dict[str, str], body: bytes) -> WebhookResponse:
-    """处理 Telegram Webhook"""
-    return handle_webhook('telegram', headers, body)
