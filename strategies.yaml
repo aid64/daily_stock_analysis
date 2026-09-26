@@ -93,12 +93,35 @@ strategies:
       timing_signal: forbidden # 教训：择时信号会失效，持有型成立
 
   # ── 中风险层（registered：卫星仓候选，需完整管道 + E2 回落）──
+  # 部署纪律（2026-09-26 对账修正）：可推进的条目必须引用本项目 quant
+  # 管线的验证产物（walk-forward/过拟合审计+快照 sha256）；只有社区
+  # 来源的条目标注「未复现——不推进」，intake 永远不会为它们产出裁决。
+  - id: etf_momentum
+    name: ETF动量轮动（17池·本项目验证版）
+    tier: satellite
+    risk: mid
+    status: registered
+    source: 本项目 quant 管线（quant_research/output/：walk_forward_etf_2020_2026_locked.csv + overfit_audit_etf_momentum.json，快照 sha256=273c8153…）
+    evidence: |
+      walk-forward 8 折（2023-01~2026-08 样本外）：2023 两折 -9.9%/-8.7%
+      年化（回撤 24%/16%），2025H2 +14.1%，2026H1 +37.6%，2026-07~08 +6.3%；
+      过拟合审计 DSR 0.645 通过（44 次诚实试验）。
+      待办：打包 strategy_intake 裁决报告（先刷新 walk-forward 至当前日）。
+    params:
+      lookback: 60                    # 与 quant_research/config/strategy/etf_momentum.yaml 同源
+      top_k: 3
+      ma_filter: 250
+      rebalance_freq: W
+      defensive: 511010               # 国债 ETF（风险资产全军覆没时）
+      universe_size: 17               # 池见 quant_research 配置（宽基+行业+风格+避险+防御）
+
   - id: etf_momentum_rotation4
-    name: ETF四资产动量轮动
+    name: ETF四资产动量轮动（社区版）
     tier: satellite
     risk: mid
     status: registered
     source: 知乎·升值之路（2026-09 检索）
+    evidence_status: 未复现——不推进（与已验证的 etf_momentum 是不同策略；8年年化31.3% 为外部声称值）
     params:
       assets: [518880, 513100, 159915, 510300]   # 黄金/纳指/创业板/沪深300
       lookback_days: 25                            # 动量窗口
