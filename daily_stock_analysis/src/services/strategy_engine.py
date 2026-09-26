@@ -161,6 +161,15 @@ def cb_new_issue(params: Dict[str, Any],
                  context: Dict[str, Any]) -> List[StrategySignal]:
     """转债打新汇总（复用 bond_new_issue_calendar 的扫描，盘前汇总不重复推送）。"""
     out: List[StrategySignal] = []
+    from datetime import date as _date
+
+    today = context.get("today") or _date.today()
+    # 非交易日跳过：打新提醒由后台任务独立三段式推送，本汇总是决策包的
+    # 盘前场景；非交易日跑引擎（手动 /操作单 等）不值得付全量 akshare 拉网
+    # 成本（实测周六约 64 秒），且过期事项会残留（U4 ③，2026-09-26）。
+    if not _is_cn_trading_day(today):
+        return out
+    today_iso = str(today)
     try:
         from src.services.bond_new_issue_calendar import (
             BondNewIssueCalendarService)
@@ -181,6 +190,8 @@ def cb_new_issue(params: Dict[str, Any],
                       "listing": "上市卖出", "rights": "配债登记"}.get(
                           r.get("stage"), r.get("stage"))
         ref = r.get("reference_date") or ""
+        if ref and ref < today_iso:
+            continue  # 过期事项不再提醒（实测曾出现 9 天前的缴款残留）
         lines.append(f"{r.get('bond_code')} {r.get('bond_name')}"
                      f"（{stage_text}{(' ' + ref) if ref else ''}）")
     out.append(StrategySignal(

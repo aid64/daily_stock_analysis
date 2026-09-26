@@ -135,6 +135,7 @@ class TestReverseRepoWindow:
 
 class TestCbNewIssue:
     def test_summarizes_reminders(self, monkeypatch):
+        monkeypatch.setattr(se, "_is_cn_trading_day", _fake_calendar(_TRADING))
         fake = {"bond_code": "123456", "bond_name": "测试转债",
                 "stage": "subscribe", "reference_date": "2026-09-19",
                 "note": "申购日"}
@@ -142,18 +143,50 @@ class TestCbNewIssue:
             "src.services.bond_new_issue_calendar."
             "BondNewIssueCalendarService.upcoming_reminders",
             lambda self, days=2: [fake])
-        signals = se.cb_new_issue({"lookahead_days": 2}, {})
+        signals = se.cb_new_issue({"lookahead_days": 2},
+                                  {"today": date(2026, 9, 18)})
         assert len(signals) == 1
         assert "测试转债" in signals[0].action
         assert "申购" in signals[0].action
         assert signals[0].risk == "near_zero"
 
     def test_no_reminders_no_signal(self, monkeypatch):
+        monkeypatch.setattr(se, "_is_cn_trading_day", _fake_calendar(_TRADING))
         monkeypatch.setattr(
             "src.services.bond_new_issue_calendar."
             "BondNewIssueCalendarService.upcoming_reminders",
             lambda self, days=2: [])
-        assert se.cb_new_issue({"lookahead_days": 2}, {}) == []
+        assert se.cb_new_issue({"lookahead_days": 2},
+                               {"today": date(2026, 9, 18)}) == []
+
+    def test_non_trading_day_skips_network_pull(self, monkeypatch):
+        """U4：非交易日不付全量 akshare 拉网成本（后台任务另有独立三段式
+        推送，决策包汇总是盘前场景）。"""
+        def _no_service(*a, **k):
+            raise AssertionError("非交易日不得构造日历服务（拉网）")
+        monkeypatch.setattr(se, "_is_cn_trading_day", _fake_calendar(_TRADING))
+        monkeypatch.setattr(
+            "src.services.bond_new_issue_calendar."
+            "BondNewIssueCalendarService", _no_service)
+        # 2026-09-26 周六（不在交易日集合）→ 直接返回，不拉网
+        assert se.cb_new_issue({}, {"today": date(2026, 9, 26)}) == []
+
+    def test_expired_reminders_filtered(self, monkeypatch):
+        """U4：过期事项不再提醒（实测曾出现 9 天前的缴款残留）。"""
+        monkeypatch.setattr(se, "_is_cn_trading_day", _fake_calendar(_TRADING))
+        past = {"bond_code": "113001", "bond_name": "过期债",
+                "stage": "payment", "reference_date": "2026-09-10"}
+        future = {"bond_code": "113002", "bond_name": "未来债",
+                  "stage": "subscribe", "reference_date": "2026-09-19"}
+        monkeypatch.setattr(
+            "src.services.bond_new_issue_calendar."
+            "BondNewIssueCalendarService.upcoming_reminders",
+            lambda self, days=2: [past, future])
+        signals = se.cb_new_issue({"lookahead_days": 2},
+                                  {"today": date(2026, 9, 18)})
+        assert len(signals) == 1
+        assert "过期债" not in signals[0].action
+        assert "未来债" in signals[0].action
 
 
 class TestEvaluateAll:
