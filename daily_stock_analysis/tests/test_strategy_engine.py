@@ -123,6 +123,15 @@ class TestReverseRepoWindow:
             self.PARAMS, {"today": date(2026, 9, 18), "cash": 1999})
         assert "¥1,000" in signals[0].action
 
+    def test_non_trading_day_no_signal(self, monkeypatch):
+        """U4：非交易日不得发"今日操作"类建议（实测 2026-09-26 周六
+        逆回购建议仍说"今日操作"——非交易日门漏了 strategy_engine 路径）。"""
+        monkeypatch.setattr(se, "_is_cn_trading_day", _fake_calendar(_TRADING))
+        # 2026-09-26 为周六，不在交易日集合中
+        signals = se.reverse_repo_window(
+            self.PARAMS, {"today": date(2026, 9, 26), "cash": 5000})
+        assert signals == []
+
 
 class TestCbNewIssue:
     def test_summarizes_reminders(self, monkeypatch):

@@ -119,6 +119,11 @@ def reverse_repo_window(params: Dict[str, Any],
     if cash < float(params.get("min_cash") or 1000):
         return out
 
+    # 今日必须可交易：逆回购要在盘中下单，非交易日（周末/节假日）给建议
+    # 等于让用户对着关门的市场操作（实测 2026-09-26 周六仍建议"今日操作"）。
+    if not _is_cn_trading_day(today):
+        return out
+
     tomorrow = today + timedelta(days=1)
     reasons: List[str] = []
     if not _is_cn_trading_day(tomorrow):
