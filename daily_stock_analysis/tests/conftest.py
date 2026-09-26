@@ -395,3 +395,14 @@ def isolated_db(monkeypatch, tmp_path: Path):
     Config.reset_instance()
     monkeypatch.delenv("ENV_FILE", raising=False)
     monkeypatch.delenv("DATABASE_PATH", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def isolated_feishu_dispatch_log(tmp_path, monkeypatch):
+    """全局隔离飞书出站台账（U1 message_id 留存）——任何测试的发送成功
+    都不得写入真实 data/feishu_dispatch.jsonl（那是生产漏斗关联数据）。"""
+    from src.notification_sender import feishu_sender
+    monkeypatch.setattr(
+        feishu_sender, "_dispatch_log_path",
+        lambda: tmp_path / "feishu_dispatch.jsonl")
+    yield

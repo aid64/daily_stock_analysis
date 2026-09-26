@@ -2409,6 +2409,7 @@ class NotificationService(
         email_stock_codes: Optional[List[str]],
         email_send_to_all: bool,
         route_type: Optional[str] = None,
+        dedup_key: Optional[str] = None,
     ) -> bool:
         sanitized_content = strip_hidden_markdown_metadata(content).strip()
         if channel == NotificationChannel.FEISHU:
@@ -2418,7 +2419,8 @@ class NotificationService(
                     sanitized_content, filename=f"report_{date_str}.md"
                 )
                 return self.send_feishu_file(filepath)
-            return self.send_to_feishu(sanitized_content)
+            # U1：dedup_key 即 NotificationEvent.logical_id，随消息留存
+            return self.send_to_feishu(sanitized_content, logical_id=dedup_key)
         logger.warning(f"不支持的通知渠道: {channel}")
         return False
 
@@ -2589,6 +2591,7 @@ class NotificationService(
                     email_stock_codes=email_stock_codes,
                     email_send_to_all=email_send_to_all,
                     route_type=route_type,
+                    dedup_key=dedup_key,
                 )
                 latency_ms = int((time.monotonic() - started_at) * 1000)
 

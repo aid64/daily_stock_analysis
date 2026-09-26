@@ -159,7 +159,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
             ok = service.send("content", route_type="report")
 
         self.assertTrue(ok)
-        mock_feishu.assert_called_once_with("content")
+        mock_feishu.assert_called_once_with("content", logical_id=None)
 
     @mock.patch("src.notification.get_config")
     def test_send_report_route_matching_feishu_channel(self, mock_get_config: mock.MagicMock):
@@ -175,7 +175,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
             ok = service.send("content", route_type="report")
 
         self.assertTrue(ok)
-        mock_feishu.assert_called_once_with("content")
+        mock_feishu.assert_called_once_with("content", logical_id=None)
 
     @mock.patch("src.notification.get_config")
     def test_send_alert_and_system_error_routes_filter_independently(self, mock_get_config: mock.MagicMock):
@@ -193,8 +193,8 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
             self.assertTrue(service.send("system", route_type="system_error"))
 
         self.assertEqual(mock_feishu.call_count, 2)
-        mock_feishu.assert_any_call("alert")
-        mock_feishu.assert_any_call("system")
+        mock_feishu.assert_any_call("alert", logical_id=mock.ANY)
+        mock_feishu.assert_any_call("system", logical_id=mock.ANY)
 
     @mock.patch("src.notification.get_config")
     def test_send_route_with_no_matching_channel_does_not_fallback(self, mock_get_config: mock.MagicMock):
@@ -316,7 +316,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
         self.assertTrue(result.dispatched)
         self.assertTrue(result.success)
         self.assertEqual([item.channel for item in result.channel_results], ["feishu"])
-        mock_webhook.assert_called_once_with("content")
+        mock_webhook.assert_called_once_with("content", logical_id=None)
 
     @mock.patch("src.notification.get_config")
     def test_feishu_send_as_file_route_report_calls_send_feishu_file(self, mock_get_config):
@@ -366,7 +366,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
              mock.patch.object(service, "save_report_to_file") as mock_save:
             result = service.send_with_results("alert content", route_type="alert")
         self.assertTrue(result.success)
-        mock_text.assert_called_once_with("alert content")
+        mock_text.assert_called_once_with("alert content", logical_id=None)
         mock_save.assert_not_called()
 
     @mock.patch("src.notification.get_config")
@@ -382,7 +382,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
              mock.patch.object(service, "save_report_to_file") as mock_save:
             result = service.send_with_results("report content")
         self.assertTrue(result.success)
-        mock_text.assert_called_once_with("report content")
+        mock_text.assert_called_once_with("report content", logical_id=None)
         mock_save.assert_not_called()
 
     @mock.patch("src.notification.get_config")
@@ -398,7 +398,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
              mock.patch.object(service, "save_report_to_file") as mock_save:
             result = service.send_with_results("report content", route_type="report")
         self.assertTrue(result.success)
-        mock_text.assert_called_once_with("report content")
+        mock_text.assert_called_once_with("report content", logical_id=None)
         mock_save.assert_not_called()
 
     @mock.patch("src.notification.get_config")
@@ -414,7 +414,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
              mock.patch.object(service, "save_report_to_file") as mock_save:
             result = service.send_with_results("error", route_type="system_error")
         self.assertTrue(result.success)
-        mock_text.assert_called_once_with("error")
+        mock_text.assert_called_once_with("error", logical_id=None)
         mock_save.assert_not_called()
 
     @mock.patch("src.notification.get_config")
@@ -431,7 +431,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
             self.assertTrue(service.send("content at 12:00", route_type="report", dedup_key="report:aggregate:simple:600519"))
             self.assertFalse(service.send("content at 12:01", route_type="report", dedup_key="report:aggregate:simple:600519"))
 
-        mock_feishu.assert_called_once_with("content at 12:00")
+        mock_feishu.assert_called_once_with("content at 12:00", logical_id=mock.ANY)
 
     @mock.patch("src.notification.get_config")
     def test_send_releases_noise_reservation_when_static_channels_fail(self, mock_get_config: mock.MagicMock):
@@ -477,7 +477,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
             self.assertTrue(service.send("content at 12:01", route_type="report", dedup_key="report:aggregate:simple:600519"))
 
         self.assertEqual(mock_context.call_count, 2)
-        mock_feishu.assert_called_once_with("content at 12:00")
+        mock_feishu.assert_called_once_with("content at 12:00", logical_id=mock.ANY)
 
     @mock.patch("src.notification.get_config")
     def test_noise_check_failure_does_not_block_static_send(self, mock_get_config: mock.MagicMock):
@@ -491,7 +491,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
             ok = service.send("content", route_type="report")
 
         self.assertTrue(ok)
-        mock_feishu.assert_called_once_with("content")
+        mock_feishu.assert_called_once_with("content", logical_id=None)
 
     @mock.patch("src.notification.get_config")
     def test_static_text_channels_strip_hidden_market_metadata_before_sender(
@@ -519,7 +519,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
                 )
 
                 self.assertTrue(ok)
-                mock_sender.assert_called_once_with(expected)
+                mock_sender.assert_called_once_with(expected, logical_id=mock.ANY)
 
     @mock.patch("src.notification.get_config")
     @mock.patch("requests.post")

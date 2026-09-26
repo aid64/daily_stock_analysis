@@ -16,6 +16,7 @@ import tempfile
 import threading
 import time
 import uuid as uuid_mod
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -79,6 +80,39 @@ _WEBHOOK_SEND_TIMEOUT_SECONDS = 30
 
 # Sentinel for "client not yet initialised".
 _NO_CLIENT = object()
+
+_DISPATCH_LOG_LOCK = threading.Lock()
+
+
+def _dispatch_log_path() -> Path:
+    """U1 漏斗第一步：发送侧 message_id 留存（现状发送成功即丢返回值，
+    建议→回应→回填的漏斗无法关联）。旁路 JSONL，data/ 已 gitignore。"""
+    return Path(__file__).resolve().parents[2] / "data" / "feishu_dispatch.jsonl"
+
+
+def _record_dispatch(message_id: Optional[str], logical_id: Optional[str],
+                     msg_type: str, content_json: str) -> None:
+    """追加一条出站记录；留盘失败只告警，绝不影响发送本身。
+
+    logical_id 由调用方（NotificationService 的 dedup_key，即
+    NotificationEvent.logical_id）传入；无 logical_id 的消息（bot 回复等）
+    记 content 指纹便于事后与 bus 对账。"""
+    try:
+        rec = {
+            "at": datetime.now().isoformat(timespec="seconds"),
+            "message_id": message_id,
+            "logical_id": logical_id,
+            "msg_type": msg_type,
+            "content_sha16": hashlib.sha256(
+                content_json.encode("utf-8")).hexdigest()[:16],
+            "source": "app_bot",
+        }
+        path = _dispatch_log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with _DISPATCH_LOG_LOCK, path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception as e:  # noqa: BLE001 - 留痕是旁路，绝不拖垮发送
+        logger.warning("dispatch ledger 写入失败: %s", e)
 
 
 class FeishuSender:
@@ -222,7 +256,8 @@ class FeishuSender:
     # App Bot send helpers
     # ------------------------------------------------------------------
 
-    def _send_via_app_bot(self, content: str) -> bool:
+    def _send_via_app_bot(self, content: str, *,
+                          logical_id: Optional[str] = None) -> bool:
         """Send message through the Feishu App Bot, chunking if necessary."""
         if not self._feishu_chat_id:
             logger.warning("FEISHU_CHAT_ID 未配置，跳过 App Bot 推送")
@@ -239,11 +274,12 @@ class FeishuSender:
             logger.info(
                 "App Bot 消息超长 (%d 字节)，将分批发送", content_bytes
             )
-            return self._app_send_chunked(client, formatted)
+            return self._app_send_chunked(client, formatted, logical_id=logical_id)
 
-        return self._app_send_once(client, formatted)
+        return self._app_send_once(client, formatted, logical_id=logical_id)
 
-    def _app_send_chunked(self, client: Any, content: str) -> bool:
+    def _app_send_chunked(self, client: Any, content: str, *,
+                          logical_id: Optional[str] = None) -> bool:
         """Chunk and send long content through App Bot."""
         try:
             chunks = chunk_content_by_max_bytes(
@@ -255,7 +291,7 @@ class FeishuSender:
 
         success = True
         for i, chunk in enumerate(chunks):
-            ok = self._app_send_once(client, chunk)
+            ok = self._app_send_once(client, chunk, logical_id=logical_id)
             if not ok:
                 logger.error("App Bot 第 %d/%d 批发送失败", i + 1, len(chunks))
                 success = False
@@ -263,7 +299,8 @@ class FeishuSender:
                 time.sleep(1)
         return success
 
-    def _app_send_once(self, client: Any, content: str) -> bool:
+    def _app_send_once(self, client: Any, content: str, *,
+                       logical_id: Optional[str] = None) -> bool:
         """Single-shot send via App Bot with card-first / text-fallback.
 
         Content received here has already been through ``format_feishu_markdown``
@@ -272,14 +309,17 @@ class FeishuSender:
         """
         card_payload = json.dumps(self._build_card_body(content), ensure_ascii=False)
 
-        if self._app_send_raw(client, "interactive", card_payload):
+        if self._app_send_raw(client, "interactive", card_payload,
+                              logical_id=logical_id):
             return True
 
         # Fallback to plain text.
         text_payload = json.dumps({"text": content}, ensure_ascii=False)
-        return self._app_send_raw(client, "text", text_payload)
+        return self._app_send_raw(client, "text", text_payload,
+                                  logical_id=logical_id)
 
-    def _app_send_raw(self, client: Any, msg_type: str, content_json: str) -> bool:
+    def _app_send_raw(self, client: Any, msg_type: str, content_json: str, *,
+                      logical_id: Optional[str] = None) -> bool:
         """Low-level send via lark-oapi SDK with retry and idempotency UUID.
 
         Request construction is done once outside the retry loop; it is
@@ -328,6 +368,12 @@ class FeishuSender:
 
             if resp.success():
                 logger.info("App Bot 消息发送成功 (type=%s)", msg_type)
+                # U1 漏斗第一步：留存 message_id（此前发送成功即丢返回值）
+                message_id = getattr(getattr(resp, "data", None),
+                                     "message_id", None)
+                _record_dispatch(
+                    str(message_id) if message_id else None,
+                    logical_id, msg_type, content_json)
                 return True
 
             try:
@@ -358,7 +404,8 @@ class FeishuSender:
     # Public API
     # ------------------------------------------------------------------
 
-    def send_to_feishu(self, content: str, *, timeout_seconds: Optional[float] = None) -> bool:
+    def send_to_feishu(self, content: str, *, timeout_seconds: Optional[float] = None,
+                       logical_id: Optional[str] = None) -> bool:
         """
         Push a message to Feishu.
 
@@ -366,6 +413,10 @@ class FeishuSender:
           1. **Webhook** – when ``feishu_webhook_url`` is configured.
           2. **App Bot** – when ``feishu_app_id`` + ``feishu_app_secret``
              + ``feishu_chat_id`` are all configured and webhook is absent.
+
+        ``logical_id``（U1）：消息的业务身份（NotificationEvent.logical_id），
+        仅 App Bot 路径可用——成功后与飞书返回的 message_id 一并留存
+        ``data/feishu_dispatch.jsonl``；webhook 响应无 message_id，不记录。
 
         Returns:
             Whether the send succeeded.
@@ -376,7 +427,7 @@ class FeishuSender:
         sanitized_content = strip_hidden_markdown_metadata(content).strip()
         if self._feishu_url:
             return self._send_via_webhook(sanitized_content, timeout_seconds=timeout_seconds)
-        return self._send_via_app_bot(sanitized_content)
+        return self._send_via_app_bot(sanitized_content, logical_id=logical_id)
 
     def send_feishu_file(self, file_path: str) -> bool:
         """
