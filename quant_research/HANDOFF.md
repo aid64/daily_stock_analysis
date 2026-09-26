@@ -1,10 +1,47 @@
-# quant_research 交接文档（2026-09-07 更新——CB-RESEARCH-PLAN 全部执行完毕）
+# quant_research 交接文档（2026-09-27 追加现状快照——见第 0 节，以此为准）
 
 > 用途：新会话/新环境先读本文件，再按"快速恢复"验证环境。
 > 配套文档：**`docs/CB-RESEARCH-PLAN.md`（下一个研究周期的唯一真源：双低失效诊断 + 三实验接班计划）**、**`docs/ROADMAP-V2.md`（历史执行记录，F1-F8 已闭环）**、
 > `docs/ROADMAP-V2.2.md`（执行细节真源）、`docs/ROADMAP.md`（深度审视参考）、
 > `daily_stock_analysis/docs/quant_research_architecture_research.md`、
 > `daily_stock_analysis/docs/CHANGELOG.md`、`PRIMARY_SOURCE_RESEARCH.md`。
+
+## 0. 现状快照（2026-09-27 全量阅读对账——与下文旧正文冲突处，以本节为准）
+
+### 0.1 研究周期状态（09-07 之后旧正文缺失的三件事）
+1. **09-12 E1 评估器修正**：发现前视/口径 bug（premium 窗口末值映射、调仓日误用、年化÷4、转债误收印花税、现金不守恒），E1 旧结论作废重跑——合成因子**仍 fail**（超额 -1.43pp），但 ytm_true 单臂 +13.11% 成为四臂最强（CB-RESEARCH-PLAN.md:155）。
+2. **09-12/13 ytm_true 预注册 → FAIL 关闭**（回撤 43.46% > 允许 36.06%，`docs/ytm-true-preregistration.md:40-48`）。
+3. **09-13 起进入 8 周功能冻结 + 影子期**（至约 2026-11-08）：**零新增研究/工程**，唯一动作 = 双低季频 paper tracking 照常 + 影子执行数据积累 + PIT 尾部增量（当前 pit_end 2026-09-23）。期满按 promotion gate 三选一（CB-RESEARCH-PLAN.md:158）。**跨项目影响**：dsa 侧期待的 strategy_intake 裁决报告在冻结期内不能新增生产（打包现有锁定证据也会因 data_as_of 过期被 dsa 新鲜度门正确拒绝）——首批裁决报告最早在冻结期满后产出，除非用户明确豁免"仅数据刷新与证据打包、不做研究决策"。
+
+### 0.2 策略矩阵（真实三态：代码/配置/验证产物）
+| 策略 | 代码 | 配置 | 验证产物 | 真实状态 |
+| --- | --- | --- | --- | --- |
+| ETF 动量（17 池） | ✅ ETFMomentum | ✅ etf_momentum.yaml | ✅ WF 8 折 + audit DSR 0.645 | **已验证；实盘禁令维持，允许进 shadow**（见 0.3） |
+| ETF MWU 融合（13 ETF 三专家） | ✅ backtest/mwu.py | ✅ etf_mwu.yaml | ❌ 无独立产物（etf_mwu_cb 的 ETF 腿，R1b 后 delta=0） | 有代码无结论 |
+| MWU+转债双低（月频） | ✅ | ✅ etf_mwu_cb_monthly.yaml | ✅ WF OOS 全负 -0.89%~-1.25% | **禁止实盘**（HANDOFF:156） |
+| 转债双低两段式 | ✅ two_stage.py | ✅ convertible_double_low.yaml | ✅ 全套（52x 换手成本吞噬；E1 修正版 -30.45%） | **rejected**（crowding_silent） |
+| E2 估值分位择时 | ✅ e2_valuation_timing.py | dsa 侧 active(system) | ✅ pass 但降级"待复核假说" | dsa 消费中 |
+| ytm_true / 高YTM底仓 | ✅ | dsa cb_ytm_floor(registered) | ✅ 因子 IC 正；**策略 FAIL 关闭** | 线关闭 |
+| 双低合成因子 / E3 下修 | ✅ | — | ✅ 均 fail | 线关闭 |
+| 行业动量 / 多因子轮动 / 小市值 / 红利网格 | ❌ **quant 零代码** | 仅 dsa 注册表登记（社区来源） | ❌ | **有登记、无实现、无验证**——intake 永不为它们产出裁决 |
+
+### 0.3 ETF 动量部署定性冲突的对账（09-26 dsa 登记引发的必答题）
+- **冲突**：本文件:47"WF 8 折 OOS 无稳定参数，禁止实盘"（前 5 折全负）vs dsa `strategies.yaml` 09-26 登记"管道第一候选"。
+- **对账结论**：两者兼容但语义必须钉死——**"禁止实盘"维持**（前 5 折 2023-2025H1 连续为负 = 无稳定实盘参数）；"第一候选"仅指**进入 dsa 管道的 shadow 观察态**（影子展示不落单，与禁实盘不冲突）。active/实盘须待：WF 刷新至当前数据后负折段被复证，或冻结期满 promotion gate 判定。
+- **walk-forward 实数**（locked，快照 v1 sha 273c8153…）：2023 两折 -9.9%/-8.7% 年化、2024 两折 -2.1%/-4.7%、2025H1 -10.7%、2025H2 +14.1%、2026H1 +37.6%、2026-07~08 +6.3%。**前 5 折全负、后 3 折转正**。
+- **参数口径三头不一致（打包裁决前必须钉死）**：yaml 默认 lookback=60/ma_filter=250；WF 网格 ma_filter=200（选中 60→90）；audit selected_config lookback=180。dsa 注册表 params 抄 yaml、evidence 却引用 200 网格口径的 WF 数字——口径不同源，禁止混用。
+- **快照世代**：v1（08-15，WF/audit 消费）、v2（08-17）、**v3（09-01，最新至 2026-09-01，无任何消费者——文档此前漏记）**。ETF 产物数据边界 08-08（holdout 冻结线）。
+
+### 0.4 数据层现状
+- 转债 PIT：`data/pit/convertible_pit.parquet`（09-24 刷新）631,902 行 / 853 只 / future_rows=0；每日 paper tracking 驱动尾部增量（update_pit_tail.py）。
+- ETF：无 PIT 管线，走三份冻结快照 pkl（v1/v2/v3）；research 冻结边界 2026-08-08。
+- 遗留待清理：`data/universe_cb.csv`/`universe_cb_pit.csv`（68 只旧口径）、`cb_candidate_union{,_v2}.txt`（已废除机制的产物）、`data/cache/bars/` hfq 子目录。
+
+### 0.5 跨项目契约现状
+- `output/paper_tracking/current_plan.json` 已是 **schema cb_current_plan_v2**（旧正文"schema v1"过时）。
+- **strategy_intake 桥只有消费端**：dsa `src/services/strategy_intake.py` 期待 `quant_research/output/strategy_intake/`，该目录不存在、quant 侧无任何生成 `strategy_intake_verdict_v1` 的脚本（生产端是冻结期后的第一个工程项，需用户豁免或等 11-08）。
+- **E2 分位口径跨项目矛盾（待对齐）**：quant e2_valuation_timing.json 静态 95.1%/动态 88.8% vs dsa compute_e2_percentile 实算 68.3%（09-26）——两侧分位口径/样本不同源，消费谁的需钉死。
+- 旧正文更正：测试数"252 passed"→现 299+2 network；HANDOFF:265-268 快速恢复引用的 universe_cb_pit.csv 为旧口径（现用 universe_cb_full.txt 854 只）；`etf_mwu_cb_monthly.yaml:4` 头注释"+0.18%"已被 V5 证伪（-3.45%），禁止引用。
 
 ## 1. 项目定位
 

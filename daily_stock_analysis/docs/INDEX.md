@@ -9,7 +9,7 @@
 | 快速了解项目能做什么 | [README](../../README.md) | [完整配置与部署指南](full-guide.md) |
 | 第一次把项目跑起来 | [小白客户端安装与配置](beginner-client-setup.md) | [完整配置与部署指南](full-guide.md) |
 | 配置大模型渠道 | [LLM 配置指南](LLM_CONFIG_GUIDE.md) | [LLM 服务商配置指南](llm-providers.md)（含 xAI Grok 直连） |
-| 配置推送通知 | [通知能力基线](notifications.md) | [飞书配置交接说明](feishu-handoff.md)、[完整配置与部署指南](full-guide.md) |
+| 配置推送通知 | [飞书配置交接说明](feishu-handoff.md) | [通知能力基线](notifications.md)（**⚠ 过时**：P5 后仅剩飞书渠道，文中多渠道内容失真，待重写）、[完整配置与部署指南](full-guide.md) |
 | 部署到服务器或云平台 | [部署指南](DEPLOY.md) | [云端 WebUI 部署](deploy-webui-cloud.md)、[Zeabur 部署](docker/zeabur-deployment.md) |
 | 备份账本 / 崩溃恢复 | [单机灾难恢复（DR）](disaster-recovery.md) | 账本备份脚本、Windows 计划任务、三类崩溃场景还原步骤 |
 | 决策层参数为何这么定 | [在线决策层变更留痕](decision-layer-changelog.md) | 结构锚价位/破位分档/组合器三层参数、回放基线（分档过度设计、价位锚才是开关）、变更留痕规范 |
@@ -37,21 +37,22 @@
 | [LLM 服务商配置指南](llm-providers.md) | Provider 预设、Actions 映射、错误分类和诊断建议 |
 | [LiteLLM YAML 示例](examples/litellm_config.example.yaml) | LiteLLM 多渠道配置示例 |
 | [Grok Bot Skill 示例](examples/grok_bot/README.md) | 给 Grok Bot 粘贴的最小 Skill，调用现有 REST |
-| [通知能力基线](notifications.md) | 企业微信、飞书、Telegram、Discord、Slack、邮件等通知渠道配置 |
-| [飞书配置交接说明](feishu-handoff.md) | 飞书三种接入方式的区别、当前实际配置、发送/交互链路、渠道路由、每日摘要与排障手册（交接真源） |
+| [通知能力基线](notifications.md) | **⚠ 部分过时**：多渠道时代的基线文档，P5 砍渠道后 12+ 渠道已物理删除、文中对照表失真；现行配置以 [飞书配置交接说明](feishu-handoff.md) 为准（重写排入 U5） |
+| [飞书配置交接说明](feishu-handoff.md) | 飞书三种接入方式的区别、当前实际配置、发送/交互链路、渠道路由、每日摘要与排障手册（**通知配置现行真源**；缺 09-26 新增的发送侧 `feishu_dispatch.jsonl` 台账说明，待补） |
 | [Tushare 股票列表指南](TUSHARE_STOCK_LIST_GUIDE.md) | Tushare 股票列表相关配置和使用说明 |
 
 ## 项目演进与重构（规划真源）
 
 > 阅读顺序：先看当前生效的重构计划，再按需追溯策略目录与执行蓝图。带 SUPERSEDED/OUTDATED 标注的文档仅作历史记录，不指导当前开发。
-> 从属链（v4.2 第八节）：重构计划 = 规划唯一真源；执行蓝图 = 已交付形态说明；策略目录 = 策略面登记真源；`strategies.yaml` = 策略参数真源。
+> 从属链（v5.0 第七节）：重构计划 = 规划唯一真源；执行蓝图 = 已交付形态说明；策略目录 = 策略面登记真源；`strategies.yaml` = 策略参数真源（U0 确认台账为旁路 JSONL，不改写本文件）。
 
 | 文档 | 状态 | 内容 |
 | --- | --- | --- |
-| [策略中心重构计划](REFACTOR-PLAN-STRATEGY-CENTRIC.md) | **规划唯一真源（v4.2）** | 全项目重构路线：实测盘点、dsa=账户真源+quant=回测裁决所的方向、模块增删总表、P0-P5 阶段与三件套验收。v4.1 吸收 14 条外部审阅（P0.5 备份前置/P0.9 在线层回放/非交易日门/裁决新鲜度门等）；v4.2 执行落地修订：新增 **P1.5 首笔执行闭环**（前置 P2，零执行下 P2/P3 指标不可计算）、账户规模感知集中度（治"减仓=清仓"不可执行建议）、运行态证据硬条款（定时任务必须无人值守跑过 N 次才算达标）。当前进度：P0 ✅ → P0.5 ⚠（备份定时任务待注册）→ P0.9 ◐（两层已建）→ P1 ✅（A 类拆分）→ **下一步 P1.5** |
-| [策略目录](strategy-catalog.md) | 生效（策略面真源） | 策略登记与状态机（与重构计划 P1-P3 配套） |
-| [账户决策规则溯源](account-decision-rules.md) | 生效但**部分过时** | 决策依据溯源；"价位=成本±%机械模板"对应 P0 前旧价位，P0 已用结构锚重生，见文内更正说明 |
-| [执行蓝图](EXECUTION-BLUEPRINT.md) | 已交付形态说明（①-④） | 操作单/账本/治理/砍除产出的事实描述；⑤及以后规划权归重构计划 |
+| [策略中心重构计划](REFACTOR-PLAN-STRATEGY-CENTRIC.md) | **规划唯一真源（v5.0 使用中心计划）** | 核心论点"建设已超前于使用"（真实账本成交停 09-07、零执行 19 天）；中心从建议正确性转向：**U0 意图归化**（规则逐条用户签署——已生效：R1/R3/R4/R5 确认、R2 停用，台账 `data/rule_confirmations.jsonl` + 消费端门控）、**U1 执行漏斗**（第一步 message_id 留存已落地）、**U2 建议休眠**、**U4 耐久性**（备份任务 0x800710E0 已修、非交易日门补齐、打新非交易日守护——均已上线）、U3 后台线等 quant 产物。历史进度：P0✅→P0.5✅（09-26 修复首日成功，观察 09-27~29）→P0.9◐→P1✅→P1.5✅（代码/替代验收，首笔真实执行未发生）→P2✅→P3◐→P4◐→P4.5✅→P5◐。**第二波待做**：U1 漏斗（回应命令+聚合）、U2、卡片按钮形态 |
+| [策略目录](strategy-catalog.md) | 生效（策略面真源） | 策略登记与状态机；第五节含 09-26 两项目对账（17 池版 etf_momentum=管道第一候选，社区四资产版"未复现不推进"） |
+| [账户决策规则溯源](account-decision-rules.md) | 生效（头部已附 09-26 更正注） | 决策依据溯源；"价位=成本±%"为 P0 前旧描述，P0 起结构锚，见文内更正说明 |
+| [执行蓝图](EXECUTION-BLUEPRINT.md) | 已交付形态说明（①-⑤ 全 ✅） | 操作单/账本/治理/砍除/收尾产出的事实描述；规划权归重构计划 v5.0 |
+| **策略部署管道真源链** | **跨项目契约** | `strategy-catalog.md`（策略面）→ 仓库根 `strategies.yaml`（参数/状态/证据引用）→ `src/services/strategy_intake.py`（裁决消费端，输入 `quant_research/output/strategy_intake/`，schema `strategy_intake_verdict_v1`，新鲜度门 5 交易日）→ `strategy_engine`（只评估 active）。**当前断点**：intake 目录不存在、quant 侧无裁决报告生产脚本，且 quant 自 09-13 起 8 周功能冻结（约 11-08 期满）——首批裁决报告的产出需冻结期满或用户豁免；ETF 动量的"禁止实盘（HANDOFF:47）vs shadow 候选"定性对账见 quant `HANDOFF.md` 第 0.3 节 |
 | [现状审计（2026-09-10）](ASSISTANT-GAP-AUDIT-20260910.md) | 历史记录 | 半自动助手当时的差距审计，问题多已在重构计划中处置 |
 | [闭环修复计划](CLOSURE-FIX-PLAN.md) / [桌面端大修计划](DESKTOP-OVERHAUL-PLAN.md) | 历史/桌面端冻结 | 早期专项计划；桌面端已按重构计划冻结 |
 | [项目深度分析](project-analysis.md) | **OUTDATED** | 描述早期三层目录结构，与当前双项目布局不符 |
