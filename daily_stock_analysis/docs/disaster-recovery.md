@@ -25,16 +25,24 @@
 
 ```powershell
 # 每日 08:30 备份并校验，保留最近 14 份
+# 必须走 powershell -File 包装形态（与 DSA_Server_Keepalive 同款）。
+# 直接 py.exe 直调在计划任务上下文会 0x800710E0（2026-09-24~26 三连败实测）。
 schtasks /Create /TN "DSA_Ledger_Backup" /TR ^
-  "py D:\daily_stock_analysis\daily_stock_analysis\scripts\backup_ledger.py --verify --retention 14" ^
+  "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File D:\daily_stock_analysis\daily_stock_analysis\scripts\backup_ledger.ps1" ^
   /SC DAILY /ST 08:30 /F
 ```
+
+包装脚本 `scripts/backup_ledger.ps1`（2026-09-26 U4 修复引入）调用 py 脚本并把输出落到
+`logs/backup_task.log`、透传退出码给调度器。**该脚本必须保持纯 ASCII**：PowerShell 5.1
+对无 BOM 的 UTF-8 按系统 ANSI 代码页误读，行尾中文可能吞掉换行符把下一行并进注释
+（实测发生过：两条赋值语句消失，`$LogFile` 为空）。
 
 手动执行（在 `daily_stock_analysis/` 下）：
 
 ```bash
 py scripts/backup_ledger.py --verify              # 备份 + 校验 db 可打开且核心表齐全
 py scripts/backup_ledger.py --retention 30        # 改保留份数（0=不删）
+schtasks /Run /TN "DSA_Ledger_Backup"             # 计划任务上下文验证（改包装后必做）
 ```
 
 `--verify` 会打开备份出的 db 确认 `portfolio_accounts/trades/cash_ledger/positions/event_audit`
