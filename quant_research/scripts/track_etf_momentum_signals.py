@@ -137,11 +137,16 @@ def build_signal(snapshot_path: Path, strategy_config: Path) -> dict:
 
 
 def main(argv: Optional[list] = None) -> int:
+    # 路径全部由 __file__ 推导、CWD 无关（计划任务上下文 CWD=System32，
+    # backup_ledger.py 同款纪律——2026-09-27 任务上下文实测教训）
     p = argparse.ArgumentParser(description="ETF 动量影子信号跟踪")
-    p.add_argument("--snapshot", default="output/feeds_snapshot_v4.pkl")
+    p.add_argument("--snapshot",
+                   default=str(_REPO / "output" / "feeds_snapshot_v4.pkl"))
     p.add_argument("--strategy-config",
-                   default="config/strategy/etf_momentum.yaml")
-    p.add_argument("--log", default="output/etf_momentum_tracking/signals.jsonl")
+                   default=str(_REPO / "config" / "strategy" / "etf_momentum.yaml"))
+    p.add_argument("--log",
+                   default=str(_REPO / "output" / "etf_momentum_tracking"
+                               / "signals.jsonl"))
     args = p.parse_args(argv)
 
     snap_path = Path(args.snapshot)
