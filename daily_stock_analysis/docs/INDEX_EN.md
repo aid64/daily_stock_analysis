@@ -1,3 +1,4 @@
+<!-- Scope note (2026-09-27, U5): this English index covers USER-FACING docs only. Project evolution / refactoring / operations sections live in the Chinese INDEX.md, which is the single navigation source of truth. -->
 # English Documentation Index
 
 This is the entry point for project documentation. The README covers the project overview and quick start; detailed setup, configuration, deployment, feature usage, and troubleshooting docs are linked below.

@@ -6,6 +6,8 @@
 # → active；任意阶段可 rejected / dormant。详见 strategy-catalog.md 第一节。
 # 纪律：参数取结构值或社区声明值（预注册），不做网格调参。
 # 消费方：src/services/strategy_engine.py（只评估 active）。
+# 对账（2026-09-27 U5）：系统策略/rejected 条目为身份登记补齐；
+# 选品描述与状态机定义见 docs/strategy-catalog.md（部署实况注记同步）。
 # ============================================================
 
 # ── 买侧授权（P2-7）：默认只读，用户填 universe 并把 intent 改为 signal
@@ -156,3 +158,33 @@ strategies:
     params:
       index: 399101           # 中小综指
       top_n: 5
+
+  # ── rejected（U5 对账补齐：本项目 quant 管线诚实负结果入册机器注册表）──
+  - id: cb_double_low_composite
+    name: 转债双低合成因子
+    tier: satellite
+    risk: mid
+    status: rejected
+    source: 本项目 quant 管线（E1 合成因子，09-12 评估器修正重验仍 fail：四臂全负、超额 -1.43pp）
+    evidence: quant_research/output/e1_composite_vs_baseline.json；docs/strategy-catalog.md 第六节
+
+  - id: cb_revision_event
+    name: 下修博弈事件窗
+    tier: satellite
+    risk: mid
+    status: rejected
+    source: 本项目 quant 管线（E3：328 例、胜率 57.3%、平均超额 -0.56% < 2% 门槛——下修是续命不是起死回生）
+    evidence: quant_research/output/e3_revision_event_window.json
+
+  # ── 网格类（U5 对账补齐：catalog 第五节条目，执行形态暂缓）──
+  - id: dividend_lowvol_grid
+    name: 红利低波三层网格
+    tier: satellite
+    risk: mid
+    status: dormant
+    source: 知乎完整参数版（港股红利 T+0 标的 513630）
+    evidence_status: 未复现——暂缓（盘中网格与"每日决策包+人工执行"节奏不匹配；唤醒需先解决执行形态）
+    params:
+      target: 513630          # 港股红利低波 ETF（T+0）
+      grid_trigger: {small: -0.02, mid: -0.05, large: -0.10}
+      ma_restart: 60
