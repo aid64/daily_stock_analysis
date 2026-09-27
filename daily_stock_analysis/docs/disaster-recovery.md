@@ -32,6 +32,13 @@ schtasks /Create /TN "DSA_Ledger_Backup" /TR ^
   /SC DAILY /ST 08:30 /F
 ```
 
+**根因两层（2026-09-27 补齐第二层）**：①Action 形态（py.exe 直调被任务上下文拒——powershell 包装修复）；②**任务条件**（`DisallowStartIfOnBatteries=true` + `StartWhenAvailable=false`——笔记本 08:30 常在睡眠/电池，触发即被拒 0x800710E0，09-27 自然触发实证）。②的修复：
+```powershell
+$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
+Set-ScheduledTask -TaskName "DSA_Ledger_Backup" -Settings $s
+```
+（45MB 本地拷贝允许电池态运行；错过 08:30 后唤醒即补跑。）验收=连续 3 日自然触发成功（09-27 条件修复后重新起算）。
+
 包装脚本 `scripts/backup_ledger.ps1`（2026-09-26 U4 修复引入）调用 py 脚本并把输出落到
 `logs/backup_task.log`、透传退出码给调度器。**该脚本必须保持纯 ASCII**：PowerShell 5.1
 对无 BOM 的 UTF-8 按系统 ANSI 代码页误读，行尾中文可能吞掉换行符把下一行并进注释
