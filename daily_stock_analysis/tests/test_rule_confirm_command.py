@@ -35,6 +35,25 @@ class TestRuleInventory:
             assert rule["does"] and rule["basis"] and rule["validation"]
 
 
+class TestDecisionPackageDisclosure:
+    """U0 披露（2026-09-27）：未确认规则必须在决策包可见（验收补齐）。"""
+
+    def _render(self):
+        from src.services.account_decision_service import render_decision_package
+        from src.services.strategies.types import AccountDecision
+        return render_decision_package(AccountDecision(trade_date="2026-09-27"))
+
+    def test_unconfirmed_rules_disclosed(self, isolated_ledger):
+        text = self._render()
+        assert "规则未确认" in text and "/规则确认" in text
+
+    def test_all_confirmed_no_pending_warning(self, isolated_ledger):
+        for rule in RULE_INVENTORY:
+            record_rule_action(rule["id"], "confirmed")
+        text = self._render()
+        assert "规则未确认" not in text
+
+
 class TestList:
     def test_list_shows_all_rules_and_unconfirmed_state(self, isolated_ledger):
         text = _cmd()._render_list()

@@ -105,6 +105,33 @@ class TestFreshnessGate:
         assert res.action == "rejected"
 
 
+class TestPromotionCap:
+    """promotion_cap 上限（2026-09-27）：报告声明的推进上限机器化强制。"""
+
+    def test_cap_shadow_blocks_shadow_to_active(self, registry):
+        res = evaluate_intake(
+            _report(strategy_id="cb_ytm_floor", promotion_cap="shadow"),
+            registry_path=registry, apply=True)
+        assert res.action == "held" and res.to_status == "shadow"
+        assert any("promotion_cap" in r for r in res.reasons)
+        import yaml
+        data = yaml.safe_load(registry.read_text(encoding="utf-8"))
+        entry = next(e for e in data["strategies"] if e["id"] == "cb_ytm_floor")
+        assert entry["status"] == "shadow"   # 未落盘推进
+
+    def test_cap_shadow_allows_registered_to_shadow(self, registry):
+        res = evaluate_intake(_report(promotion_cap="shadow"),
+                              registry_path=registry, apply=True)
+        assert res.action == "promoted" and res.to_status == "shadow"
+
+    def test_invalid_cap_fail_closed(self, registry):
+        res = evaluate_intake(
+            _report(strategy_id="cb_ytm_floor", promotion_cap="yolo"),
+            registry_path=registry, apply=True)
+        assert res.action == "held"
+        assert any("promotion_cap" in r for r in res.reasons)
+
+
 class TestStateMachine:
     def test_shadow_promotes_to_active(self, registry):
         res = evaluate_intake(_report(strategy_id="cb_ytm_floor"),

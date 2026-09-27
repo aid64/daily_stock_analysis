@@ -476,5 +476,17 @@ def render_decision_package(decision: AccountDecision,
                  f"集中度≤{decision.concentration_threshold_pct:.0f}%（共识）·"
                  "E2=转债分位（实验性）· AI 只解释不决策 ·"
                  "详情 docs/strategy-catalog.md")
+    # U0 披露（验收项）：默认启用 ≠ 用户签署——未确认的规则必须在决策包
+    # 可见并给确认入口（计划 v5.0 U0；台账 fail-open，此处只做披露）。
+    try:
+        from src.services.rule_confirmation_service import pending_rule_ids
+
+        pending = pending_rule_ids()
+        if pending:
+            lines.append(
+                f"⚠ 规则未确认：{'/'.join(pending)}——按系统默认启用中，"
+                "发 /规则确认 逐条确认或停用")
+    except Exception:  # noqa: BLE001 - 披露失败不阻塞决策包
+        pass
     return "\n".join(lines)
 

@@ -14,7 +14,7 @@ JSONL——不写回 strategies.yaml（现有 yaml 写回会抹掉全部行内�
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List
 
 # 台账文件（data/ 已 gitignore，运行态产物不入库）
 LEDGER_FILENAME = "rule_confirmations.jsonl"
@@ -24,6 +24,23 @@ STRATEGY_RULE_GATE = {
     "reverse_repo_window": "R5",
     "cb_new_issue": "R4",
 }
+
+# U0 披露用规则编号集（与 bot/commands/rule_confirm.py 的 RULE_INVENTORY 对齐；
+# 此处只维护编号，不复制描述文本——描述真源仍在命令模块，避免双真源漂移）
+DISCLOSURE_RULES = ("R1", "R2", "R3", "R4", "R5")
+
+
+def pending_rule_ids() -> List[str]:
+    """尚无任何签署记录的规则编号（默认启用但未确认）。
+
+    供决策包依据披露引用（U0 验收：披露引用确认状态而非"系统登记"）。
+    台账读取失败返回空列表（fail-open——披露失败不得阻塞决策包）。
+    """
+    try:
+        states = load_rule_states()
+    except Exception:  # noqa: BLE001
+        return []
+    return [rule_id for rule_id in DISCLOSURE_RULES if rule_id not in states]
 
 
 def _ledger_path() -> Path:

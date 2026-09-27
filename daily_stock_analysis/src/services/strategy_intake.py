@@ -51,6 +51,9 @@ STATUS_REJECTED = "rejected"
 # promote 允许的状态跃迁（不允许 registered 直接跳 active——必须过 shadow）
 PROMOTE_PATH = {STATUS_REGISTERED: STATUS_SHADOW, STATUS_SHADOW: STATUS_ACTIVE}
 
+# 状态层级（promotion_cap 上限判断用；数字越大级别越高）
+STATUS_RANK = {STATUS_REGISTERED: 0, STATUS_SHADOW: 1, STATUS_ACTIVE: 2}
+
 # 数据新鲜度门：裁决数据滞后超过此交易日数 → 拒绝 promote
 DEFAULT_DATA_STALE_DAYS = 5
 
@@ -242,6 +245,27 @@ def evaluate_intake(
         result.reasons.append(
             f"当前状态 {cur} 无 promote 路径（已 active 或非 registered/shadow）")
         return result
+
+    # promotion_cap（生产者声明的推进上限，fail-closed）：报告内嵌 cap（如
+    # shadow）时，超过上限的跃迁一律拒绝——"shadow→active 需独立证据"不再
+    # 只是文档承诺（生产端 build_intake_verdict 默认 promotion_cap=shadow）。
+    # cap 值非法同样 fail-closed；缺省无 cap = 兼容既有报告。
+    cap = str(report.get("promotion_cap") or "").strip().lower()
+    if cap:
+        if cap not in STATUS_RANK:
+            result.action = "held"
+            result.to_status = cur
+            result.reasons.append(
+                f"promotion_cap 值非法：{cap!r}（应为 registered/shadow/active）"
+                "——fail-closed 不推进")
+            return result
+        if STATUS_RANK.get(nxt, 99) > STATUS_RANK[cap]:
+            result.action = "held"
+            result.to_status = cur
+            result.reasons.append(
+                f"promotion_cap={cap} 限制：{cur} → {nxt} 超出报告声明的推进"
+                "上限——更高级别需独立证据（本报告不授权）")
+            return result
 
     result.action = "promoted"
     result.to_status = nxt

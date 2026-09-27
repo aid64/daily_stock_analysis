@@ -20,6 +20,18 @@
 
 ---
 
+## 2026-09-27 治理与披露变更（无判决变更）
+
+- strategy_intake 新增 **promotion_cap 上限门**（fail-closed）：报告声明 cap=shadow 时
+  shadow→active 被拒。属**准入治理**，不改三层参数、不改任何当日判决；
+  etf_momentum 当前仍 registered（`output/strategy_intake/` 无报告在途）。
+- U0 未确认披露行（决策包依据区）：纯展示；当前 5 条规则已全部签署（R2 停用），
+  该行不出现。**无判决变更**。
+- 对照说明：两者都不涉及结构锚价位/破位分档/组合器参数 → 无需回放对照；
+  记录于此以满足"变更留痕"纪律。
+
+---
+
 ## 基线回放（2026-09-21，000899 + 002475，最近 60 / 32 评估日）
 
 命令：`py scripts/replay_decision_layer.py --symbols 000899,002475 --days 60`

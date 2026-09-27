@@ -118,7 +118,44 @@ quant 侧把回测裁决报告 JSON（schema=`strategy_intake_verdict_v1`，含
 | 两融杠杆 | **排除** | 资金规模不支持 |
 | LLM 直接产生交易指令 | **排除**（架构级） | Alpha Arena 8 模型实盘整体亏 1/3；前瞻偏差学术确认（见调研报告 v1/v2）；国内合规红线（问财/妙想均拒绝） |
 
-## 七、来源与验证状态速查
+## 七、运行时策略共存契约（2026-09-27 核实）
+
+部署中的"策略"分布在三套命名空间，职责不同——同名不同物是最大误解源：
+
+| 命名空间 | 角色 | 真源 / 消费方 |
+| --- | --- | --- |
+| 仓库根 `strategies.yaml` | 策略**身份与状态**注册表（registered/shadow/active/dormant/rejected） | 状态推进：`strategy_intake`（裁决报告）+ `strategy_autostop`（运行态暂停回写） |
+| `src/services/strategies/` | **运行时决策模块**（user_rules/concentration/e2_timing/breach + types/adapters） | 生效编排：`portfolio_compositor.compose_account_decision` |
+| `daily_stock_analysis/strategies/*.yaml`（14 个） | 旧 agent 技能策略（K 线形态类），属 LLM 分析层 | `src/agent/skills/` 消费，不进账户决策 |
+
+**唯一裁决顺序**（定义于 `strategies/types.py` TIER_PRIORITY）：
+`exit_rule(10) > risk_control(20) > cash_management(30) > low_risk(35) > satellite(40)`
+
+**当前生效路径**（实盘行为 = 下列顺序，逐票提前 return 保证互斥）：
+1. `user_rules.decide_position`——止损/止盈/破位分档；止损触发即返回，该票不再进集中度分支；
+2. `concentration.apply_concentration_targets`——只修正 REDUCE 腿（不碰 SELL/HOLD；**当前 R2 已被用户停用**，不参与判决）；
+3. `e2_timing`——只决定现金会话语义，不产持仓腿；
+4. `strategy_engine`——逆回购/打新现金信号进动作区，**只展示不落单、不可回填**（U1 边界）。
+
+**U0 签署实况（2026-09-26 台账，source: user_delegated_20260926）**：5 条规则全部签署——R1/R3/R4/R5 confirmed；**R2（集中度）disabled**，理由"单向阀问题：无可买标的时机械卖出换死现金；待买侧授权或找到可买标的后启用"。当前生效纪律 = R1 + R4 + R5（+R3 惰性）。
+
+**已知语义（知情项，非 bug）**：
+- 止损破位 WAIT（暂缓一日）→ 该票当日不产生任何腿（含集中度减仓）——离场优先级覆盖风控；
+- 集中度"减仓=清仓"已由 P1.5 修正为保底一手/持有提示（账户规模感知）；
+- E2 防守区当前只影响文案与（未接线的）预算闸门，不阻断 `/买入`。
+
+**已建·未接线清单（接线条件见 v5.0 计划 U6）**：
+
+| 组件 | 状态 | 风险 / 后果 |
+| --- | --- | --- |
+| `compose()` 归并 / `adapters` / `evaluate_strategy_outputs` | 已建+测试（1 个黄金等价场景），**未接入运行时** | 两套归并器并存；接线前须扩等价测试（WAIT/REDUCE/减半场景） |
+| `apply_budget_gate`（mandate 25%/95% 预算帽） | 已建+测试；只约束组合器买入腿（当前无） | 手工 `/买入` 不受单票/敞口预算约束——两套风险制度 |
+| `strategy_autostop` | service/API/dormant 回写齐备；**无管线调用点、无运行数据源** | 策略劣化不会自动暂停（仅手动/API 触发） |
+| `strategy_intake` 裁决报告 | 消费端+生产端齐备（`build_intake_verdict.py`；promotion_cap 已机器强制）；`output/strategy_intake/` 当前无报告 | etf_momentum 停在 registered；报告产出即自动过状态机（新鲜度门+上限门） |
+
+**买卖单向阀（R2 停用根因，"光卖不买"的残留形态）**：卖出规则（R1）与买入路径（观察池//买入）之间没有合成器——R2 集中度在无买入标的时会机械卖出换死现金，故被停用。收口条件 = U6。
+
+## 八、来源与验证状态速查
 
 - 社区策略的通病与验证方法论（换源复现/防未来纪律/对照实验）：调研报告（会话记录，2026-09-15~17）
 - 本目录中所有"社区实证"数字**均为外部来源声称值，未经过本项目管道复现**——除已标注 rejected 的（本项目自测）和 active 的（规则性/无风险）
