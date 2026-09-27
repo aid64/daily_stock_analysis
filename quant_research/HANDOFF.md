@@ -46,6 +46,8 @@
 ### 0.6 跨项目桥执行记录（2026-09-27，冻结豁免范围内）
 1. **快照 v4**（`output/feeds_snapshot_v4.pkl`，sha256 3be84014…）：17 只 ETF，数据至 2026-09-24（9/25 中秋假，边界正确）；akshare 东财源 7 只降级新浪（与 v1/v3 同口径，基线 diff 容差内）。**发现 v3 的 512100.SH 复权因子污染**（close 1.17 vs 自身 amount/volume 隐含 3.12；v1/v4 干净且一致）——v3 从未被消费，作废勿用。
 2. **WF 重跑被 holdout 闸正确拦截**：`assert_holdout_clean` 拒绝终点 ≥ 2026-08-09 的研究命令——holdout 保留给 C2 最终评估，提前消费不可豁免。ETF 动量的"新鲜证据"只能出自冻结期满（约 11-08）的 holdout 正式评估。
+4. **影子信号跟踪上线（豁免 v3）**：`scripts/track_etf_momentum_signals.py` + dsa `/轮动信号`——每日收盘后计算 etf_momentum 动量得分（直接调用 momentum_scores，与回测同源）追加 `output/etf_momentum_tracking/signals.jsonl`。首信号（as_of 09-24）：仅 2/16 过闸（512890/511880）——偏防御形态。holdout 零触碰；11-08 评估时该日志即"影子期数据积累"的输入。
+
 3. **桥生产端建成**：`scripts/build_intake_verdict.py`（纯证据搬运封装）——以既有锁定证据试产出报告（oos 2023-01~2026-08-08，8 折 +3/-5，复利 +17.20%，含 R2 闸后 +14.7% 口径 caveat），dsa 消费端干跑：schema 校验通过、**新鲜度门正确拒绝**（滞后 34 交易日 > 5）——生产端→消费端→门全链路验证。测试产物已清理，正式报告冻结期满后由脚本再生（2 秒）。
 
 ## 1. 项目定位

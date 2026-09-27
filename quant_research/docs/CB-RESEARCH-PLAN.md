@@ -182,3 +182,14 @@ holdout 正式评估（约 2026-11-08），桥在此之前保持关闭（dsa 新
 
 **不变项**：E/D 线全部保持关闭；holdout 数据零触碰（本次 WF 重跑未发生）；
 双低季频 paper tracking 照常；影子期执行数据积累照常。
+
+### 2026-09-27 豁免 v3：ETF 动量影子信号跟踪（用户主动要求"更早使用"，paper-only）
+
+**范围**：①`scripts/track_etf_momentum_signals.py`（每个收盘后计算当前动量得分与 top_k
+选择，**直接调用** backtest.strategies.momentum_scores 保证与回测同源；无评估、无裁决、
+无实盘）；②dsa 侧 `/轮动信号` 命令（只读 signals.jsonl 文件契约，横幅强制"影子跟踪·
+非投资建议·不落单"）。**依据**：影子信号观察属冻结期白名单动作"影子期执行数据积累"
+（与双低 paper tracking 同性质）；holdout 数据零触碰（信号计算只用已采集的 v4 快照）。
+**产出**：output/etf_momentum_tracking/signals.jsonl（每日追加）。首个信号（09-27 记录，
+as_of 09-24）：仅 2/16 过闸（512890 +0.0902、511880 +0.0024）——MA250+绝对动量过滤
+把全池拦掉大半，属偏防御信号形态。
