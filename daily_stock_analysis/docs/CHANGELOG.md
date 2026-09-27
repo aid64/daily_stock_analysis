@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [文档] 用户部署偏好登记（09-27，用户原话"更青睐中风险以及更高风险的策略"）：①中风险候选列为首选部署轨道，复现队列确认 多因子→行业动量（etf_momentum 第一候选不变）；②小市值维持 dormant（唤醒待冻结期满+用户明确确认）；③更高风险档维持"当前阶段不推荐"原判（解除需账户增长+独立预注册+影子期三条件）；④卫星 20-30% 仓位纪律不变——类型偏好不得默示推导仓位放大，调整属 U0 级显式签署。登记于 strategy-catalog 第五节部署实况。
 - [修复] 备份任务条件层根因补齐（U4 观察日第 1/3 实证抓到）：09-27 自然触发再失败（0x800710E0），但包装日志零记录——错误发生在启动阶段而非脚本：任务设置 DisallowStartIfOnBatteries=true + StartWhenAvailable=false，笔记本 08:30 常在睡眠/电池态，触发即被拒、唤醒补跑仍被电池条件拒。**根因两层并存**（09-26 修的是形态层 py.exe→powershell，本日修条件层）：Set-ScheduledTask 解除电池限制 + 开启错过补跑（Action/触发器原样保留），手动触发验证 LastResult=0、09-27 备份已补（49.1MB+校验通过）。U4 验收窗口自条件修复日起重新起算（连续 3 日自然触发=09-28/29/30）。disaster-recovery.md 同步两层根因与修复命令。
 - [新功能] U6 首批收口（策略共存，09-27）：①`/买入` 回复新增风险提示行——成交后单票占比（对照 mandate 单票参考上限 25%，越限标注）+ E2 转债估值分位防守区状态，不阻断（用户是执行引擎）、提示层故障静默跳过（fail-open，3 项单测含故障注入）；②compose 接线前置达成——黄金等价测试从 1 场景扩到 4 场景（全卖/WAIT/减半/REDUCE）**全部等价**（22 passed），证明接线在已测场景内行为保持，"接线或弃用"裁决的事实依据齐备（接线时点仍 = 买侧首条自动买入腿之前）。strategy-catalog 第七节与 v5.0 计划 U6 同步标注进度。
 - [修复] 策略准入 promotion_cap 机器强制（策略共存治理，2026-09-27）：strategy_intake 消费裁决报告时新增推进上限门——报告内嵌 promotion_cap（如 shadow）时，超过上限的状态跃迁一律拒绝（"shadow→active 需独立证据"从文档承诺变为 fail-closed 校验；cap 值非法同样拒绝；缺省无 cap 兼容既有报告）。新增 3 项单测（cap=shadow 拦 shadow→active 不落盘 / cap=shadow 放行 registered→shadow / 非法 cap fail-closed），intake 25 passed。
