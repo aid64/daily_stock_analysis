@@ -1093,6 +1093,14 @@ const settingsHelpZhCN: SettingsHelpMap = {
     impact: ['影响通知推送时机和频率。'],
     notes: ['跟踪大量股票时可能产生较多通知消息。'],
   },
+  'settings.report.MERGE_EMAIL_NOTIFICATION': {
+    title: '合并邮件通知',
+    summary: '将个股分析与大盘复盘合并为一封邮件发送。',
+    usage: '开启后，个股分析和大盘复盘会合并在同一封邮件中发送。',
+    valueNotes: ['仅在同时启用了个股分析和大盘复盘时有效。'],
+    impact: ['影响邮件通知的封数和内容组织。'],
+    notes: ['关闭后个股分析和大盘复盘会分别发送邮件。'],
+  },
   // ------------------------------------------------------------------
   // Notification routing
   // ------------------------------------------------------------------
@@ -2255,6 +2263,14 @@ const settingsHelpEnUS: SettingsHelpMap = {
     valueNotes: ['Enabled mode is more timely but increases push frequency.'],
     impact: ['Affects notification timing and frequency.'],
     notes: ['Tracking many stocks can produce a large number of notifications when enabled.'],
+  },
+  'settings.report.MERGE_EMAIL_NOTIFICATION': {
+    title: 'Merge Email Notification',
+    summary: 'Merge stock analysis and market review into a single email.',
+    usage: 'When enabled, stock analysis and market review are combined into one email.',
+    valueNotes: ['Only effective when both stock analysis and market review are enabled.'],
+    impact: ['Affects email count and content organization.'],
+    notes: ['When disabled, stock analysis and market review are sent as separate emails.'],
   },
   // ------------------------------------------------------------------
   // Notification routing
