@@ -3,7 +3,7 @@
 > 用途：新会话/新环境先读本文件，再按"快速恢复"验证环境。
 > 配套文档：**`docs/CB-RESEARCH-PLAN.md`（下一个研究周期的唯一真源：双低失效诊断 + 三实验接班计划）**、**`docs/ROADMAP-V2.md`（历史执行记录，F1-F8 已闭环）**、
 > `docs/ROADMAP-V2.2.md`（历史规格，已被 ROADMAP-V2 取代——见 0.2 节）、`docs/ROADMAP.md`（深度审视参考）、
-> `daily_stock_analysis/docs/quant_research_architecture_research.md`、
+> 
 > `daily_stock_analysis/docs/CHANGELOG.md`、`PRIMARY_SOURCE_RESEARCH.md`。
 
 ## 0. 现状快照（2026-09-27 全量阅读对账——与下文旧正文冲突处，以本节为准）
