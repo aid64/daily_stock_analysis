@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [新功能] U6 首批收口（策略共存，09-27）：①`/买入` 回复新增风险提示行——成交后单票占比（对照 mandate 单票参考上限 25%，越限标注）+ E2 转债估值分位防守区状态，不阻断（用户是执行引擎）、提示层故障静默跳过（fail-open，3 项单测含故障注入）；②compose 接线前置达成——黄金等价测试从 1 场景扩到 4 场景（全卖/WAIT/减半/REDUCE）**全部等价**（22 passed），证明接线在已测场景内行为保持，"接线或弃用"裁决的事实依据齐备（接线时点仍 = 买侧首条自动买入腿之前）。strategy-catalog 第七节与 v5.0 计划 U6 同步标注进度。
 - [修复] 策略准入 promotion_cap 机器强制（策略共存治理，2026-09-27）：strategy_intake 消费裁决报告时新增推进上限门——报告内嵌 promotion_cap（如 shadow）时，超过上限的状态跃迁一律拒绝（"shadow→active 需独立证据"从文档承诺变为 fail-closed 校验；cap 值非法同样拒绝；缺省无 cap 兼容既有报告）。新增 3 项单测（cap=shadow 拦 shadow→active 不落盘 / cap=shadow 放行 registered→shadow / 非法 cap fail-closed），intake 25 passed。
 - [新功能] U0 披露补齐：决策包"依据"区新增未确认规则行（"⚠ 规则未确认：R1/…——按系统默认启用中，发 /规则确认 逐条确认或停用"），达成 U0 验收"依据披露引用确认状态而非系统登记"；台账读取失败 fail-open 不阻塞决策包。新增 2 项单测（空台账披露 / 全签署不出现）。注：生产台账 09-26 已全签署（R2 停用），该行当前不出现。
 - [文档] 运行时策略共存契约（`docs/strategy-catalog.md` 新增第七节）：三套策略命名空间职责表（注册表 / 运行时决策模块 / 旧 agent 技能 yaml）、唯一裁决顺序（TIER_PRIORITY）、当前生效路径（R1+现金管理层；R2 已停用）、已知语义（WAIT 不产生任何腿/减仓=清仓已修/E2 不阻断人工买入）、已建未接线清单（compose 归并、apply_budget_gate、autostop 调度、intake 报告产出）与买卖单向阀根因；计划 v5.0 状态诚实修正（P2 组合器未接线、P3 autostop 无调度调用点）并新增 **U6 单一裁决点收口**；`decision-layer-changelog` 记 09-27 治理与披露变更（无判决变更）。
