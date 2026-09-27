@@ -77,6 +77,10 @@ def _run_scheduled_analysis_process(
     service = RuntimeSchedulerService(schedule_args_overrides=schedule_args_overrides)
     success = service._run_analysis_locked(stock_codes)
     result_queue.put({"success": success, "error": service._last_error})
+    # win32 spawn 投递契约：feeder 是 daemon 线程，大 payload 可能未刷完
+    # 即被进程退出掐断——close + join_thread 阻塞至缓冲排空（watchdog 竞态）。
+    result_queue.close()
+    result_queue.join_thread()
 
 
 def _posix_descendant_process_ids(root_pid: int) -> Set[int]:

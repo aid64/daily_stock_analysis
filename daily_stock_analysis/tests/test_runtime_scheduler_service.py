@@ -111,6 +111,10 @@ def _successful_spawn_runner(result_queue, stock_codes, schedule_args_overrides)
 
 def _large_failure_spawn_runner(result_queue, stock_codes, schedule_args_overrides):
     result_queue.put({"success": False, "error": "x" * (1024 * 1024)})
+    # 子进程投递契约：退出前刷净队列（与生产包装器同款）——否则 win32 下
+    # feeder（daemon 线程）未刷完即被退出掐断，1MB 结果凭空丢失。
+    result_queue.close()
+    result_queue.join_thread()
 
 
 def _exit_with_live_descendant_spawn_runner(result_queue, stock_codes, schedule_args_overrides):
@@ -438,7 +442,10 @@ class RuntimeSchedulerServiceTestCase(unittest.TestCase):
         )
         service = RuntimeSchedulerService(config_provider=lambda: config)
         service._analysis_process_target = _large_failure_spawn_runner
-        service._analysis_timeout_seconds = lambda: 2
+        # win32 spawn + 重型 import 启动本身 >2s——2s 会把"读结果"误判成
+        # 超时击杀（09-27 定位：4/4 timed out，非队列丢失）。看门狗击杀
+        # 路径由 blocking runner 的独立测试覆盖。
+        service._analysis_timeout_seconds = lambda: 30
 
         self.assertTrue(service.run_now()["accepted"])
         deadline = time.monotonic() + 5
@@ -731,11 +738,15 @@ class RuntimeSchedulerServiceTestCase(unittest.TestCase):
 
         scheduler = service._scheduler
         self.assertIsNotNone(scheduler)
-        self.assertEqual(len(scheduler.background_tasks), 1)  # type: ignore[attr-defined]
-        self.assertEqual(scheduler.background_tasks[0]["name"], "agent_event_monitor")  # type: ignore[index]
-        self.assertEqual(scheduler.background_tasks[0]["interval_seconds"], 7 * 60)  # type: ignore[index]
-        self.assertEqual(scheduler.background_tasks[0]["run_immediately"], True)  # type: ignore[index]
-        scheduler.background_tasks[0]["task"]()  # type: ignore[index]
+        # G4 后运行时无条件注册 daily_pipeline 轮询（无 config 门）——本测试
+        # 关注的是事件监控任务的注册语义，按名称过滤断言，对将来新增的
+        # 后台任务保持稳健。
+        monitor_tasks = [t for t in scheduler.background_tasks  # type: ignore[attr-defined]
+                         if t["name"] == "agent_event_monitor"]
+        self.assertEqual(len(monitor_tasks), 1)
+        self.assertEqual(monitor_tasks[0]["interval_seconds"], 7 * 60)  # type: ignore[index]
+        self.assertEqual(monitor_tasks[0]["run_immediately"], True)  # type: ignore[index]
+        monitor_tasks[0]["task"]()  # type: ignore[index]
         fake_worker.run_once.assert_called_once()
 
     def test_rebuild_reuses_event_monitor_without_immediate_rerun(self) -> None:
