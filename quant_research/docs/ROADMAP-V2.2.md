@@ -1,3 +1,5 @@
+> **⚠ SUPERSEDED（2026-09-27 HANDOFF 0.2 对账）**：本文 F7/F8 定义与实际执行不符，已被 `ROADMAP-V2.md`（执行记录）与 `CB-RESEARCH-PLAN.md`（周期真源）实质取代——仅作历史规格参考，不指导当前工作。
+
 # quant_research 路线图 V2.2（2026-09-02 深化定稿）
 
 > 输入：V2.1 F 系列框架 + 本轮多网站调研（akshare 官方文档直读、vectorbt/rqalpha GitHub 生态、知乎 6 组追加：下修数据分布/复权 PIT 偏差/最低佣金规则/YTM 防守口径/2026 拥挤度）。

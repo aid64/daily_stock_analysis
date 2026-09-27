@@ -52,10 +52,8 @@
 | [策略目录](strategy-catalog.md) | 生效（策略面真源） | 策略登记与状态机；第五节含 09-26 两项目对账（17 池版 etf_momentum=管道第一候选，社区四资产版"未复现不推进"） |
 | [账户决策规则溯源](account-decision-rules.md) | 生效（头部已附 09-26 更正注） | 决策依据溯源；"价位=成本±%"为 P0 前旧描述，P0 起结构锚，见文内更正说明 |
 | [执行蓝图](EXECUTION-BLUEPRINT.md) | 已交付形态说明（①-⑤ 全 ✅） | 操作单/账本/治理/砍除/收尾产出的事实描述；规划权归重构计划 v5.0 |
+| 历史文档（审计/闭环/桌面/深度分析/run-diagnostics 等） | 已删除（09-27 U5） | 均为自标 ARCHIVED/OUTDATED 的时点记录，git 历史可回溯；现行状态以本表与重构计划为准 |
 | **策略部署管道真源链** | **跨项目契约** | `strategy-catalog.md`（策略面）→ 仓库根 `strategies.yaml`（参数/状态/证据引用）→ `src/services/strategy_intake.py`（裁决消费端，输入 `quant_research/output/strategy_intake/`，schema `strategy_intake_verdict_v1`，新鲜度门 5 交易日）→ `strategy_engine`（只评估 active）。**当前断点**：intake 目录不存在、quant 侧无裁决报告生产脚本，且 quant 自 09-13 起 8 周功能冻结（约 11-08 期满）——首批裁决报告的产出需冻结期满或用户豁免；ETF 动量的"禁止实盘（HANDOFF:47）vs shadow 候选"定性对账见 quant `HANDOFF.md` 第 0.3 节 |
-| [现状审计（2026-09-10）](ASSISTANT-GAP-AUDIT-20260910.md) | 历史记录 | 半自动助手当时的差距审计，问题多已在重构计划中处置 |
-| [闭环修复计划](CLOSURE-FIX-PLAN.md) / [桌面端大修计划](DESKTOP-OVERHAUL-PLAN.md) | 历史/桌面端冻结 | 早期专项计划；桌面端已按重构计划冻结 |
-| [项目深度分析](project-analysis.md) | **OUTDATED** | 描述早期三层目录结构，与当前双项目布局不符 |
 
 ## 运维与可靠性
 
