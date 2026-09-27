@@ -5,15 +5,11 @@
 ```mermaid
 flowchart TB
     subgraph Platforms [外部平台]
-        FS[飞书]
-        DT[钉钉]
-        WC[企业微信（开发中）]
-        TG[Telegram（开发中）]
-        More[更多平台...]
+        FS[飞书（Stream 长连接）]
     end
 
     subgraph BotModule [bot/ 模块]
-        WH[Webhook Server]
+        Stream[FeishuStreamClient]
         Adapters[平台适配器]
         Dispatcher[命令分发器]
         Commands[命令处理器]
@@ -25,18 +21,16 @@ flowchart TB
         NS[NotificationService]
     end
 
-    FS -->|POST /bot/feishu| WH
-    DT -->|POST /bot/dingtalk| WH
-    WC -->|POST /bot/wecom| WH
-    TG -->|POST /bot/telegram| WH
-
-    WH --> Adapters
+    FS -->|WebSocket im.message.receive_v1| Stream
+    Stream --> Adapters
     Adapters -->|统一消息格式| Dispatcher
     Dispatcher --> Commands
     Commands --> AS
     Commands --> MA
     Commands --> NS
 ```
+
+> P5（2026-09-26）后仅保留飞书 Stream 接入；钉钉/企业微信/Telegram 平台适配器已物理删除（多渠道架构史见 CHANGELOG）。Webhook HTTP 回调端点随之移除，收消息唯一机制 = Stream 长连接。
 
 
 
@@ -70,7 +64,7 @@ bot/
 @dataclass
 class BotMessage:
     """统一的机器人消息模型"""
-    platform: str           # 平台标识: feishu/dingtalk/wecom/telegram
+    platform: str           # 平台标识: feishu（P5 后唯一平台）
     user_id: str            # 发送者 ID
     user_name: str          # 发送者名称
     chat_id: str            # 会话 ID（群聊或私聊）
@@ -289,36 +283,24 @@ class CommandDispatcher:
 - Gemini OpenAI 兼容说明：<https://ai.google.dev/gemini-api/docs/openai>
 - Ollama API 文档：<https://github.com/ollama/ollama/blob/main/docs/api.md>
 
-## 六、Webhook 路由
+## 六、收消息机制（P5 后）
 
-在 [api/v1/router.py](../api/v1/router.py) 中注册路由：
-
-```python
-# Webhook 路由
-/bot/feishu      # POST - 飞书事件回调
-/bot/dingtalk    # POST - 钉钉事件回调
-/bot/wecom       # POST - 企业微信事件回调 （开发中）
-/bot/telegram    # POST - Telegram 更新回调 （开发中）
-```
+收消息唯一机制 = **飞书 Stream 长连接**（`bot/platforms/feishu_stream.py`，
+lark-oapi SDK WebSocket，`FEISHU_STREAM_ENABLED=true` 启用）。事件注册：
+`im.message.receive_v1`（text 消息）。P5 已删除 Webhook HTTP 回调端点与
+钉钉/企业微信/Telegram 平台适配器；新增平台需重建 `BotPlatform` 适配器
+（见下文"扩展说明"）。
 
 ## 配置
 
 在 [config.py](../src/config.py) 中新增机器人配置：
 
 ```python
-# === 机器人配置 ===
-bot_enabled: bool = False              # 是否启用机器人
-bot_command_prefix: str = "/"          # 命令前缀
-
-# 飞书机器人（事件订阅）
-feishu_app_id: str                     # 已有
-feishu_app_secret: str                 # 已有
-feishu_verification_token: str         # 新增：事件校验 Token
-feishu_encrypt_key: str                # 新增：加密密钥
-
-# 企业微信机器人（回调模式，未启用）
-wecom_token: str                       # 回调 Token
-wecom_encoding_aes_key: str            # EncodingAESKey
+# === 机器人配置（P5 后现行键，详见 .env.example 与 feishu-handoff.md）===
+FEISHU_STREAM_ENABLED=true            # Stream 长连接收消息开关
+FEISHU_APP_ID / FEISHU_APP_SECRET     # 应用凭证
+FEISHU_CHAT_ID / FEISHU_RECEIVE_ID_TYPE  # 目标会话与 ID 类型
+# （feishu_encrypt_key / feishu_verification_token 代码仍读，.env.example 未列）
 ```
 
 ## 扩展说明

@@ -37,7 +37,7 @@
 | [LLM 服务商配置指南](llm-providers.md) | Provider 预设、Actions 映射、错误分类和诊断建议 |
 | [LiteLLM YAML 示例](examples/litellm_config.example.yaml) | LiteLLM 多渠道配置示例 |
 | [Grok Bot Skill 示例](examples/grok_bot/README.md) | 给 Grok Bot 粘贴的最小 Skill，调用现有 REST |
-| [通知能力基线](notifications.md) | **⚠ 部分过时**：多渠道时代的基线文档，P5 砍渠道后 12+ 渠道已物理删除、文中对照表失真；现行配置以 [飞书配置交接说明](feishu-handoff.md) 为准（重写排入 U5） |
+| [通知能力基线](notifications.md) | 已重写（09-27 U5）：飞书单渠道基线 + 机制说明（路由/摘要总线/降噪/失败隔离/message_id 留存）；配置与排障以 [飞书配置交接说明](feishu-handoff.md) 为现行真源 |
 | [飞书配置交接说明](feishu-handoff.md) | 飞书三种接入方式的区别、当前实际配置、发送/交互链路、渠道路由、每日摘要与排障手册（**通知配置现行真源**；缺 09-26 新增的发送侧 `feishu_dispatch.jsonl` 台账说明，待补） |
 | [Tushare 股票列表指南](TUSHARE_STOCK_LIST_GUIDE.md) | Tushare 股票列表相关配置和使用说明 |
 
