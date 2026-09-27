@@ -497,42 +497,6 @@ const settingsHelpZhCN: SettingsHelpMap = {
     impact: ['影响飞书 App Bot 主动推送的 API 连通性。'],
     notes: ['如果值不是 feishu 或 lark，运行时会自动回退到 feishu。'],
   },
-  'settings.notification.DINGTALK_STREAM_ENABLED': {
-    title: '钉钉 Stream 模式',
-    summary: '启用钉钉应用机器人长连接模式，不是普通钉钉群机器人 Webhook 开关。',
-    usage: '需要先在钉钉开放平台配置应用机器人，并填写 DINGTALK_APP_KEY 和 DINGTALK_APP_SECRET。',
-    valueNotes: [
-      'true 表示允许运行时使用钉钉应用机器人 Stream/长连接模式。',
-      'false 表示不启用该长连接模式；自定义 Webhook 中的钉钉群机器人地址仍走 CUSTOM_WEBHOOK_URLS。',
-    ],
-    impact: [
-      '影响钉钉应用机器人交互或长连接链路。',
-      '不会改变自定义 Webhook 通知的发送路径。',
-    ],
-    notes: [
-      '保存后通常需要重启相关 bot/服务进程，已运行的长连接不会自动重建。',
-      '不要把 Stream 模式和群机器人 Webhook 混为一条配置路径。',
-    ],
-  },
-  'settings.notification.DINGTALK_WEBHOOK_URL': {
-    title: '钉钉群机器人 Webhook',
-    summary: '通过普通钉钉群机器人 Webhook 推送通知，与 App/Stream 模式相互独立。',
-    usage: '在钉钉群安全设置中添加自定义机器人，复制以 oapi.dingtalk.com/robot/send 开头的 Webhook 地址。',
-    valueNotes: [
-      'Webhook 包含 access_token，必须按密钥保护。',
-      '若机器人启用了关键词安全模式，通知内容必须包含配置的关键词。',
-    ],
-    impact: ['影响钉钉群机器人通知的送达目标。'],
-    notes: ['不要填写钉钉应用 App Key；App/Stream 模式使用独立配置。'],
-  },
-  'settings.notification.DINGTALK_SECRET': {
-    title: '钉钉群机器人加签密钥',
-    summary: '配置钉钉群机器人安全设置中的 SEC 开头加签密钥。',
-    usage: '仅在机器人启用“加签”安全设置时填写；未启用加签时保持为空。',
-    valueNotes: ['该值属于敏感凭证，Web 设置页仅显示遮罩。'],
-    impact: ['填写后，发送器会为每次 Webhook 请求追加 timestamp 和 sign 参数。'],
-    notes: ['关键词和加签可由钉钉同时要求，需分别满足。'],
-  },
   'settings.notification.webhooks': {
     title: '企业微信 Webhook',
     summary: '配置企业微信群机器人 Webhook，用于把分析报告推送到指定群。',
@@ -543,19 +507,6 @@ const settingsHelpZhCN: SettingsHelpMap = {
     ],
     impact: ['影响对应 Webhook 通知渠道的报告送达。'],
     notes: ['单个通知渠道失败不应阻断主分析流程。'],
-  },
-  'settings.notification.CUSTOM_WEBHOOK_URLS': {
-    title: '自定义 Webhook',
-    summary: '向任意支持 POST JSON 的服务推送报告。',
-    usage: '多个 URL 使用英文逗号分隔；如需自定义 body，可配置 CUSTOM_WEBHOOK_BODY_TEMPLATE。',
-    valueNotes: [
-      '模板必须渲染为 JSON object。',
-      '推荐使用 $content_json、$title_json 避免换行和引号破坏 JSON。',
-      'Docker 部署中保存到 .env 时会自动写成 $$content_json、$$title_json；运行时仍会还原为单个 $ 占位符。',
-      '本字段仅影响自定义 Webhook 的 payload 行为，不会改写 LLM provider、模型名、Base URL 或迁移优先级。',
-    ],
-    impact: ['影响 AstrBot、NapCat、自建服务等自定义推送。'],
-    notes: ['先用一个 Webhook 验证成功，再扩展到多个目标。'],
   },
   'settings.notification.WEBHOOK_VERIFY_SSL': {
     title: 'Webhook SSL 校验',
@@ -1142,14 +1093,6 @@ const settingsHelpZhCN: SettingsHelpMap = {
     impact: ['影响通知推送时机和频率。'],
     notes: ['跟踪大量股票时可能产生较多通知消息。'],
   },
-  'settings.report.MERGE_EMAIL_NOTIFICATION': {
-    title: '合并邮件通知',
-    summary: '将个股分析与大盘复盘合并为一封邮件发送。',
-    usage: '开启后，个股分析和大盘复盘会合并在同一封邮件中发送。',
-    valueNotes: ['仅在同时启用了个股分析和大盘复盘时有效。'],
-    impact: ['影响邮件通知的封数和内容组织。'],
-    notes: ['关闭后个股分析和大盘复盘会分别发送邮件。'],
-  },
   // ------------------------------------------------------------------
   // Notification routing
   // ------------------------------------------------------------------
@@ -1731,42 +1674,6 @@ const settingsHelpEnUS: SettingsHelpMap = {
     impact: ['Affects API connectivity for Feishu App Bot notification delivery.'],
     notes: ['If the value is neither feishu nor lark, the runtime falls back to feishu.'],
   },
-  'settings.notification.DINGTALK_STREAM_ENABLED': {
-    title: 'DingTalk Stream Mode',
-    summary: 'Enables DingTalk application bot long-connection mode. It is not the regular DingTalk group webhook switch.',
-    usage: 'Configure a DingTalk application bot first, then provide DINGTALK_APP_KEY and DINGTALK_APP_SECRET.',
-    valueNotes: [
-      'true allows runtime DingTalk app bot stream/long-connection mode.',
-      'false disables that long-connection mode; DingTalk group webhook URLs in CUSTOM_WEBHOOK_URLS still use the custom webhook path.',
-    ],
-    impact: [
-      'Affects DingTalk application bot interaction or long-connection paths.',
-      'Does not change custom webhook notification delivery.',
-    ],
-    notes: [
-      'Restart the relevant bot/service process after saving; existing long connections are not rebuilt automatically.',
-      'Do not treat Stream mode and group bot Webhook as the same delivery path.',
-    ],
-  },
-  'settings.notification.DINGTALK_WEBHOOK_URL': {
-    title: 'DingTalk Group Bot Webhook',
-    summary: 'Delivers notifications through a regular DingTalk group bot webhook, separate from App/Stream mode.',
-    usage: 'Add a custom bot in a DingTalk group and paste the webhook URL beginning with oapi.dingtalk.com/robot/send.',
-    valueNotes: [
-      'The webhook contains an access_token and must be treated as a secret.',
-      'If keyword security is enabled, notification content must include the configured keyword.',
-    ],
-    impact: ['Controls the destination for DingTalk group bot notifications.'],
-    notes: ['Do not enter an App Key here; App/Stream mode uses separate settings.'],
-  },
-  'settings.notification.DINGTALK_SECRET': {
-    title: 'DingTalk Group Bot Signing Secret',
-    summary: 'Configures the SEC-prefixed signing secret from DingTalk group bot security settings.',
-    usage: 'Set this only when signing is enabled for the bot; otherwise leave it empty.',
-    valueNotes: ['This is a sensitive credential and is masked in Web settings.'],
-    impact: ['When set, the sender appends timestamp and sign parameters to each webhook request.'],
-    notes: ['DingTalk may require both keyword and signing security; configure each independently.'],
-  },
   'settings.notification.webhooks': {
     title: 'Enterprise WeChat Webhook',
     summary: 'Configures an Enterprise WeChat group bot webhook for report delivery.',
@@ -1774,19 +1681,6 @@ const settingsHelpEnUS: SettingsHelpMap = {
     valueNotes: ['Webhook URLs often contain sensitive tokens.', 'Platforms differ in message length, format, and rate limits.'],
     impact: ['Affects delivery for the corresponding webhook channel.'],
     notes: ['A single notification failure should not block the main analysis flow.'],
-  },
-  'settings.notification.CUSTOM_WEBHOOK_URLS': {
-    title: 'Custom Webhooks',
-    summary: 'Pushes reports to any service that accepts POST JSON.',
-    usage: 'Use comma-separated URLs. CUSTOM_WEBHOOK_BODY_TEMPLATE can customize the JSON body.',
-    valueNotes: [
-      'The template must render to a JSON object.',
-      'Prefer $content_json and $title_json to avoid invalid JSON.',
-      'Docker saves these placeholders as $$content_json / $$title_json in .env, and runtime restores the single-$ form.',
-      'This setting only affects custom webhook payload behavior and does not alter LLM provider/model/Base URL or runtime routing priority.',
-    ],
-    impact: ['Affects AstrBot, NapCat, or self-hosted push integrations.'],
-    notes: ['Validate one webhook before adding multiple targets.'],
   },
   'settings.notification.WEBHOOK_VERIFY_SSL': {
     title: 'Webhook SSL Verification',
@@ -2361,14 +2255,6 @@ const settingsHelpEnUS: SettingsHelpMap = {
     valueNotes: ['Enabled mode is more timely but increases push frequency.'],
     impact: ['Affects notification timing and frequency.'],
     notes: ['Tracking many stocks can produce a large number of notifications when enabled.'],
-  },
-  'settings.report.MERGE_EMAIL_NOTIFICATION': {
-    title: 'Merge Email Notification',
-    summary: 'Merge stock analysis and market review into a single email.',
-    usage: 'When enabled, stock analysis and market review are combined into one email.',
-    valueNotes: ['Only effective when both stock analysis and market review are enabled.'],
-    impact: ['Affects email count and content organization.'],
-    notes: ['When disabled, stock analysis and market review are sent as separate emails.'],
   },
   // ------------------------------------------------------------------
   // Notification routing

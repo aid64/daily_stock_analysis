@@ -13,21 +13,10 @@ import { ApiErrorAlert, Badge, Button, InlineAlert, Input, Select } from '../com
 import { SettingsSectionCard } from './SettingsSectionCard';
 
 function getChannelOptions(language: 'zh' | 'en'): Array<{ value: NotificationTestChannel; label: string }> {
+  // P5（2026-09-26）后后端白名单仅 feishu（_NOTIFICATION_TEST_CHANNELS），
+  // 其余 11 渠道已物理删除——选项与后端对齐，避免 100% 422。
   return [
-    { value: 'wechat', label: language === 'en' ? 'WeCom' : '企业微信' },
-    { value: 'feishu', label: language === 'en' ? 'Feishu Webhook' : '飞书 Webhook' },
-    { value: 'dingtalk', label: language === 'en' ? 'DingTalk' : '钉钉' },
-    { value: 'telegram', label: 'Telegram' },
-    { value: 'email', label: language === 'en' ? 'Email' : '邮件' },
-    { value: 'pushover', label: 'Pushover' },
-    { value: 'ntfy', label: 'ntfy' },
-    { value: 'gotify', label: 'Gotify' },
-    { value: 'pushplus', label: 'PushPlus' },
-    { value: 'serverchan3', label: 'ServerChan3' },
-    { value: 'custom', label: language === 'en' ? 'Custom Webhook' : '自定义 Webhook' },
-    { value: 'discord', label: 'Discord' },
-    { value: 'slack', label: 'Slack' },
-    { value: 'astrbot', label: 'AstrBot' },
+    { value: 'feishu', label: language === 'en' ? 'Feishu' : '飞书' },
   ];
 }
 
@@ -49,7 +38,7 @@ export const NotificationTestPanel: React.FC<NotificationTestPanelProps> = ({
   disabled = false,
 }) => {
   const { language, t } = useUiLanguage();
-  const [channel, setChannel] = useState<NotificationTestChannel>('wechat');
+  const [channel, setChannel] = useState<NotificationTestChannel>('feishu');
   const [title, setTitle] = useState(t('settings.notificationTestTitleValue'));
   const [content, setContent] = useState(t('settings.notificationTestContent'));
   const [timeoutSeconds, setTimeoutSeconds] = useState('20');

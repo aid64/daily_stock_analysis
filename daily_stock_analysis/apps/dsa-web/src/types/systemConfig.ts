@@ -278,21 +278,8 @@ export interface TestLLMChannelResponse {
   capabilityResults?: Partial<Record<LLMCapabilityCheck, LLMCapabilityCheckResult>>;
 }
 
-export type NotificationTestChannel =
-  | 'wechat'
-  | 'feishu'
-  | 'dingtalk'
-  | 'telegram'
-  | 'email'
-  | 'pushover'
-  | 'ntfy'
-  | 'gotify'
-  | 'pushplus'
-  | 'serverchan3'
-  | 'custom'
-  | 'discord'
-  | 'slack'
-  | 'astrbot';
+// P5 后仅 feishu（后端 _NOTIFICATION_TEST_CHANNELS 白名单对齐）
+export type NotificationTestChannel = 'feishu';
 
 export interface NotificationTestAttempt {
   channel: NotificationTestChannel;
