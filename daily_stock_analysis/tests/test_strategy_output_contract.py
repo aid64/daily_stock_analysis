@@ -317,3 +317,104 @@ class TestBudgetGate:
             prices={"002475": 54.84}, account_equity=13000.0,
             sizer=self._sizer())
         assert res.targets == before
+
+
+class TestGoldenEquivalenceScenarios:
+    """U6 前置（计划 v5.0 U6）：黄金等价性扩到 WAIT/减半/REDUCE 三场景。
+
+    compose 归并目标必须与现有编排路径的订单化结果一致——这是
+    "compose 接线或弃用"裁决的事实依据（原 test_golden_equivalence 只覆盖
+    immediate 全卖一景）。每景同时断言语义符合 TIER_PRIORITY 预期。
+    """
+
+    def _build_decision(self, monkeypatch, *, rules, snap, urgency, e2=0.40):
+        import src.services.account_decision_service as ads
+        from src.services.account_decision_service import (
+            BreachDiagnosis, build_account_decision)
+
+        monkeypatch.setattr(ads, "compute_e2_percentile",
+                            lambda: (e2, "2026-09-26"))
+        monkeypatch.setattr(ads, "_latest_ai_notes",
+                            lambda symbols, days=3: ({}, {}))
+        monkeypatch.setattr(
+            "src.services.strategies.user_rules.diagnose_breach",
+            lambda **kw: BreachDiagnosis(
+                depth_pct=2.7, consecutive_days=3, above_ma_count=0,
+                ma_structure="均线纠缠", volume_note="缩量",
+                urgency=urgency, suggestion="测试场景"))
+        # REDUCE 场景需要集中度参与：生产台账 R2 已停用，测试内显式全开
+        monkeypatch.setattr(
+            "src.services.rule_confirmation_service.is_rule_enabled",
+            lambda rule_id, default=True: True)
+        return build_account_decision(snapshot=snap, rules=rules)
+
+    @staticmethod
+    def _orders(sheet):
+        return {o.symbol: (o.direction, o.quantity) for o in sheet.orders}
+
+    def test_wait_scenario_no_legs_both_paths(self, monkeypatch):
+        """WAIT：暂缓一日 = 两套路径都不产卖出腿（离场规则优先且当日不动）。"""
+        from src.services.account_decision_service import (
+            URGENCY_WAIT, decision_to_sheet)
+        from src.services.portfolio_compositor import compose
+        from src.services.strategies.adapters import user_rules_output
+
+        rules = {"000899": {"stop_loss": [9.35]}}
+        snap = {"total_cash": 1549.0, "accounts": [{"positions": [
+            {"symbol": "000899", "quantity": 100, "avg_cost": 11.16,
+             "last_price": 9.10, "price_date": "2026-09-26"}]}]}
+        decision = self._build_decision(
+            monkeypatch, rules=rules, snap=snap, urgency=URGENCY_WAIT)
+        sheet = decision_to_sheet(decision, available_cash=1549.0)
+
+        assert decision.positions[0].verdict in ("hold", "wait")
+        outputs = [user_rules_output(decision.positions)]
+        res = compose(outputs, current_positions={"000899": 100},
+                      prices={"000899": 9.10})
+        assert res.targets == {}    # compose：targets 只含有差异标的，无腿=零变更
+        assert not [o for o in sheet.orders if o.direction == "sell"]
+
+    def test_half_scenario_equivalent(self, monkeypatch):
+        """减半：止损触发 + HALF 档 → 两套路径都卖一半（200→100）。"""
+        from src.services.account_decision_service import (
+            URGENCY_HALF, decision_to_sheet)
+        from src.services.portfolio_compositor import compose
+        from src.services.strategies.adapters import user_rules_output
+
+        rules = {"002475": {"stop_loss": [55.07]}}
+        snap = {"total_cash": 1549.0, "accounts": [{"positions": [
+            {"symbol": "002475", "quantity": 200, "avg_cost": 56.77,
+             "last_price": 54.37, "price_date": "2026-09-26"}]}]}
+        decision = self._build_decision(
+            monkeypatch, rules=rules, snap=snap, urgency=URGENCY_HALF)
+        sheet = decision_to_sheet(decision, available_cash=1549.0)
+
+        assert decision.positions[0].verdict == "sell"
+        assert decision.positions[0].target_quantity == 100
+        outputs = [user_rules_output(decision.positions)]
+        res = compose(outputs, current_positions={"002475": 200},
+                      prices={"002475": 54.37})
+        assert res.targets == {"002475": 100}
+        assert self._orders(sheet) == {"002475": ("sell", 100)}
+
+    def test_reduce_scenario_equivalent(self, monkeypatch):
+        """REDUCE：集中度超阈 + 保底一手 → 两套路径都卖 100（200→100）。"""
+        from src.services.account_decision_service import decision_to_sheet
+        from src.services.portfolio_compositor import compose
+        from src.services.strategies.adapters import decisions_to_outputs
+
+        snap = {"total_cash": 1549.0, "accounts": [{"positions": [
+            {"symbol": "002475", "quantity": 200, "avg_cost": 56.77,
+             "last_price": 54.37, "price_date": "2026-09-26"}]}]}
+        decision = self._build_decision(
+            monkeypatch, rules={}, snap=snap, urgency=None)
+        sheet = decision_to_sheet(decision, available_cash=1549.0)
+
+        pos = decision.positions[0]
+        assert pos.verdict == "reduce"
+        assert pos.target_quantity == 100       # 保底一手（阈值内预算不足一手）
+        outputs = decisions_to_outputs(decision.positions)
+        res = compose(outputs, current_positions={"002475": 200},
+                      prices={"002475": 54.37})
+        assert res.targets == {"002475": 100}
+        assert self._orders(sheet) == {"002475": ("sell", 100)}

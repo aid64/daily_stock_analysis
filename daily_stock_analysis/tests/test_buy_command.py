@@ -179,3 +179,64 @@ def test_buy_command_never_raises(sheets_dir, monkeypatch):
 def test_buy_command_requires_args():
     resp = BuyCommand().execute(_msg("/买入"), [])
     assert "参数不足" in resp.text
+
+
+# ── U6：手工买入与组合器同口径的风险提示（不阻断）────────────
+
+
+def test_buy_risk_hint_over_limit_and_e2_defensive(sheets_dir, monkeypatch):
+    _seed_today_sheet()
+    # 持仓 002475 100股@54（¥5400）+ 现金 ¥12000 → 总值 ¥17400
+    monkeypatch.setattr(buy_mod, "_account_snapshot", lambda: {
+        "total_cash": 12000.0,
+        "accounts": [{"positions": [
+            {"symbol": "SZ002475", "quantity": 100, "last_price": 54.0}]}]})
+    monkeypatch.setattr(buy_mod, "_provenance", lambda s, h: "测试")
+    monkeypatch.setattr(
+        "src.services.strategies.e2_timing.compute_e2_percentile",
+        lambda: (0.875, "2026-09-26"))
+
+    out = _do_buy("002475", quantity=100, price=56.50)
+
+    assert "风险提示" in out
+    # post-trade: (5400 + 5650) / 17400 = 63.5% > 25% → 带 mandate 标注
+    assert "单票占比约 63.5%" in out and "超 mandate 单票参考上限 25%" in out
+    assert "防守区" in out and "87.5%" in out
+    # 提示不阻断：买单正常落单
+    reloaded = load_latest_sheet(date.today().isoformat())
+    assert any(o.direction == "buy" for o in reloaded.orders)
+
+
+def test_buy_risk_hint_normal_no_alarm(sheets_dir, monkeypatch):
+    _seed_today_sheet()
+    monkeypatch.setattr(buy_mod, "_account_snapshot", lambda: {
+        "total_cash": 40000.0, "accounts": [{"positions": []}]})
+    monkeypatch.setattr(buy_mod, "_provenance", lambda s, h: "测试")
+    monkeypatch.setattr(
+        "src.services.strategies.e2_timing.compute_e2_percentile",
+        lambda: (0.40, "2026-09-26"))
+
+    out = _do_buy("002475", quantity=100, price=56.50)
+
+    # 占比行常态展示（5650/40000=14.1%）但不带越限标注；E2 非防守不出现
+    assert "单票占比约 14.1%" in out
+    assert "超 mandate" not in out and "防守区" not in out
+
+
+def test_buy_risk_hint_fail_open(sheets_dir, monkeypatch):
+    """快照/E2 全部炸掉 → 提示静默消失，买入照常。"""
+    _seed_today_sheet()
+    # last_price 非数字 → 只砸提示层的占比计算（_held_symbols 不读价格）
+    monkeypatch.setattr(buy_mod, "_account_snapshot", lambda: {
+        "total_cash": 40000.0,
+        "accounts": [{"positions": [
+            {"symbol": "SZ002475", "quantity": 100, "last_price": "abc"}]}]})
+    monkeypatch.setattr(buy_mod, "_provenance", lambda s, h: "测试")
+    monkeypatch.setattr(
+        "src.services.strategies.e2_timing.compute_e2_percentile",
+        lambda: (_ for _ in ()).throw(RuntimeError("pit down")))
+
+    out = _do_buy("002475", quantity=100, price=56.50)
+
+    assert "买单已加入今日操作单" in out
+    assert "风险提示" not in out

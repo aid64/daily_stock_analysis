@@ -193,6 +193,49 @@ class BuyCommand(BotCommand):
                 "若反复出现请发 /健康 查看系统状态；本命令不会产生任何委托。")
 
 
+def _risk_context_note(symbol: str, order_quantity: int, price: float,
+                       snapshot: Optional[dict]) -> str:
+    """U6：手工买入纳入与组合器同口径的风险提示（不阻断——用户是执行引擎）。
+
+    两项：①本单成交后单票占比（对照 mandate.yaml 单票参考上限 25%）；
+    ②E2 转债估值分位防守区状态。任何数据缺失/失败都静默跳过——
+    提示是增强而非闸门，绝不因提示失败影响下单。
+    """
+    lines: List[str] = []
+    try:
+        positions = [
+            p for account in (snapshot or {}).get("accounts") or []
+            for p in account.get("positions") or []
+            if float(p.get("quantity") or 0) > 0]
+        total_cash = float((snapshot or {}).get("total_cash") or 0)
+        held_value = sum(
+            float(p.get("last_price") or 0) * float(p.get("quantity") or 0)
+            for p in positions)
+        total_value = held_value + total_cash
+        if total_value > 0:
+            sym_value = sum(
+                float(p.get("last_price") or 0) * float(p.get("quantity") or 0)
+                for p in positions if str(p.get("symbol")) == symbol)
+            post_pct = (sym_value + order_quantity * price) / total_value * 100
+            tag = "（超 mandate 单票参考上限 25%）" if post_pct > 25.0 else ""
+            lines.append(
+                f"  风险提示：本单成交后 {symbol} 单票占比约 {post_pct:.1f}%{tag}")
+    except Exception as exc:  # noqa: BLE001 - 提示失败静默跳过
+        logger.warning("买入风险提示（单票占比）计算失败（跳过）: %r", exc)
+    try:
+        from src.services.strategies.e2_timing import compute_e2_percentile
+
+        e2_pct, e2_as_of = compute_e2_percentile()
+        if e2_pct is not None and float(e2_pct) > 0.80:
+            lines.append(
+                f"  风险提示：E2 转债估值分位 {float(e2_pct) * 100:.1f}%"
+                f"（{e2_as_of}）处于防守区（>80%）——组合现金结论为防守，"
+                "本单请格外谨慎")
+    except Exception as exc:  # noqa: BLE001 - 提示失败静默跳过
+        logger.warning("买入风险提示（E2）获取失败（跳过）: %r", exc)
+    return "\n".join(lines)
+
+
 def _do_buy(symbol_raw: str, quantity: Optional[float] = None,
             price: Optional[float] = None) -> str:
     """买入核心：闸门校验 → 组装一条 buy OrderLine → 追加进当日操作单。
@@ -321,6 +364,8 @@ def _do_buy(symbol_raw: str, quantity: Optional[float] = None,
         ledger_note = "（模拟账本记录失败，不影响本单；可用 /对比 复核）"
 
     # ⑨ 回复：方向/代码/数量/限价/金额/往返成本/回本涨幅 + 回填指引
+    # U6：风险提示与动作同行（不阻断）；插在回填指引之前
+    risk_note = _risk_context_note(symbol, order_quantity, price, snapshot)
     break_even_pct = line.break_even_pct * 100
     lines = [
         "✅ 买单已加入今日操作单（系统未发送任何委托——请你在券商 App "
@@ -334,6 +379,8 @@ def _do_buy(symbol_raw: str, quantity: Optional[float] = None,
         f"  溯源：{provenance} · 限价来源：{price_source}",
         f"  现金：可用 ¥{cash:,.2f} → 本单成交后约剩 "
         f"¥{cash - estimated_value:,.2f}{ledger_note}",
-        f"成交后发 /成交回填 {symbol} 买入 {order_quantity} {price:g}",
     ]
+    if risk_note:
+        lines.append(risk_note)
+    lines.append(f"成交后发 /成交回填 {symbol} 买入 {order_quantity} {price:g}")
     return "\n".join(lines)
