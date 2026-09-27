@@ -40,7 +40,7 @@
 ### 0.5 跨项目契约现状
 - `output/paper_tracking/current_plan.json` 已是 **schema cb_current_plan_v2**（旧正文"schema v1"过时）。
 - **strategy_intake 桥只有消费端**：dsa `src/services/strategy_intake.py` 期待 `quant_research/output/strategy_intake/`，该目录不存在、quant 侧无任何生成 `strategy_intake_verdict_v1` 的脚本（生产端是冻结期后的第一个工程项，需用户豁免或等 11-08）。
-- **E2 分位口径跨项目矛盾（待对齐）**：quant e2_valuation_timing.json 静态 95.1%/动态 88.8% vs dsa compute_e2_percentile 实算 68.3%（09-26）——两侧分位口径/样本不同源，消费谁的需钉死。
+- **E2 分位"矛盾"已解除（09-27 实证）**：quant 88.8%（09-07）与 dsa 68.3%（09-24）是**同一指标随行情移动**——两侧同为"价格中位数 expanding 分位"（构造逐位一致），转债中位数 09-07→09-24 跌 133.77→122.87（-8.2%），分位 92.4%→68.3% 穿越防守线（历史 95.9~144.3 顶部密集，-8% 绝对跌幅 = 24pp 分位落差，敏感性属已知特性）。无需对齐；E2 门当前为"可配置"态。
 - 旧正文更正：测试数"252 passed"→现 299+2 network；HANDOFF:265-268 快速恢复引用的 universe_cb_pit.csv 为旧口径（现用 universe_cb_full.txt 854 只）；`etf_mwu_cb_monthly.yaml:4` 头注释"+0.18%"已被 V5 证伪（-3.45%），禁止引用。
 
 ### 0.6 跨项目桥执行记录（2026-09-27，冻结豁免范围内）
