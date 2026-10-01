@@ -29,6 +29,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import pandas as pd
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib import request as urlrequest
@@ -565,6 +566,93 @@ def reversal_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
     except Exception as exc:
         log.error("J_反转 调仓失败: %r", exc)
         return ["【异常】J_反转 候选重取失败, 持仓不变"]
+
+
+def buywatch_universe(top: int = 5) -> list[dict]:
+    """K_项目选股: 复用项目 buy_watchlist 漏斗+打分（东财快照缺列时用 tushare daily_basic 补列）。
+
+    这是"用项目自带能力"的兑现——不做任何手搓因子。"""
+    from src.services import market_scan_service as mss
+    from src.services.buy_watchlist_service import build_buy_watchlist
+    try:
+        mss.fetch_and_store_snapshot()
+    except Exception as exc:
+        log.warning("东财快照刷新失败, 用现有快照+tushare补列: %r", exc)
+    snap = mss.load_snapshot()
+    merged = snap
+    if snap is not None and snap.get("pe", pd.Series(dtype=float)).notna().sum() < 100:
+        try:
+            import tushare as ts
+            token = ""
+            for line in (PROJECT_DIR / ".env").read_text(encoding="utf-8").splitlines():
+                if line.startswith("TUSHARE_TOKEN="):
+                    token = line.split("=", 1)[1].strip().strip('"').strip("'")
+            pro = ts.pro_api(token)
+            db = None
+            for back in range(0, 8):  # 休市日回退找最近有数据的交易日
+                day = (EX_DATE - timedelta(days=back)).strftime("%Y%m%d")
+                try:
+                    db = pro.daily_basic(trade_date=day,
+                                         fields="ts_code,turnover_rate,volume_ratio,pe,circ_mv,close")
+                    if db is not None and len(db):
+                        break
+                except Exception:
+                    continue
+            if db is not None and len(db):
+                db["code"] = db["ts_code"].apply(lambda x: ("sh" if x.endswith(".SH") else "sz") + x[:6])
+                db = db.set_index("code")
+                merged = snap.set_index("code").copy()
+                for col, src, mult in (("turnover_rate", "turnover_rate", 1),
+                                       ("volume_ratio", "volume_ratio", 1),
+                                       ("pe", "pe", 1),
+                                       ("float_market_cap", "circ_mv", 10000)):
+                    merged[col] = db[src] * mult
+                merged = merged.reset_index()
+                merged["close"] = merged["close"].fillna(merged["code"].map(db["close"]))
+                log.info("tushare daily_basic 补列完成(%s)", day)
+        except Exception as exc:
+            log.warning("tushare 补列失败: %r", exc)
+            merged = snap
+    orig = mss.load_snapshot
+    mss.load_snapshot = lambda *a, **k: merged
+    try:
+        wl = build_buy_watchlist()
+    finally:
+        mss.load_snapshot = orig
+    return wl.get("candidates", []) or []
+
+
+def buywatch_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
+    """K_项目选股: 项目买入观察池 top5 → 与持仓 diff。"""
+    slot = led["strategies"].get("K_项目选股")
+    if not slot:
+        return []
+    if dry:
+        return ["K_项目选股(dry) 候选重取"]
+    try:
+        cands = buywatch_universe()
+        if not cands:
+            slot["note"] = f"{EX_DATE} 项目漏斗无候选, 维持旧仓"
+            return ["K_项目选股 无候选, 维持旧仓"]
+        picks = []
+        for c in cands:
+            sym = ("SH" if str(c.get("symbol", "")).startswith("6") else "SZ") + str(c.get("symbol", ""))
+            p = px.get(sym, {}).get("price") or c.get("close") or 0
+            if p and p * 100 <= 2500:
+                picks.append({"symbol": sym, "name": c.get("name", sym), "price": p, "qty": 100,
+                              "score": c.get("score")})
+            if len(picks) >= 5:
+                break
+        sells = [{"symbol": h["symbol"], "qty": h["qty"], "price": px.get(h["symbol"], {}).get("price") or h.get("price", 0), "is_stock": True}
+                 for h in slot.get("holds", []) if h["symbol"] not in {p["symbol"] for p in picks}]
+        buys = [{"symbol": p["symbol"], "name": p["name"], "qty": p["qty"], "price": p["price"], "is_stock": True}
+                for p in picks if p["symbol"] not in {h["symbol"] for h in slot.get("holds", [])}]
+        apply_orders(slot, sells, buys, px)
+        slot["note"] = f"{EX_DATE} " + " ".join(f"{p['name']}(分{p['score']})" for p in picks[:3])
+        return [f"K_项目选股 调仓→{[p['symbol'] for p in picks] or '空仓'}"]
+    except Exception as exc:
+        log.error("K_项目选股 调仓失败: %r", exc)
+        return ["【异常】K_项目选股 候选重取失败, 持仓不变"]
 
 
 def names_of(cands: list[dict]) -> dict[str, str]:
@@ -1280,7 +1368,7 @@ def build_close_summary(led: dict, px: dict) -> str:
     actions = (led.get("_actions", {}).get(today) or [])
     lines += [f"· {a}" for a in actions] if actions else ["· 无调仓"]
     lines.append("▎持仓明细")
-    for name in ("A_动量", "B_轮动", "E_可转债双低", "F_小市值20", "F2_小市值5只神帖对照", "X_事件套利", "G_MWU融合", "H_MWU_CB融合", "I_PEAD业绩预告", "J_短期反转", "C_沪深300持有", "D_红利低波持有"):
+    for name in ("A_动量", "B_轮动", "E_可转债双低", "F_小市值20", "F2_小市值5只神帖对照", "X_事件套利", "G_MWU融合", "H_MWU_CB融合", "I_PEAD业绩预告", "J_短期反转", "K_项目选股", "C_沪深300持有", "D_红利低波持有"):
         holds = led["strategies"][name].get("holds", [])
         if not holds:
             lines.append(f"{name}: 空仓")
@@ -1379,7 +1467,8 @@ def run_close(dry: bool) -> str:
                                       strategy="etf_mwu_cb",
                                       strategy_config="config/strategy/etf_mwu_cb_monthly.yaml")
                       + pead_rebalance(led, px, dry)
-                      + reversal_rebalance(led, px, dry)):
+                      + reversal_rebalance(led, px, dry)
+                      + buywatch_rebalance(led, px, dry)):
                 msgs.append(m)
             done[month_key] = "all"
         except Exception as exc:
