@@ -251,6 +251,34 @@ def dividend_accrued(ts_code: str, since: str, spot: float, qty: int) -> tuple[f
         return 0.0, ""
 
 
+def repo_maturity_pass(led: dict, dry: bool) -> list[str]:
+    """Y 槽逆回购到期回填: 到期日≤EX_DATE 的 fixed_value 持仓 → 转现金(本金+利息)。
+
+    利息 = notional × 年化 × 计息天数 / 365（计息天在建仓 note 声明）。"""
+    msgs = []
+    slot = led["strategies"].get("Y_确定性收益")
+    if not slot:
+        return msgs
+    remaining = []
+    for h in slot.get("holds", []):
+        if not h.get("fixed_value"):
+            remaining.append(h)
+            continue
+        mature = h.get("maturity_date", "")
+        if mature and mature <= EX_DATE.isoformat():
+            interest = h.get("interest", 0.0)
+            slot["cash"] = round(slot.get("cash", 0) + h.get("notional", 0) + interest, 2)
+            if not dry:
+                slot.setdefault("tuning", []).append(
+                    {"date": EX_DATE.isoformat(), "change": f"逆回购到期回填 +¥{h['notional'] + interest:.2f}",
+                     "why": f"本金¥{h['notional']:.0f}+利息¥{interest:.2f}(年化{h.get('rate_pct')}%)"})
+            msgs.append(f"Y槽逆回购到期回填: 本金¥{h['notional']:.0f}+利息¥{interest:.2f} → 现金")
+        else:
+            remaining.append(h)
+    slot["holds"] = remaining
+    return msgs
+
+
 def revalue(slot: dict, px: dict) -> float:
     eq = slot.get("cash", 0.0)
     for h in slot.get("holds", []):
@@ -1207,7 +1235,11 @@ def e2_gate(led: dict, dry: bool) -> list[str]:
     action = e2_gate_decision(median, state)
     ew["e2"] = {"median": median, "state": state, "action": action}
     msgs = []
-    if action == "enter_defensive" and not dry:
+    now = exchange_now()
+    tradable = bool(now) and is_trading_session(now)
+    if action == "enter_defensive" and not dry and not tradable:
+        log.warning("非交易时段, E2 减半抑制为只记录")
+    if action == "enter_defensive" and not dry and tradable:
         slot = led["strategies"]["E_可转债双低"]
         sells = [{"symbol": h["symbol"], "qty": h["qty"] // 2,
                   "price": (px or {}).get(h["symbol"], {}).get("price") or h.get("price", 0)}
@@ -1574,6 +1606,7 @@ def run_close(dry: bool) -> str:
     px = slot_prices(led)
     today = EX_DATE.isoformat()
     snap_msg = maybe_refresh_snapshot(dry)
+    repo_msgs = [] if dry else repo_maturity_pass(led, dry)
     div_msgs = [] if dry else daily_dividend_pass(led, px, dry)
     marks = led.setdefault("marks", [])
     equity, ret = {}, {}
@@ -1588,6 +1621,7 @@ def run_close(dry: bool) -> str:
     msgs: list[str] = []
     if snap_msg:
         msgs.append(snap_msg)
+    msgs.extend(repo_msgs)
     msgs.extend(div_msgs)
     msgs.extend(erp_gate(led, px, dry))
     msgs.extend(e2_gate(led, dry))

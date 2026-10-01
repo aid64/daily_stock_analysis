@@ -314,6 +314,7 @@ def test_end_to_end_monthly_rebalance(tmp_path, monkeypatch):
     monkeypatch.setattr(mod, "buywatch_universe", lambda *a, **k: [])
     monkeypatch.setattr(mod, "reversal_universe", lambda *a, **k: [])
     monkeypatch.setattr(mod, "holder_concentration_universe", lambda *a, **k: [])
+    monkeypatch.setattr(mod, "north_rebalance", lambda led, px, dry: ["L_北向(dry)"])
     monkeypatch.setattr(mod, "_tushare_pro", lambda: None)
     monkeypatch.setattr(mod, "daily_dividend_pass", lambda led, px, dry: [])
 
