@@ -135,6 +135,7 @@ def _fake_ledger():
         "H_MWU_CB融合": {"holds": [{"symbol": "511010.SH", "name": "国债ETF(防御)", "qty": 50, "price": 140.0}], "cash": 411.0, "equity": 12411.0},
         "I_PEAD业绩预告": {"holds": [], "cash": 12411.0, "equity": 12411.0},
         "K_项目选股": {"holds": [], "cash": 12411.0, "equity": 12411.0},
+        "L_北向择时": {"holds": [], "cash": 12411.0, "equity": 12411.0},
         "J_短期反转": {"holds": [], "cash": 12411.0, "equity": 12411.0},
         "C_沪深300持有": {"holds": [{"symbol": "510300.SH", "name": "沪深300ETF", "qty": 2800, "price": 4.416}], "cash": 41.2, "equity": 12406.0},
         "D_红利低波持有": {"holds": [{"symbol": "512890.SH", "name": "红利低波ETF", "qty": 10500, "price": 1.18}], "cash": 16.0, "equity": 12406.0},

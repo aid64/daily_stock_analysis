@@ -1354,6 +1354,68 @@ def reversal_universe(days: int = 21, top: int = 8) -> list[dict]:
     return out[:top]
 
 
+def north_percentile(north_series: list, current: float) -> float:
+    """纯函数: 昨日北向净买入在近250日中的分位(0-100)。"""
+    vals = [float(v) for v in north_series if v is not None]
+    if len(vals) < 60 or current is None:
+        return -1.0
+    below = sum(1 for v in vals if v <= current)
+    return round(below / len(vals) * 100, 1)
+
+
+def north_decision(pct: float) -> str:
+    """纯函数: 北向分位 → 仓位动作(60/40阈值)。"""
+    if pct < 0:
+        return "no_data"
+    if pct >= 60:
+        return "hold_index"
+    if pct < 40:
+        return "cash"
+    return "keep"
+
+
+def north_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
+    """L_北向择时: 昨日北向净买入250日分位 → 持有/清仓 510300(与C槽同标的, 受控实验)。
+
+    数据: tushare moneyflow_hsgt(2026-10 实测逐日可得)。机制: 聪明钱信息优势
+    (聚宽北向三部曲, 2.5万浏览实证帖); 披露规则2024-08改变后信息含量是否衰减=本槽检验点。"""
+    slot = led["strategies"].get("L_北向择时")
+    if not slot:
+        return []
+    if dry:
+        return ["L_北向(dry) 信号计算"]
+    try:
+        pro = _tushare_pro()
+        df = pro.moneyflow_hsgt(start_date=(EX_DATE - timedelta(days=400)).strftime("%Y%m%d"),
+                                end_date=EX_DATE.strftime("%Y%m%d"), fields="trade_date,north_money")
+        df = df.dropna(subset=["north_money"]).sort_values("trade_date")
+        series = df["north_money"].tolist()
+        yesterday = df["north_money"].iloc[-1] if df["trade_date"].iloc[-1] == EX_DATE.strftime("%Y%m%d") else (df["north_money"].iloc[-2] if len(df) > 1 else None)
+        pct = north_percentile(series[:-1], yesterday)  # 用截至昨日的窗口, 信号=昨日值
+        action = north_decision(pct)
+        cur = {h["symbol"]: h["qty"] for h in slot.get("holds", [])}
+        target = {}
+        if action == "hold_index":
+            price = px.get("510300.SH", {}).get("price") or 4.4
+            target = {"510300.SH": int(CAPITAL * 0.98 // (price * 100)) * 100}
+        sells = [{"symbol": h["symbol"], "qty": h["qty"], "price": px.get(h["symbol"], {}).get("price") or h.get("price", 0)}
+                 for h in slot.get("holds", []) if h["symbol"] not in target]
+        buys = []
+        for k, v in target.items():
+            have = cur.get(k, 0)
+            price = px.get(k, {}).get("price") or 0
+            if v > have and price:
+                buys.append({"symbol": k, "qty": v - have, "price": price, "is_stock": False})
+        apply_orders(slot, sells, buys, px)
+        slot["signal"] = {"date": EX_DATE.isoformat(), "north_yesterday": yesterday,
+                          "pct": pct, "action": action}
+        tag = f"{action}(北向分位{pct}%)"
+        return [f"L_北向择时 {tag} → {sorted(target) or '空仓'}"]
+    except Exception as exc:
+        log.error("L_北向 信号失败: %r", exc)
+        return ["【异常】L_北向 信号计算失败, 持仓不变"]
+
+
 def build_close_summary(led: dict, px: dict) -> str:
     """收盘消息：排名 + 今日操作 + 每槽持仓明细（数量/成本/现价/盈亏）+ 风险状态。"""
     equity = {name: s.get("equity", 0) for name, s in led["strategies"].items()}
@@ -1368,7 +1430,7 @@ def build_close_summary(led: dict, px: dict) -> str:
     actions = (led.get("_actions", {}).get(today) or [])
     lines += [f"· {a}" for a in actions] if actions else ["· 无调仓"]
     lines.append("▎持仓明细")
-    for name in ("A_动量", "B_轮动", "E_可转债双低", "F_小市值20", "F2_小市值5只神帖对照", "X_事件套利", "G_MWU融合", "H_MWU_CB融合", "I_PEAD业绩预告", "J_短期反转", "K_项目选股", "C_沪深300持有", "D_红利低波持有"):
+    for name in ("A_动量", "B_轮动", "E_可转债双低", "F_小市值20", "F2_小市值5只神帖对照", "X_事件套利", "G_MWU融合", "H_MWU_CB融合", "I_PEAD业绩预告", "J_短期反转", "K_项目选股", "L_北向择时", "C_沪深300持有", "D_红利低波持有"):
         holds = led["strategies"][name].get("holds", [])
         if not holds:
             lines.append(f"{name}: 空仓")
@@ -1448,6 +1510,7 @@ def run_close(dry: bool) -> str:
     msgs.extend(div_msgs)
     msgs.extend(erp_gate(led, px, dry))
     msgs.extend(e2_gate(led, dry))
+    msgs.extend(north_rebalance(led, px, dry))
     if _is_month_last_trading_day() and not dry:
         rep = monthly_report(led, dry)
         if rep:
