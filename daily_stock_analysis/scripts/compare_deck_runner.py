@@ -1416,6 +1416,87 @@ def north_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
         return ["【异常】L_北向 信号计算失败, 持仓不变"]
 
 
+def holder_concentration_universe(top: int = 8) -> list[dict]:
+    """M_筹码集中度候选: 最新报告期股东户数降幅≥10% 排序(筹码向主力集中)。
+
+    数据: tushare stk_holdernumber 按报告期全市场单次查询(季度频率)。
+    过滤: ST/北交所/科创板; 流动性与市值约束在 px 层做。"""
+    pro = _tushare_pro()
+    cur_q = _latest_report_period(EX_DATE)
+    prev_q = _prev_report_period(cur_q)
+    df = pro.stk_holdernumber(enddate=cur_q, fields="ts_code,holder_num")
+    prev = pro.stk_holdernumber(enddate=prev_q, fields="ts_code,holder_num")
+    m = df.merge(prev, on="ts_code", suffixes=("_new", "_prev"))
+    m = m[(m["holder_num_new"] > 0) & (m["holder_num_prev"] > 0)]
+    m["chg"] = (m["holder_num_new"] / m["holder_num_prev"] - 1) * 100
+    m = m[m["chg"] <= -10].sort_values("chg")
+    sb = _tushare_pro().stock_basic(list_status="L", fields="ts_code,name")
+    names = dict(sb.values.tolist())
+    out = []
+    for _, r in m.iterrows():
+        code = str(r["ts_code"])
+        nm = names.get(code, "")
+        if not _ok_symbol(nm, code):
+            continue
+        out.append({"ts_code": code, "name": nm, "chg": round(float(r["chg"]), 1)})
+        if len(out) >= top:
+            break
+    return out
+
+
+def _latest_report_period(d: date) -> str:
+    """最近已披露完毕的报告期(季报后约45天): 10-11月用Q2? 简化映射。"""
+    y, mth = d.year, d.month
+    if mth >= 10:
+        return f"{y}0630"
+    if mth >= 7:
+        return f"{y}0331"
+    if mth >= 4:
+        return f"{y-1}1231"
+    return f"{y-1}0930"
+
+
+def _prev_report_period(period: str) -> str:
+    y, m = int(period[:4]), int(period[4:6])
+    if m == 12:
+        return f"{y}0930"
+    if m == 9:
+        return f"{y}0630"
+    if m == 6:
+        return f"{y}0331"
+    return f"{y-1}1231"
+
+
+def holder_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
+    """M_筹码集中度: 季度数据月度窗重取 → 市值/流动性过滤 → 与持仓 diff。"""
+    slot = led["strategies"].get("M_筹码集中度")
+    if not slot:
+        return []
+    if dry:
+        return ["M_筹码集中度(dry) 候选重取"]
+    try:
+        cands = holder_concentration_universe()
+        picks = []
+        for r in cands:
+            sym = ("SH" if r["ts_code"].endswith(".SH") else "SZ") + r["ts_code"][:6]
+            p = px.get(sym, {}).get("price") or 0
+            if p and p * 100 <= 2500:
+                picks.append({"symbol": sym, "name": r["name"], "price": p, "qty": 100,
+                              "holder_chg": r["chg"]})
+            if len(picks) >= 5:
+                break
+        sells = [{"symbol": h["symbol"], "qty": h["qty"], "price": px.get(h["symbol"], {}).get("price") or h.get("price", 0), "is_stock": True}
+                 for h in slot.get("holds", []) if h["symbol"] not in {p["symbol"] for p in picks}]
+        buys = [{"symbol": p["symbol"], "name": p["name"], "qty": p["qty"], "price": p["price"], "is_stock": True}
+                for p in picks if p["symbol"] not in {h["symbol"] for h in slot.get("holds", [])}]
+        apply_orders(slot, sells, buys, px)
+        slot["note"] = f"{EX_DATE} 户数降幅候选: " + " ".join(f"{p['name']}{p['holder_chg']:+.0f}%" for p in picks[:3])
+        return [f"M_筹码集中度 调仓→{[p['symbol'] for p in picks] or '空仓'}"]
+    except Exception as exc:
+        log.error("M_筹码集中度 调仓失败: %r", exc)
+        return ["【异常】M_筹码集中度 候选重取失败, 持仓不变"]
+
+
 def build_close_summary(led: dict, px: dict) -> str:
     """收盘消息：排名 + 今日操作 + 每槽持仓明细（数量/成本/现价/盈亏）+ 风险状态。"""
     equity = {name: s.get("equity", 0) for name, s in led["strategies"].items()}
@@ -1430,7 +1511,7 @@ def build_close_summary(led: dict, px: dict) -> str:
     actions = (led.get("_actions", {}).get(today) or [])
     lines += [f"· {a}" for a in actions] if actions else ["· 无调仓"]
     lines.append("▎持仓明细")
-    for name in ("A_动量", "B_轮动", "E_可转债双低", "F_小市值20", "F2_小市值5只神帖对照", "X_事件套利", "G_MWU融合", "H_MWU_CB融合", "I_PEAD业绩预告", "J_短期反转", "K_项目选股", "L_北向择时", "C_沪深300持有", "D_红利低波持有"):
+    for name in ("A_动量", "B_轮动", "E_可转债双低", "F_小市值20", "F2_小市值5只神帖对照", "X_事件套利", "G_MWU融合", "H_MWU_CB融合", "I_PEAD业绩预告", "J_短期反转", "K_项目选股", "L_北向择时", "M_筹码集中度", "C_沪深300持有", "D_红利低波持有"):
         holds = led["strategies"][name].get("holds", [])
         if not holds:
             lines.append(f"{name}: 空仓")
@@ -1531,7 +1612,8 @@ def run_close(dry: bool) -> str:
                                       strategy_config="config/strategy/etf_mwu_cb_monthly.yaml")
                       + pead_rebalance(led, px, dry)
                       + reversal_rebalance(led, px, dry)
-                      + buywatch_rebalance(led, px, dry)):
+                      + buywatch_rebalance(led, px, dry)
+                      + holder_rebalance(led, px, dry)):
                 msgs.append(m)
             done[month_key] = "all"
         except Exception as exc:
