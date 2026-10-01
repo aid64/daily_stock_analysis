@@ -503,6 +503,78 @@ def smallcap_rebalance(led: dict, slot_name: str, slots: int, cap_per: float,
     return [f"{slot_name} 月度再平衡→{[p['symbol'] for p in picks] or '空仓'}"]
 
 
+def pead_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
+    """I_PEAD: 月度窗重取候选(最近40天预增) → 与持仓 diff。无新预告维持旧仓。"""
+    slot = led["strategies"].get("I_PEAD业绩预告")
+    if not slot:
+        return []
+    if dry:
+        return ["I_PEAD(dry) 候选重取"]
+    try:
+        cands = pead_universe()
+        if not cands:
+            slot["note"] = f"{EX_DATE} 无新预增候选, 维持旧仓"
+            return [f"I_PEAD 无新预增候选, 维持旧仓"]
+        picks = []
+        for r in cands:
+            sym = ("SH" if r["ts_code"].endswith(".SH") else "SZ") + r["ts_code"][:6]
+            p = px.get(sym, {}).get("price") or 0
+            if p and p * 100 <= 2500:
+                picks.append({"symbol": sym, "name": names_of(cands).get(r["ts_code"], sym), "price": p, "qty": 100})
+            if len(picks) >= 5:
+                break
+        sells = [{"symbol": h["symbol"], "qty": h["qty"], "price": px.get(h["symbol"], {}).get("price") or h.get("price", 0), "is_stock": True}
+                 for h in slot.get("holds", []) if h["symbol"] not in {p["symbol"] for p in picks}]
+        buys = [{"symbol": p["symbol"], "name": p["name"], "qty": p["qty"], "price": p["price"], "is_stock": True}
+                for p in picks if p["symbol"] not in {h["symbol"] for h in slot.get("holds", [])}]
+        apply_orders(slot, sells, buys, px)
+        slot["note"] = f"{EX_DATE} 候选{len(cands)}→持仓{len(picks)}"
+        return [f"I_PEAD 调仓→{[p['symbol'] for p in picks] or '空仓'}"]
+    except Exception as exc:
+        log.error("I_PEAD 调仓失败: %r", exc)
+        return ["【异常】I_PEAD 候选重取失败, 持仓不变"]
+
+
+def reversal_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
+    """J_反转: 月度窗重取 21 日跌幅最深候选 → 与持仓 diff。"""
+    slot = led["strategies"].get("J_短期反转")
+    if not slot:
+        return []
+    if dry:
+        return ["J_反转(dry) 候选重取"]
+    try:
+        cands = reversal_universe()
+        if not cands:
+            return ["J_反转 无候选(全市场无合格超跌), 维持旧仓"]
+        picks = []
+        for r in cands:
+            sym = ("SH" if r["ts_code"].endswith(".SH") else "SZ") + r["ts_code"][:6]
+            p = px.get(sym, {}).get("price") or 0
+            if p and p * 100 <= 2500:
+                picks.append({"symbol": sym, "name": names_of(cands).get(r["ts_code"], sym),
+                              "price": p, "qty": 100, "ret21": r["ret21"]})
+            if len(picks) >= 5:
+                break
+        sells = [{"symbol": h["symbol"], "qty": h["qty"], "price": px.get(h["symbol"], {}).get("price") or h.get("price", 0), "is_stock": True}
+                 for h in slot.get("holds", []) if h["symbol"] not in {p["symbol"] for p in picks}]
+        buys = [{"symbol": p["symbol"], "name": p["name"], "qty": p["qty"], "price": p["price"], "is_stock": True}
+                for p in picks if p["symbol"] not in {h["symbol"] for h in slot.get("holds", [])}]
+        apply_orders(slot, sells, buys, px)
+        slot["note"] = f"{EX_DATE} 21日跌幅最深候选: " + " ".join(f"{p['name']}{p['ret21']:+.0f}%" for p in picks[:3])
+        return [f"J_反转 调仓→{[p['symbol'] for p in picks] or '空仓'}"]
+    except Exception as exc:
+        log.error("J_反转 调仓失败: %r", exc)
+        return ["【异常】J_反转 候选重取失败, 持仓不变"]
+
+
+def names_of(cands: list[dict]) -> dict[str, str]:
+    try:
+        sb = _tushare_pro().stock_basic(list_status="L", fields="ts_code,name")
+        return dict(sb.values.tolist())
+    except Exception:
+        return {}
+
+
 def _prev_month_end() -> str:
     import calendar
     t = EX_DATE.replace(day=1) - __import__("datetime").timedelta(days=1)
@@ -1120,6 +1192,80 @@ def erp_gate(led: dict, px: dict, dry: bool) -> list[str]:
     return msgs
 
 
+def _tushare_pro():
+    import tushare as ts
+    token = ""
+    for line in (PROJECT_DIR / ".env").read_text(encoding="utf-8").splitlines():
+        if line.startswith("TUSHARE_TOKEN="):
+            token = line.split("=", 1)[1].strip().strip('"').strip("'")
+    return ts.pro_api(token)
+
+
+def _ok_symbol(name: str, ts_code: str) -> bool:
+    return ("ST" not in name) and (not ts_code.startswith(("8", "4", "9", "688")))
+
+
+def pead_universe(days_back: int = 40, top: int = 8) -> list[dict]:
+    """I_PEAD 候选: 最近 N 天公告的预增(预告净利同比≥50%) → 按公告日新鲜度排序。
+
+    数据: tushare forecast 逐日 ann_date(接口限制); 三季报/年报预告季密集。"""
+    pro = _tushare_pro()
+    seen, out = set(), []
+    for d in range(days_back, 0, -1):
+        day = (EX_DATE - timedelta(days=d)).strftime("%Y%m%d")
+        try:
+            df = pro.forecast(ann_date=day, fields="ts_code,ann_date,type,p_change")
+        except Exception:
+            continue
+        if df is None or df.empty:
+            continue
+        for _, r in df.iterrows():
+            code = str(r.get("ts_code", ""))
+            typ = str(r.get("type", ""))
+            chg = r.get("p_change")
+            chg = float(chg) if chg not in (None, "", "nan") else None
+            if typ != "预增" or (chg is not None and chg < 50):
+                continue
+            if code in seen or not _ok_symbol("", code):
+                continue
+            seen.add(code)
+            out.append({"ts_code": code, "ann_date": day, "p_change": chg})
+    return out[:top]
+
+
+def reversal_universe(days: int = 21, top: int = 8) -> list[dict]:
+    """J_短期反转候选: 全市场 21 日跌幅最深 + 流动性过滤(金额≥3000万) + 剔ST/北交所/科创板。
+
+    数据: tushare daily 逐日(daily 单次上限6000行)。机制: A股短期反转(LSY2019/STREV实证)。"""
+    pro = _tushare_pro()
+    series: dict[str, dict[str, float]] = {}
+    for d in range(days, -1, -1):
+        day = (EX_DATE - timedelta(days=d)).strftime("%Y%m%d")
+        try:
+            df = pro.daily(trade_date=day, fields="ts_code,close,amount")
+        except Exception:
+            continue
+        if df is None or df.empty:
+            continue
+        for _, r in df.iterrows():
+            series.setdefault(str(r["ts_code"]), {})[day] = (float(r["close"]), float(r.get("amount") or 0))
+    out = []
+    for code, pxmap in series.items():
+        days_sorted = sorted(pxmap)
+        if len(days_sorted) < days:
+            continue
+        c0, c1 = pxmap[days_sorted[0]][0], pxmap[days_sorted[-1]][0]
+        amt = pxmap[days_sorted[-1]][1]
+        if c0 <= 0 or amt < 3e7:
+            continue
+        out.append({"ts_code": code, "ret21": round((c1 / c0 - 1) * 100, 2)})
+    sb = _tushare_pro().stock_basic(list_status="L", fields="ts_code,name")
+    names = dict(sb.values.tolist())
+    out = [r for r in out if _ok_symbol(names.get(r["ts_code"], ""), r["ts_code"])]
+    out.sort(key=lambda r: r["ret21"])
+    return out[:top]
+
+
 def build_close_summary(led: dict, px: dict) -> str:
     """收盘消息：排名 + 今日操作 + 每槽持仓明细（数量/成本/现价/盈亏）+ 风险状态。"""
     equity = {name: s.get("equity", 0) for name, s in led["strategies"].items()}
@@ -1134,7 +1280,7 @@ def build_close_summary(led: dict, px: dict) -> str:
     actions = (led.get("_actions", {}).get(today) or [])
     lines += [f"· {a}" for a in actions] if actions else ["· 无调仓"]
     lines.append("▎持仓明细")
-    for name in ("A_动量", "B_轮动", "E_可转债双低", "F_小市值20", "F2_小市值5只神帖对照", "X_事件套利", "G_MWU融合", "C_沪深300持有", "D_红利低波持有"):
+    for name in ("A_动量", "B_轮动", "E_可转债双低", "F_小市值20", "F2_小市值5只神帖对照", "X_事件套利", "G_MWU融合", "H_MWU_CB融合", "I_PEAD业绩预告", "J_短期反转", "C_沪深300持有", "D_红利低波持有"):
         holds = led["strategies"][name].get("holds", [])
         if not holds:
             lines.append(f"{name}: 空仓")
@@ -1231,7 +1377,9 @@ def run_close(dry: bool) -> str:
                       + cb_rebalance(led, px, dry)
                       + mwu_rebalance(led, px, dry, slot_name="H_MWU_CB融合",
                                       strategy="etf_mwu_cb",
-                                      strategy_config="config/strategy/etf_mwu_cb_monthly.yaml")):
+                                      strategy_config="config/strategy/etf_mwu_cb_monthly.yaml")
+                      + pead_rebalance(led, px, dry)
+                      + reversal_rebalance(led, px, dry)):
                 msgs.append(m)
             done[month_key] = "all"
         except Exception as exc:

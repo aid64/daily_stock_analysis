@@ -132,6 +132,9 @@ def _fake_ledger():
         "F2_小市值5只神帖对照": {"holds": [], "cash": 12411.0, "equity": 12411.0},
         "X_事件套利": {"holds": [], "cash": 12411.0, "equity": 12411.0},
         "G_MWU融合": {"holds": [{"symbol": "511010.SH", "name": "国债ETF(防御)", "qty": 50, "price": 140.736}], "cash": 1242.6, "equity": 12396.0},
+        "H_MWU_CB融合": {"holds": [{"symbol": "511010.SH", "name": "国债ETF(防御)", "qty": 50, "price": 140.0}], "cash": 411.0, "equity": 12411.0},
+        "I_PEAD业绩预告": {"holds": [], "cash": 12411.0, "equity": 12411.0},
+        "J_短期反转": {"holds": [], "cash": 12411.0, "equity": 12411.0},
         "C_沪深300持有": {"holds": [{"symbol": "510300.SH", "name": "沪深300ETF", "qty": 2800, "price": 4.416}], "cash": 41.2, "equity": 12406.0},
         "D_红利低波持有": {"holds": [{"symbol": "512890.SH", "name": "红利低波ETF", "qty": 10500, "price": 1.18}], "cash": 16.0, "equity": 12406.0},
     }}
@@ -304,6 +307,9 @@ def test_end_to_end_monthly_rebalance(tmp_path, monkeypatch):
     monkeypatch.setattr(mod, "smallcap_universe", lambda *a, **k: fake_recs)
     # ERP mock(单测已覆盖 erp_decision)
     monkeypatch.setattr(mod, "erp_gate", lambda led, px, dry: [])
+    monkeypatch.setattr(mod, "pead_universe", lambda *a, **k: [])
+    monkeypatch.setattr(mod, "reversal_universe", lambda *a, **k: [])
+    monkeypatch.setattr(mod, "_tushare_pro", lambda: None)
     monkeypatch.setattr(mod, "daily_dividend_pass", lambda led, px, dry: [])
 
     out = mod.run_intraday(dry=False)  # 完整真实链: intraday 尾部自动触发 close(与 10-08 真实路径一致)
