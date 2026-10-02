@@ -797,12 +797,14 @@ def cb_rebalance(led: dict, px: dict, dry: bool) -> list[dict]:
         cur = {h["symbol"]: h["qty"] for h in slot.get("holds", [])}
         price_of = {}
         want = {}
+        e2_defensive = ctrl.get("e2_state") == "defensive"  # E2减半语义必须穿透月度调仓
+        factor = 0.5 if e2_defensive else 1.0
         for sym, meta in targets.items():
             price = (px.get(sym, {}).get("price")) or meta.get("t1_close") or 0
             if not price:
                 continue
             price_of[sym] = price
-            lots = int(float(meta.get("weight", 0)) * CAPITAL // (price * 10)) * 10  # 转债 10张/手
+            lots = int(float(meta.get("weight", 0)) * CAPITAL * factor // (price * 10)) * 10  # 转债 10张/手
             if lots > 0:
                 want[sym] = lots
         sells = [{"symbol": h["symbol"], "qty": h["qty"] - want.get(h["symbol"], 0),
@@ -1724,6 +1726,17 @@ def run_close(dry: bool) -> str:
                       + sequoia_scan(dry)):
                 msgs.append(m)
             done[month_key] = "all"
+            # 总闸缩放: ERP/E2 防御态下, 月度重建的主动槽立即减半(重建后再缩放, 语义=策略目标×总闸系数)
+            factor = 0.5 if (ctrl.get("erp_state") == "defensive" or ctrl.get("e2_state") == "defensive") else 1.0
+            if factor < 1.0:
+                for s in ("A_动量", "F_小市值20", "F2_小市值5只神帖对照", "G_MWU融合", "H_MWU_CB融合", "I_PEAD业绩预告", "J_短期反转", "K_项目选股", "M_筹码集中度"):
+                    slot2 = led["strategies"].get(s, {})
+                    half = [{"symbol": h["symbol"], "qty": h["qty"] // 2,
+                             "price": px.get(h["symbol"], {}).get("price") or h.get("price", 0),
+                             "is_stock": s.startswith(("F", "I", "J", "K", "M"))}
+                            for h in slot2.get("holds", []) if h["qty"] // 2 > 0]
+                    apply_orders(slot2, half, [], px)
+                msgs.append("【总闸缩放】防御态 → 主动槽月度建仓×0.5")
         except Exception as exc:
             log.error("月度调仓失败(不影响净值落账): %r", exc)
             msgs.append(f"【异常】月度调仓失败: {exc!r:.120}")
