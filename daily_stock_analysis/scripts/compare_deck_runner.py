@@ -1529,6 +1529,61 @@ def holder_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
         return ["【异常】M_筹码集中度 候选重取失败, 持仓不变"]
 
 
+def sequoia_ready() -> bool:
+    """Sequoia-X 数据回填就绪检查（stock_daily ≥300 万行）。"""
+    db = PROJECT_DIR.parent / "quant_research" / "vendor" / "Sequoia-X" / "data" / "sequoia_v2.db"
+    try:
+        import sqlite3
+        con = sqlite3.connect(db)
+        n = con.execute("SELECT COUNT(*) FROM stock_daily").fetchone()[0]
+        return n >= 3_000_000
+    except Exception:
+        return False
+
+
+def sequoia_scan(dry: bool) -> list[str]:
+    """N_技术形态对照: Sequoia-X 七策略扫描（命中≥2策略优先），月度窗调用。
+
+    条件式: 数据回填未完成(≥300万行)时返回"回填中"并跳过——回填为小时级后台任务。"""
+    slot = led_slot_N = None
+    if dry:
+        return ["N_技术形态(dry) 待数据就绪"]
+    if not sequoia_ready():
+        return []
+    driver = PROJECT_DIR.parent / "quant_research" / "vendor" / "Sequoia-X" / "n_slot_driver.py"
+    try:
+        r = subprocess.run([sys.executable, str(driver)], cwd=str(driver.parent),
+                           capture_output=True, text=True, timeout=1200)
+        data = json.loads(r.stdout.strip().splitlines()[-1])
+        hits: dict[str, int] = {}
+        for strat, codes in data.items():
+            if isinstance(codes, list):
+                for c in codes:
+                    hits[c] = hits.get(c, 0) + 1
+        ranked = sorted(hits, key=lambda c: -hits[c])
+        slot = led["strategies"].get("N_技术形态对照")
+        if not slot:
+            return []
+        picks = []
+        for c in ranked:
+            sym = ("SH" if c.startswith(("6", "5")) else "SZ") + c[:6]
+            p = px.get(sym, {}).get("price") or 0
+            if p and p * 100 <= 2500:
+                picks.append({"symbol": sym, "qty": 100, "price": p, "hits": hits[c]})
+            if len(picks) >= 5:
+                break
+        sells = [{"symbol": h["symbol"], "qty": h["qty"], "price": px.get(h["symbol"], {}).get("price") or h.get("price", 0), "is_stock": True}
+                 for h in slot.get("holds", []) if h["symbol"] not in {p["symbol"] for p in picks}]
+        buys = [{"symbol": p["symbol"], "qty": p["qty"], "price": p["price"], "is_stock": True}
+                for p in picks if p["symbol"] not in {h["symbol"] for h in slot.get("holds", [])}]
+        apply_orders(slot, sells, buys, px)
+        slot["note"] = f"{EX_DATE} 多策略命中: " + " ".join(f"{p['symbol']}×{p['hits']}" for p in picks[:3])
+        return [f"N_技术形态 调仓→{[p['symbol'] for p in picks] or '空仓'}"]
+    except Exception as exc:
+        log.error("N_技术形态 扫描失败: %r", exc)
+        return ["【异常】N_技术形态 扫描失败, 持仓不变"]
+
+
 def build_close_summary(led: dict, px: dict) -> str:
     """收盘消息：排名 + 今日操作 + 每槽持仓明细（数量/成本/现价/盈亏）+ 风险状态。"""
     equity = {name: s.get("equity", 0) for name, s in led["strategies"].items()}
@@ -1543,7 +1598,7 @@ def build_close_summary(led: dict, px: dict) -> str:
     actions = (led.get("_actions", {}).get(today) or [])
     lines += [f"· {a}" for a in actions] if actions else ["· 无调仓"]
     lines.append("▎持仓明细")
-    for name in ("A_动量", "B_轮动", "E_可转债双低", "F_小市值20", "F2_小市值5只神帖对照", "X_事件套利", "G_MWU融合", "H_MWU_CB融合", "I_PEAD业绩预告", "J_短期反转", "K_项目选股", "L_北向择时", "M_筹码集中度", "C_沪深300持有", "D_红利低波持有"):
+    for name in ("A_动量", "B_轮动", "E_可转债双低", "F_小市值20", "F2_小市值5只神帖对照", "X_事件套利", "G_MWU融合", "H_MWU_CB融合", "I_PEAD业绩预告", "J_短期反转", "K_项目选股", "L_北向择时", "M_筹码集中度", "N_技术形态对照", "C_沪深300持有", "D_红利低波持有"):
         holds = led["strategies"][name].get("holds", [])
         if not holds:
             lines.append(f"{name}: 空仓")
@@ -1647,7 +1702,8 @@ def run_close(dry: bool) -> str:
                       + pead_rebalance(led, px, dry)
                       + reversal_rebalance(led, px, dry)
                       + buywatch_rebalance(led, px, dry)
-                      + holder_rebalance(led, px, dry)):
+                      + holder_rebalance(led, px, dry)
+                      + sequoia_scan(dry)):
                 msgs.append(m)
             done[month_key] = "all"
         except Exception as exc:
