@@ -228,12 +228,7 @@ def apply_orders(slot: dict, sells: list[dict], buys: list[dict], px: dict) -> N
 def dividend_accrued(ts_code: str, since: str, spot: float, qty: int) -> tuple[float, str]:
     """tushare fund_div 查询 since 之后的基金分红, 返回 (应计现金, 描述)。失败返回 (0.0, "")。"""
     try:
-        import tushare as ts
-        token = ""
-        for line in (PROJECT_DIR / ".env").read_text(encoding="utf-8").splitlines():
-            if line.startswith("TUSHARE_TOKEN="):
-                token = line.split("=", 1)[1].strip().strip('"').strip("'")
-        df = ts.pro_api(token).fund_div(ts_code=ts_code)
+        df = ts_client().call("fund_div", ts_code=ts_code, cache_ttl_days=7)
         if df is None or df.empty:
             return 0.0, ""
         df = df[df["ex_date"].astype(str) > since]
@@ -476,14 +471,9 @@ def rotation_signal(led: dict, px: dict, dry: bool) -> list[dict]:
 
 def smallcap_universe(month_end: str, exclude_new: bool, top: int) -> list[dict]:
     """tushare 15000 积分接口选小市值。返回候选（circ_mv 升序）。"""
-    import tushare as ts
-    token = ""
-    for line in (PROJECT_DIR / ".env").read_text(encoding="utf-8").splitlines():
-        if line.startswith("TUSHARE_TOKEN="):
-            token = line.split("=", 1)[1].strip().strip('"').strip("'")
-    pro = ts.pro_api(token)
-    db = pro.daily_basic(trade_date=month_end, fields="ts_code,circ_mv,close")
-    sb = pro.stock_basic(list_status="L", fields="ts_code,name,list_date")
+    pro = ts_client()
+    db = pro.call("daily_basic", trade_date=month_end, fields="ts_code,circ_mv,close")
+    sb = pro.call("stock_basic", list_status="L", fields="ts_code,name,list_date")
     df = db.merge(sb, on="ts_code", how="left").dropna(subset=["circ_mv", "name"])
     df = df[~df["name"].str.contains("ST", na=False)]
     df = df[~df["ts_code"].str.startswith(("8", "4", "9", "688"))]
@@ -615,7 +605,7 @@ def buywatch_universe(top: int = 5) -> list[dict]:
             for line in (PROJECT_DIR / ".env").read_text(encoding="utf-8").splitlines():
                 if line.startswith("TUSHARE_TOKEN="):
                     token = line.split("=", 1)[1].strip().strip('"').strip("'")
-            pro = ts.pro_api(token)
+            pro = ts_client()
             db = None
             for back in range(0, 8):  # 休市日回退找最近有数据的交易日
                 day = (EX_DATE - timedelta(days=back)).strftime("%Y%m%d")
@@ -685,8 +675,8 @@ def buywatch_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
 
 def names_of(cands: list[dict]) -> dict[str, str]:
     try:
-        sb = _tushare_pro().stock_basic(list_status="L", fields="ts_code,name")
-        return dict(sb.values.tolist())
+        sb = ts_client().call("stock_basic", list_status="L", fields="ts_code,name", cache_ttl_days=7)
+        return dict(sb.values.tolist()) if sb is not None else {}
     except Exception:
         return {}
 
@@ -1027,8 +1017,7 @@ def risk_round(led: dict, px: dict, dry: bool) -> list[dict]:
     idx_pct = idx.get("pct", 0.0)
     limit_dn = 0
     try:
-        pro0 = _tushare_pro()
-        lld = pro0.limit_list_d(trade_date=EX_DATE.strftime("%Y%m%d"), limit_type="D")
+        lld = ts_client().call("limit_list_d", trade_date=EX_DATE.strftime("%Y%m%d"), limit_type="D")
         limit_dn = len(lld) if lld is not None else 0
     except Exception as exc:
         log.warning("跌停家数获取失败: %r", exc)
@@ -1224,12 +1213,7 @@ def e2_gate(led: dict, dry: bool) -> list[str]:
     数据: tushare cb_daily 单次全市场当日; 中位数序列逐日积累进 credit_watch.median_history。"""
     ctrl = led.setdefault("_control", {})
     try:
-        import tushare as ts
-        token = ""
-        for line in (PROJECT_DIR / ".env").read_text(encoding="utf-8").splitlines():
-            if line.startswith("TUSHARE_TOKEN="):
-                token = line.split("=", 1)[1].strip().strip('"').strip("'")
-        df = ts.pro_api(token).cb_daily(trade_date=EX_DATE.strftime("%Y%m%d"), fields="close")
+        df = ts_client().call("cb_daily", trade_date=EX_DATE.strftime("%Y%m%d"), fields="close")
         prices = [float(x) for x in (df["close"].dropna().tolist() if df is not None else []) if x and float(x) > 0]
     except Exception as exc:
         log.warning("E2 数据失败: %r", exc)
@@ -1273,14 +1257,10 @@ def erp_gate(led: dict, px: dict, dry: bool) -> list[str]:
     if last and (EX_DATE - datetime.strptime(last, "%Y-%m-%d").date()).days < 5:
         return []
     try:
-        import tushare as ts
-        token = ""
-        for line in (PROJECT_DIR / ".env").read_text(encoding="utf-8").splitlines():
-            if line.startswith("TUSHARE_TOKEN="):
-                token = line.split("=", 1)[1].strip().strip('"').strip("'")
-        df = ts.pro_api(token).index_dailybasic(ts_code="000300.SH",
-                                                start_date=(EX_DATE - datetime.timedelta(days=3652)).strftime("%Y%m%d"),
-                                                end_date=EX_DATE.strftime("%Y%m%d"), fields="trade_date,pe_ttm")
+        df = ts_client().call("index_dailybasic", ts_code="000300.SH",
+                              start_date=(EX_DATE - datetime.timedelta(days=3652)).strftime("%Y%m%d"),
+                              end_date=EX_DATE.strftime("%Y%m%d"), fields="trade_date,pe_ttm",
+                              cache_ttl_days=5)
         pe = df.dropna(subset=["pe_ttm"]).sort_values("trade_date")
         hist = [float(x) for x in pe["pe_ttm"] if x and float(x) > 0]
     except Exception as exc:
@@ -1321,6 +1301,63 @@ def erp_gate(led: dict, px: dict, dry: bool) -> list[str]:
     return msgs
 
 
+class TushareClient:
+    """统一 tushare 数据访问层: 单例 pro、令牌桶限频(480/min<500)、调用缓存、失败计数审计。
+
+    各策略函数一律通过 ts_client.call(api_name, **params) 取数, 不再各自直连。"""
+    _instance = None
+
+    def __init__(self):
+        import tushare as ts
+        token = ""
+        for line in (PROJECT_DIR / ".env").read_text(encoding="utf-8").splitlines():
+            if line.startswith("TUSHARE_TOKEN="):
+                token = line.split("=", 1)[1].strip().strip('"').strip("'")
+        self.pro = ts.pro_api(token)
+        self._min_interval = 60.0 / 480  # 500次/分钟, 留 4% 余量
+        self._last_call = 0.0
+        self._cache: dict = {}
+        self.calls_today = 0
+        self.errors_today = 0
+
+    @classmethod
+    def instance(cls) -> "TushareClient":
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
+    def call(self, api_name: str, cache_ttl_days: float = 0.0, **params):
+        """调 pro 接口。cache_ttl_days>0 时按 (api, params) 缓存(适合财报/户数等低频变化)。"""
+        import time as _time
+        key = (api_name, tuple(sorted((k, str(v)) for k, v in params.items())))
+        if cache_ttl_days > 0:
+            cached = self._cache.get(key)
+            if cached and (_time.time() - cached[0]) < cache_ttl_days * 86400:
+                return cached[1]
+        wait = self._last_call + self._min_interval - _time.time()
+        if wait > 0:
+            _time.sleep(wait)
+        self._last_call = _time.time()
+        try:
+            df = getattr(self.pro, api_name)(**params)
+            self.calls_today += 1
+        except Exception as exc:
+            self.errors_today += 1
+            log.warning("tushare %s 失败: %r", api_name, exc)
+            return None
+        if cache_ttl_days > 0:
+            self._cache[key] = (_time.time(), df)
+        return df
+
+
+def ts_client() -> TushareClient:
+    return TushareClient.instance()
+
+
+def _tushare_pro():  # 兼容旧调用点
+    return ts_client().pro
+
+
 def _tushare_pro():
     import tushare as ts
     token = ""
@@ -1338,14 +1375,11 @@ def pead_universe(days_back: int = 40, top: int = 8) -> list[dict]:
     """I_PEAD 候选: 最近 N 天公告的预增(预告净利同比≥50%) → 按公告日新鲜度排序。
 
     数据: tushare forecast 逐日 ann_date(接口限制); 三季报/年报预告季密集。"""
-    pro = _tushare_pro()
+    pro = ts_client()
     seen, out = set(), []
     for d in range(days_back, 0, -1):
         day = (EX_DATE - timedelta(days=d)).strftime("%Y%m%d")
-        try:
-            df = pro.forecast(ann_date=day, fields="ts_code,ann_date,type,p_change")
-        except Exception:
-            continue
+        df = pro.call("forecast", ann_date=day, fields="ts_code,ann_date,type,p_change")
         if df is None or df.empty:
             continue
         for _, r in df.iterrows():
@@ -1366,14 +1400,11 @@ def reversal_universe(days: int = 21, top: int = 8) -> list[dict]:
     """J_短期反转候选: 全市场 21 日跌幅最深 + 流动性过滤(金额≥3000万) + 剔ST/北交所/科创板。
 
     数据: tushare daily 逐日(daily 单次上限6000行)。机制: A股短期反转(LSY2019/STREV实证)。"""
-    pro = _tushare_pro()
+    pro = ts_client()
     series: dict[str, dict[str, float]] = {}
     for d in range(days, -1, -1):
         day = (EX_DATE - timedelta(days=d)).strftime("%Y%m%d")
-        try:
-            df = pro.daily(trade_date=day, fields="ts_code,close,amount")
-        except Exception:
-            continue
+        df = pro.call("daily", trade_date=day, fields="ts_code,close,amount")
         if df is None or df.empty:
             continue
         for _, r in df.iterrows():
@@ -1426,8 +1457,8 @@ def north_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
     if dry:
         return ["L_北向(dry) 信号计算"]
     try:
-        pro = _tushare_pro()
-        df = pro.moneyflow_hsgt(start_date=(EX_DATE - timedelta(days=400)).strftime("%Y%m%d"),
+        pro = ts_client()
+        df = pro.call("moneyflow_hsgt", start_date=(EX_DATE - timedelta(days=400)).strftime("%Y%m%d"),
                                 end_date=EX_DATE.strftime("%Y%m%d"), fields="trade_date,north_money")
         df = df.dropna(subset=["north_money"]).sort_values("trade_date")
         series = df["north_money"].tolist()
@@ -1462,11 +1493,11 @@ def holder_concentration_universe(top: int = 8) -> list[dict]:
 
     数据: tushare stk_holdernumber 按报告期全市场单次查询(季度频率)。
     过滤: ST/北交所/科创板; 流动性与市值约束在 px 层做。"""
-    pro = _tushare_pro()
+    pro = ts_client()
     cur_q = _latest_report_period(EX_DATE)
     prev_q = _prev_report_period(cur_q)
-    df = pro.stk_holdernumber(enddate=cur_q, fields="ts_code,holder_num")
-    prev = pro.stk_holdernumber(enddate=prev_q, fields="ts_code,holder_num")
+    df = pro.call("stk_holdernumber", enddate=cur_q, fields="ts_code,holder_num", cache_ttl_days=30)
+    prev = pro.call("stk_holdernumber", enddate=prev_q, fields="ts_code,holder_num", cache_ttl_days=30)
     m = df.merge(prev, on="ts_code", suffixes=("_new", "_prev"))
     m = m[(m["holder_num_new"] > 0) & (m["holder_num_prev"] > 0)]
     m["chg"] = (m["holder_num_new"] / m["holder_num_prev"] - 1) * 100
@@ -1481,8 +1512,9 @@ def holder_concentration_universe(top: int = 8) -> list[dict]:
             continue
         # cyq_perf 二次验证: 最新获利比例>60% → 筹码已高位, 剔除(防追已完成行情)
         try:
-            cyq = pro.cyq_perf(ts_code=code, start_date=(EX_DATE - timedelta(days=14)).strftime("%Y%m%d"),
-                               end_date=EX_DATE.strftime("%Y%m%d"), fields="trade_date,winner_rate")
+            cyq = ts_client().call("cyq_perf", ts_code=code,
+                                   start_date=(EX_DATE - timedelta(days=14)).strftime("%Y%m%d"),
+                                   end_date=EX_DATE.strftime("%Y%m%d"), fields="trade_date,winner_rate")
             if cyq is not None and len(cyq):
                 wr = float(cyq.sort_values("trade_date")["winner_rate"].iloc[-1])
                 if wr > 60:
