@@ -344,3 +344,16 @@ def test_e2_gate_hysteresis():
     assert mod.e2_gate_decision(125.0, "defensive") == "hold"            # 未恢复不退出
     assert mod.e2_gate_decision(117.9, "defensive") == "exit_defensive"
     assert mod.e2_gate_decision(0, "normal") == "no_data"
+
+
+# ---------------------------------------------------------------- E2 穿透月度调仓(顺序冲突修复)
+def test_cb_target_lots_e2_defensive_halves():
+    targets = {"113062.SH": {"weight": 0.25, "t1_close": 126.297},
+               "113631.SH": {"weight": 0.25, "t1_close": 128.839}}
+    px = {"113062.SH": {"price": 126.0}, "113631.SH": {"price": 129.0}}
+    full = mod.cb_target_lots(targets, px, e2_defensive=False)
+    half = mod.cb_target_lots(targets, px, e2_defensive=True)
+    # 满仓: 0.25*12411/(126*10)=2手=20张; 减半: 10张
+    assert full["113062.SH"] == 20
+    assert half["113062.SH"] == 10
+    assert all(v % 10 == 0 for v in half.values())

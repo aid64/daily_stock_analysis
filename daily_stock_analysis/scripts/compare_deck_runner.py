@@ -772,6 +772,20 @@ def mwu_rebalance(led: dict, px: dict, dry: bool, slot_name: str = "G_MWU融合"
         return [f"【异常】{slot_name} 引擎目标提取失败, 持仓保持不变"]
 
 
+def cb_target_lots(targets: dict, px: dict, e2_defensive: bool, capital: float = CAPITAL) -> dict[str, int]:
+    """纯函数: 引擎权重目标 → 整手张数(转债10张/手); e2_defensive 时目标×0.5(择时穿透月度调仓)。可测。"""
+    want = {}
+    factor = 0.5 if e2_defensive else 1.0
+    for sym, meta in targets.items():
+        price = (px.get(sym, {}) or {}).get("price") or float(meta.get("t1_close") or 0)
+        if not price:
+            continue
+        lots = int(float(meta.get("weight", 0)) * capital * factor // (price * 10)) * 10
+        if lots > 0:
+            want[sym] = lots
+    return want
+
+
 def cb_rebalance(led: dict, px: dict, dry: bool) -> list[dict]:
     """E 月度调仓：重取引擎目标 → 按 weight 换算整手张数 → 与持仓 diff 先卖后买。"""
     if dry:
@@ -785,18 +799,8 @@ def cb_rebalance(led: dict, px: dict, dry: bool) -> list[dict]:
                    if isinstance(v, dict) and v.get("signal_state") == "executable"}
         slot = led["strategies"]["E_可转债双低"]
         cur = {h["symbol"]: h["qty"] for h in slot.get("holds", [])}
-        price_of = {}
-        want = {}
-        e2_defensive = ctrl.get("e2_state") == "defensive"  # E2减半语义必须穿透月度调仓
-        factor = 0.5 if e2_defensive else 1.0
-        for sym, meta in targets.items():
-            price = (px.get(sym, {}).get("price")) or meta.get("t1_close") or 0
-            if not price:
-                continue
-            price_of[sym] = price
-            lots = int(float(meta.get("weight", 0)) * CAPITAL * factor // (price * 10)) * 10  # 转债 10张/手
-            if lots > 0:
-                want[sym] = lots
+        want = cb_target_lots(targets, px, e2_defensive=(ctrl.get("e2_state") == "defensive"))
+        price_of = {sym: px.get(sym, {}).get("price") for sym in want}
         sells = [{"symbol": h["symbol"], "qty": h["qty"] - want.get(h["symbol"], 0),
                   "price": px.get(h["symbol"], {}).get("price") or h.get("price", 0)}
                  for h in slot.get("holds", []) if h["qty"] > want.get(h["symbol"], 0)]
@@ -1213,7 +1217,9 @@ def e2_gate(led: dict, dry: bool) -> list[str]:
     数据: tushare cb_daily 单次全市场当日; 中位数序列逐日积累进 credit_watch.median_history。"""
     ctrl = led.setdefault("_control", {})
     try:
-        df = ts_client().call("cb_daily", trade_date=EX_DATE.strftime("%Y%m%d"), fields="close")
+        # 最近可得交易日语义: 收盘轮15:05时当日cb_daily可能未更新, 回看5天取最新
+        df = ts_client().call("cb_daily", start_date=(EX_DATE - timedelta(days=7)).strftime("%Y%m%d"),
+                              end_date=EX_DATE.strftime("%Y%m%d"), fields="trade_date,close")
         prices = [float(x) for x in (df["close"].dropna().tolist() if df is not None else []) if x and float(x) > 0]
     except Exception as exc:
         log.warning("E2 数据失败: %r", exc)
