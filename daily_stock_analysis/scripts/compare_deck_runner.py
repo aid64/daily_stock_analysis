@@ -1023,9 +1023,16 @@ def risk_round(led: dict, px: dict, dry: bool) -> list[dict]:
     med = micro[len(micro)//2] if micro else 0.0
     idx = tencent_quotes(["sz399303"]).get("399303", {})
     idx_pct = idx.get("pct", 0.0)
-    triggered = (micro and med <= -4.0) or idx_pct <= -3.0
+    limit_dn = 0
+    try:
+        pro0 = _tushare_pro()
+        lld = pro0.limit_list_d(trade_date=EX_DATE.strftime("%Y%m%d"), limit_type="D")
+        limit_dn = len(lld) if lld is not None else 0
+    except Exception as exc:
+        log.warning("跌停家数获取失败: %r", exc)
+    triggered = (micro and med <= -4.0) or idx_pct <= -3.0 or limit_dn >= 50
     if triggered:
-        cause = f"微盘中位数 {med}%" if med <= -4.0 else f"国证2000 {idx_pct}%"
+        cause = ("跌停家数 " + str(limit_dn)) if limit_dn >= 50 else (f"微盘中位数 {med}%" if med <= -4.0 else f"国证2000 {idx_pct}%")
         if crash == "normal":
             crash = "watch"
             ctrl["crash_state"] = "watch"
@@ -1470,7 +1477,18 @@ def holder_concentration_universe(top: int = 8) -> list[dict]:
         nm = names.get(code, "")
         if not _ok_symbol(nm, code):
             continue
-        out.append({"ts_code": code, "name": nm, "chg": round(float(r["chg"]), 1)})
+        # cyq_perf 二次验证: 最新获利比例>60% → 筹码已高位, 剔除(防追已完成行情)
+        try:
+            cyq = pro.cyq_perf(ts_code=code, start_date=(EX_DATE - timedelta(days=14)).strftime("%Y%m%d"),
+                               end_date=EX_DATE.strftime("%Y%m%d"), fields="trade_date,winner_rate")
+            if cyq is not None and len(cyq):
+                wr = float(cyq.sort_values("trade_date")["winner_rate"].iloc[-1])
+                if wr > 60:
+                    continue
+        except Exception:
+            pass  # 筹码查询失败不阻塞候选(保守放行, 下游还有过滤)
+        out.append({"ts_code": code, "name": nm, "chg": round(float(r["chg"]), 1),
+                    "winner_rate": round(float(cyq.sort_values("trade_date")["winner_rate"].iloc[-1]), 1) if cyq is not None and len(cyq) else None})
         if len(out) >= top:
             break
     return out
