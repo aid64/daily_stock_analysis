@@ -1,0 +1,54 @@
+# 数据源矩阵（Data Source Matrix）
+
+> 2026-10-03 建立并实测。对比盘与主流程的数据源全景——每个源：能力/状态/限制/用途。
+> 原则：任何单源故障不得拖垮流程（数据链自动降级）；阈值信号用多源交叉验证。
+
+## 一、实时行情（优先级链：`REALTIME_SOURCE_PRIORITY`）
+
+| 源 | 优先级 | 状态 | 限制 | 实测 |
+|---|---|---|---|---|
+| **TickFlow** | **第1（用户配置最高）** | ✅ 主力 | 批量实时≤5只/次；频率 10/min；K线预取≤730天 | 512890 等实测成功 |
+| tushare | P-1（日频/实时均高优先） | ✅ 主力 | 积分制 15000（见下表） | 多接口实测 |
+| 腾讯直连 | 链内+审计直连 | ✅ | 无 | 全市场 |
+| 东财 efinance/akshare | 链内 | ⚠ 不稳定 | 盘后/晚间频繁 RemoteDisconnected | 降级链正常 |
+| 新浪/PyTDX/Baostock/Yfinance | 链内兜底 | ✅ | 各自限制 | 降级链正常 |
+
+**TickFlow 独有接口**（2026-10-03 实测）：`get_main_indices`（主要指数完整行情）✅；`get_market_stats`/`get_sector_rankings` 返回 None（fail-open，待查）。
+
+## 二、tushare 15000 积分接口（15/16 实测可用）
+
+| 接口 | 用途 | 已落地 |
+|---|---|---|
+| daily_basic | 市值/估值/换手（K/M 槽选股、快照补列） | ✅ |
+| stock_basic / daily / index_daily / index_dailybasic | 基础数据、ERP 分位（10年PE） | ✅ |
+| moneyflow_hsgt | 北向净买入（L 槽信号） | ✅ |
+| cb_daily / forecast / stk_holdernumber / fund_div | E2/I/M 槽核心 | ✅ |
+| **limit_list_d** | 全市场跌停家数（熔断第三信号） | ✅ |
+| **cyq_perf / cyq_chips** | 真·筹码获利比例（M 槽二次验证） | ✅ |
+| moneyflow | 个股资金流（J 崩刀过滤） | 清单 |
+| income / sw_daily / margin / top_list / block_trade / hk_hold / repurchase / dividend | 排雷/行业/情绪/事件 | 备用 |
+| report_rc | 研报评级 | ⚠ 额度 10 次/天 |
+| tracker | 一致预期 | ❌ 接口名无效 |
+
+## 三、akshare（独立补充源）
+
+| 接口 | 状态 | 用途 |
+|---|---|---|
+| stock_zh_a_spot_em | ⚠ 不稳定（晚间频繁断连） | 全市场快照（降级→新浪，缺列由 tushare 补） |
+| fund_etf_spot_em | ⚠ 不稳定 | ETF 快照 |
+| stock_notice_report | ✅ | 全市场公告流（X 事件扫描核心） |
+| stock_zt_pool_dtgc_em | ✅ | 跌停池（9 行/日，与 limit_list_d 交叉验证） |
+| stock_margin_sse | ✅ | 两融明细 |
+| stock_index_pe_lg | ⚠ 仅 258 行 | ERP 兜底（主源 tushare） |
+| stock_news_em | ❌ 参数/解析异常 | 个股新闻（观察，待换接口） |
+
+## 四、baostock（交叉验证源）
+
+- ✅ 日线（复权）稳定；Sequoia-X 主数据源
+- **audit 多源一致性检查**：baostock vs 腾讯 同标的收盘偏差 ≤0.5%（实测 4.432=4.432 PASS）
+
+## 五、纪律
+
+1. 阈值信号（熔断/ERP/E2）一律**双源交叉验证**后才允许触发交易动作
+2. 单源限速（tickflow 10/min、report_rc 10/天、tushare 积分）——调用前查缓存，禁止无谓重复拉取
+3. 新数据源接入必须先进本矩阵登记+实测，再写代码
