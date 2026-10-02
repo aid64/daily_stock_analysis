@@ -63,8 +63,8 @@ def acquire_lock() -> bool:
     except FileExistsError:
         try:
             age = datetime.now() - datetime.fromtimestamp(_LOCK_PATH.stat().st_mtime)
-            if age > timedelta(minutes=15):
-                log.warning("锁超过15分钟视为残留, 强制清除")
+            if age > timedelta(minutes=60):
+                log.warning("锁超过60分钟视为残留, 强制清除")
                 _LOCK_PATH.unlink()
                 return acquire_lock()
         except Exception as exc:
@@ -542,10 +542,15 @@ def pead_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
                 picks.append({"symbol": sym, "name": names_of(cands).get(r["ts_code"], sym), "price": p, "qty": 100})
             if len(picks) >= 5:
                 break
+        # 持有期上限: PEAD漂移窗20-60日, 持有超过60个日历日的标的强制轮出(月度窗自然覆盖大半)
+        stale = [h for h in slot.get("holds", [])
+                 if (EX_DATE - datetime.strptime(h.get("held_since", "2026-09-28"), "%Y-%m-%d").date()).days > 60]
         sells = [{"symbol": h["symbol"], "qty": h["qty"], "price": px.get(h["symbol"], {}).get("price") or h.get("price", 0), "is_stock": True}
-                 for h in slot.get("holds", []) if h["symbol"] not in {p["symbol"] for p in picks}]
+                 for h in slot.get("holds", []) if h["symbol"] not in {p["symbol"] for p in picks} or h in stale]
         buys = [{"symbol": p["symbol"], "name": p["name"], "qty": p["qty"], "price": p["price"], "is_stock": True}
                 for p in picks if p["symbol"] not in {h["symbol"] for h in slot.get("holds", [])}]
+        for h in slot.get("holds", []):
+            h.setdefault("held_since", EX_DATE.isoformat())
         apply_orders(slot, sells, buys, px)
         slot["note"] = f"{EX_DATE} 候选{len(cands)}→持仓{len(picks)}"
         return [f"I_PEAD 调仓→{[p['symbol'] for p in picks] or '空仓'}"]
@@ -1535,14 +1540,16 @@ def holder_concentration_universe(top: int = 8) -> list[dict]:
 
 
 def _latest_report_period(d: date) -> str:
-    """最近已披露完毕的报告期(季报后约45天): 10-11月用Q2? 简化映射。"""
+    """最近已披露完毕的报告期(披露截止≈季末后45天): 11/12月用Q3, 8/9/10月用Q2。"""
     y, mth = d.year, d.month
-    if mth >= 10:
+    if mth >= 11:            # 三季报(0930)披露截止10-31 → 11月起可用
+        return f"{y}0930"
+    if mth >= 8:             # 中报(0630)披露截止08-31 → 8-10月用Q2
         return f"{y}0630"
-    if mth >= 7:
+    if mth >= 5:             # 一季报(0331)披露截止04-30 → 5-7月用Q1
         return f"{y}0331"
-    if mth >= 4:
-        return f"{y-1}1231"
+    if mth >= 2:             # 年报(1231)披露截止04-30前多数在3月, 保守2月起用上年Q3? — 年报预告多在1月
+        return f"{y-1}0930"
     return f"{y-1}0930"
 
 
@@ -1588,13 +1595,19 @@ def holder_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
 
 
 def sequoia_ready() -> bool:
-    """Sequoia-X 数据回填就绪检查（stock_daily ≥300 万行）。"""
+    """Sequoia-X 数据就绪: 行数≥200万(实测全量231万) 且 最新bar在近10天内。"""
     db = PROJECT_DIR.parent / "quant_research" / "vendor" / "Sequoia-X" / "data" / "sequoia_v2.db"
     try:
         import sqlite3
         con = sqlite3.connect(db)
         n = con.execute("SELECT COUNT(*) FROM stock_daily").fetchone()[0]
-        return n >= 3_000_000
+        latest = con.execute("SELECT MAX(date) FROM stock_daily").fetchone()[0]
+        from datetime import datetime as _dt
+        age_days = (_dt.now() - _dt.strptime(latest, "%Y-%m-%d")).days if latest else 9999
+        ready = n >= 2_000_000 and age_days <= 10
+        if not ready:
+            log.info("Sequoia-X 数据未就绪: %s 行, 最新 %s", f"{n:,}", latest)
+        return ready
     except Exception:
         return False
 
