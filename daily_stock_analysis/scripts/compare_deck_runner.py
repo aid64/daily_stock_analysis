@@ -1390,7 +1390,8 @@ def pead_universe(days_back: int = 40, top: int = 8) -> list[dict]:
     seen, out = set(), []
     for d in range(days_back, 0, -1):
         day = (EX_DATE - timedelta(days=d)).strftime("%Y%m%d")
-        df = pro.call("forecast", ann_date=day, fields="ts_code,ann_date,type,p_change")
+        df = pro.call("forecast", ann_date=day,
+                      fields="ts_code,ann_date,type,p_change,net_profit_min")
         if df is None or df.empty:
             continue
         for _, r in df.iterrows():
@@ -1398,7 +1399,9 @@ def pead_universe(days_back: int = 40, top: int = 8) -> list[dict]:
             typ = str(r.get("type", ""))
             chg = r.get("p_change")
             chg = float(chg) if chg not in (None, "", "nan") else None
-            if typ != "预增" or (chg is not None and chg < 50):
+            np_min = r.get("net_profit_min")
+            np_ok = np_min in (None, "", "nan") or (lambda v: v > 0)(float(np_min)) if str(np_min) not in ("None", "") else True
+            if typ != "预增" or (chg is not None and chg < 50) or not np_ok:
                 continue
             if code in seen or not _ok_symbol("", code):
                 continue
@@ -1434,6 +1437,16 @@ def reversal_universe(days: int = 21, top: int = 8) -> list[dict]:
     names = dict(sb.values.tolist())
     out = [r for r in out if _ok_symbol(names.get(r["ts_code"], ""), r["ts_code"])]
     out.sort(key=lambda r: r["ret21"])
+    # 崩刀过滤: 跌幅最深候选当日主力净流出≥3000万 → 真崩非超跌, 剔除
+    for r in out:
+        code6 = ("sh" if r["ts_code"].endswith(".SH") else "sz") + r["ts_code"][:6]
+        try:
+            mf = pro.moneyflow(trade_date=(EX_DATE - timedelta(days=1)).strftime("%Y%m%d"),
+                               ts_code=r["ts_code"], fields="net_mf_amount")
+            r["net_mf"] = float(mf["net_mf_amount"].iloc[0]) if mf is not None and len(mf) else None
+        except Exception:
+            r["net_mf"] = None
+    out = [r for r in out if r.get("net_mf") is None or r["net_mf"] > -3000]
     return out[:top]
 
 
