@@ -1438,11 +1438,20 @@ def reversal_universe(days: int = 21, top: int = 8) -> list[dict]:
 
 
 def north_percentile(north_series: list, current: float) -> float:
-    """纯函数: 昨日北向净买入在近250日中的分位(0-100)。"""
-    vals = [float(v) for v in north_series if v is not None]
-    if len(vals) < 60 or current is None:
+    """纯函数: 昨日北向净买入在近250日中的分位(0-100)。str/None 容错。"""
+    try:
+        cur = float(current)
+    except (TypeError, ValueError):
         return -1.0
-    below = sum(1 for v in vals if v <= current)
+    vals = []
+    for v in north_series:
+        try:
+            vals.append(float(v))
+        except (TypeError, ValueError):
+            continue
+    if len(vals) < 60:
+        return -1.0
+    below = sum(1 for v in vals if v <= cur)
     return round(below / len(vals) * 100, 1)
 
 
@@ -1473,7 +1482,7 @@ def north_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
                                 end_date=EX_DATE.strftime("%Y%m%d"), fields="trade_date,north_money")
         df = df.dropna(subset=["north_money"]).sort_values("trade_date")
         series = df["north_money"].tolist()
-        yesterday = df["north_money"].iloc[-1] if df["trade_date"].iloc[-1] == EX_DATE.strftime("%Y%m%d") else (df["north_money"].iloc[-2] if len(df) > 1 else None)
+        yesterday = float(df["north_money"].iloc[-1]) if df["trade_date"].iloc[-1] == EX_DATE.strftime("%Y%m%d") else (float(df["north_money"].iloc[-2]) if len(df) > 1 else None)
         pct = north_percentile(series[:-1], yesterday)  # 用截至昨日的窗口, 信号=昨日值
         action = north_decision(pct)
         cur = {h["symbol"]: h["qty"] for h in slot.get("holds", [])}
