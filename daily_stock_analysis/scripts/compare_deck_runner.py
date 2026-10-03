@@ -1736,6 +1736,24 @@ def daily_dividend_pass(led: dict, px: dict, dry: bool) -> list[str]:
 _DIV_CACHE: dict = {}
 
 
+_WEEK_CACHE: dict = {}
+
+
+def _is_week_first_trading_day() -> bool:
+    """EX_DATE 是否本周(周一~今天)首个交易日——假期周(如10-08周四开盘)不跳过周频信号。"""
+    week_key = f"week{EX_DATE - timedelta(days=EX_DATE.weekday()):%Y%m%d}"
+    if _WEEK_CACHE.get(week_key) is not None:
+        return _WEEK_CACHE[week_key]
+    result = True
+    for back in range(1, EX_DATE.weekday() + 1):
+        d = EX_DATE - timedelta(days=back)
+        if is_exchange_trading_day(d):
+            result = False
+            break
+    _WEEK_CACHE[week_key] = result
+    return result
+
+
 def run_close(dry: bool) -> str:
     led = load_ledger()
     px = slot_prices(led)
@@ -1766,7 +1784,7 @@ def run_close(dry: bool) -> str:
         if rep:
             notify(rep, dedup_key=f"deck_monthly_{EX_DATE:%Y-%m}")
     ctrl = led.setdefault("_control", {})
-    if EX_DATE.weekday() == 0:
+    if _is_week_first_trading_day():
         for m in momentum_signal(led, px, dry) + rotation_signal(led, px, dry) + mwu_rebalance(led, px, dry):
             msgs.append(m)
     month_key = today[:7]
@@ -1828,9 +1846,10 @@ def main() -> int:
 
 
 def _main_inner(args: argparse.Namespace) -> int:
+    global EX_DATE, _TRADING_OK
     now = exchange_now() or datetime.now()
-    global EX_DATE
     EX_DATE = now.date()
+    _TRADING_OK = args.force or is_trading_session(now)
     if not args.force and not is_trading_session(now):
         print(f"非交易时段(交易所时间 {now:%m-%d %H:%M})，跳过 {args.mode} 轮")
         return 0
