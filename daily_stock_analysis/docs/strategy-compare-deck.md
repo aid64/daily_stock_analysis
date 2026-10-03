@@ -63,6 +63,12 @@
 
 绝不真实下单；主动策略晋升真钱按三关（滚动60日跑赢沪深300 + 三窗口切片为正 + 扣成本为正）；确定性通道（事件套利/打新/逆回购）真钱优先但单笔≤总资金10%。
 
+## 7a. 调度细节（2026-10-02 诊断后）
+
+- **弹窗修复**：所有 `DSA_*` 计划任务动作经 `scripts/run_hidden.vbs`（SW_HIDE 在 CreateProcess 阶段生效，绕过 Windows Terminal 默认终端接管）——审计确认执行链完好
+- **电池策略已解除**：`DisallowStartIfOnBatteries/StopIfGoingOnBatteries = False`——交易时段盘中风控（分级熔断/E2/信用）不因用电池停摆；代价是电池续航，回滚=改回 True
+- **补跑突刺**：插电瞬间错过的高频任务会立即补跑（run_hidden 已消除弹窗； runner 有单实例锁+时段闸，补跑无害）
+
 ## 7a. 回归保护网
 
 - `tests/test_compare_deck_runner.py` 28 项：纯函数（费用/换算/时段/价差/分位/缓冲带/回撤）+ **10-08 月度大考端到端**（mock 时间/行情/引擎，tmp 台账全链）

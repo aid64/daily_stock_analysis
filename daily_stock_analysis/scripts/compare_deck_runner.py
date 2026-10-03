@@ -1399,8 +1399,11 @@ def pead_universe(days_back: int = 40, top: int = 8) -> list[dict]:
             typ = str(r.get("type", ""))
             chg = r.get("p_change")
             chg = float(chg) if chg not in (None, "", "nan") else None
-            np_min = r.get("net_profit_min")
-            np_ok = np_min in (None, "", "nan") or (lambda v: v > 0)(float(np_min)) if str(np_min) not in ("None", "") else True
+            np_raw = r.get("net_profit_min")
+            try:
+                np_ok = float(np_raw) > 0  # 预告下限净利润为正(排雷: 基数型假预增)
+            except (TypeError, ValueError):
+                np_ok = True  # 未披露下限时放行(预告季早期常见)
             if typ != "预增" or (chg is not None and chg < 50) or not np_ok:
                 continue
             if code in seen or not _ok_symbol("", code):
