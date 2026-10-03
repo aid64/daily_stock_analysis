@@ -1479,6 +1479,26 @@ def north_decision(pct: float) -> str:
     return "keep"
 
 
+def e_take_profit_pass(led: dict, px: dict, dry: bool) -> list[str]:
+    """E 槽单券止盈: 持仓券现价≥130 元(强赎博弈区) → 全部卖出落袋。社区共识口径。"""
+    slot = led["strategies"].get("E_可转债双低")
+    if not slot:
+        return []
+    sells = []
+    for h in slot.get("holds", []):
+        p = px.get(h["symbol"], {}).get("price") or 0
+        if p >= 130:
+            sells.append({"symbol": h["symbol"], "qty": h["qty"], "price": p})
+    if not sells:
+        return []
+    if not dry:
+        apply_orders(slot, sells, [], px)
+        slot.setdefault("tuning", []).append(
+            {"date": EX_DATE.isoformat(), "change": f"单券止盈 {[s['symbol'] for s in sells]}",
+             "why": "≥130元强赎博弈区(社区共识口径)"})
+    return [f"E单券止盈: {' '.join(s['symbol'] for s in sells)} @≥130"]
+
+
 def north_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
     """L_北向择时: 昨日北向净买入250日分位 → 持有/清仓 510300(与C槽同标的, 受控实验)。
 
@@ -1791,6 +1811,7 @@ def run_close(dry: bool) -> str:
     msgs.extend(div_msgs)
     msgs.extend(erp_gate(led, px, dry))
     msgs.extend(e2_gate(led, dry))
+    msgs.extend(e_take_profit_pass(led, px, dry))
     msgs.extend(north_rebalance(led, px, dry))
     if _is_month_last_trading_day() and not dry:
         rep = monthly_report(led, dry)
