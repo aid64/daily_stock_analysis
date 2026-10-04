@@ -136,6 +136,7 @@ def _fake_ledger():
         "I_PEAD业绩预告": {"holds": [], "cash": 12411.0, "equity": 12411.0},
         "K_项目选股": {"holds": [], "cash": 12411.0, "equity": 12411.0},
         "L_北向择时": {"holds": [], "cash": 12411.0, "equity": 12411.0},
+        "O_行业轮动": {"holds": [], "cash": 12411.0, "equity": 12411.0},
         "M_筹码集中度": {"holds": [], "cash": 12411.0, "equity": 12411.0},
         "N_技术形态对照": {"holds": [], "cash": 12411.0, "equity": 12411.0},
         "J_短期反转": {"holds": [], "cash": 12411.0, "equity": 12411.0},

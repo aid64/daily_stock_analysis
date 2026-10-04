@@ -1700,6 +1700,90 @@ def sequoia_scan(dry: bool) -> list[str]:
         return ["【异常】N_技术形态 扫描失败, 持仓不变"]
 
 
+def industry_momentum_universe(top_industries: int = 3, per_industry: int = 2, top: int = 8) -> list[dict]:
+    """O_行业轮动候选: 28个申万L1行业20日动量排序 → 前3行业 → 成分股按流通市值选龙头(每行业2只)。
+
+    数据: tushare sw_daily(行业指数) + index_member_all(成分) + daily_basic(市值)。28次调用/月。"""
+    pro = ts_client()
+    lv1 = pro.call("index_classify", level="L1", fields="index_code")
+    codes = lv1["index_code"].tolist() if lv1 is not None else []
+    scored = []
+    for c in codes:
+        try:
+            d = pro.call("sw_daily", ts_code=c,
+                         start_date=(EX_DATE - timedelta(days=45)).strftime("%Y%m%d"),
+                         end_date=EX_DATE.strftime("%Y%m%d"), fields="trade_date,close")
+        except Exception:
+            continue
+        if d is None or len(d) < 10:
+            continue
+        ret20 = (float(d["close"].iloc[-1]) / float(d["close"].iloc[0]) - 1) * 100
+        scored.append((c, ret20))
+    scored.sort(key=lambda x: -x[1])
+    top_ind = [c for c, _ in scored[:top_industries]]
+    if not top_ind:
+        return []
+    # 成分股(每行业按流通市值取前2)
+    pool = []
+    for ind in top_ind:
+        try:
+            members = pro.call("index_member_all", l1_code=ind, fields="ts_code")
+            if members is None or members.empty:
+                continue
+            syms = [str(x) for x in members["ts_code"].tolist()[:200]]
+            day0 = EX_DATE.strftime("%Y%m%d")
+            db = None
+            for back in range(0, 8):  # 休市日回退
+                try:
+                    db = pro.call("daily_basic", trade_date=(EX_DATE - timedelta(days=back)).strftime("%Y%m%d"),
+                                  fields="ts_code,circ_mv")
+                    if db is not None and len(db):
+                        break
+                except Exception:
+                    continue
+            if db is None or db.empty:
+                continue
+            db = db[db["ts_code"].isin(syms)].dropna(subset=["circ_mv"])
+            # 行业β代表: 选行业内市值最大2只(流动性龙头)——不混小市值因子, 保持行业动量归因纯净
+            for _, r in db.nlargest(2, "circ_mv").iterrows():
+                pool.append({"ts_code": r["ts_code"], "industry": ind})
+        except Exception:
+            continue
+    return pool[:top]
+
+
+def industry_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
+    """O_行业轮动: 月度窗重取行业动量+成分龙头 → 与持仓 diff。"""
+    slot = led["strategies"].get("O_行业轮动")
+    if not slot:
+        return []
+    if dry:
+        return ["O_行业轮动(dry) 候选重取"]
+    try:
+        cands = industry_momentum_universe()
+        if not cands:
+            slot["note"] = f"{EX_DATE} 无候选, 维持旧仓"
+            return ["O_行业轮动 无候选, 维持旧仓"]
+        picks = []
+        for r in cands:
+            sym = ("SH" if r["ts_code"].endswith(".SH") else "SZ") + r["ts_code"][:6]
+            p = px.get(sym, {}).get("price") or 0
+            if p and p * 100 <= 2500 and sym not in {q["symbol"] for q in picks}:
+                picks.append({"symbol": sym, "price": p, "qty": 100})
+            if len(picks) >= 5:
+                break
+        sells = [{"symbol": h["symbol"], "qty": h["qty"], "price": px.get(h["symbol"], {}).get("price") or h.get("price", 0), "is_stock": True}
+                 for h in slot.get("holds", []) if h["symbol"] not in {p["symbol"] for p in picks}]
+        buys = [{"symbol": p["symbol"], "qty": p["qty"], "price": p["price"], "is_stock": True}
+                for p in picks if p["symbol"] not in {h["symbol"] for h in slot.get("holds", [])}]
+        apply_orders(slot, sells, buys, px)
+        slot["note"] = f"{EX_DATE} 行业动量Top3龙头轮动"
+        return [f"O_行业轮动 调仓→{[p['symbol'] for p in picks] or '空仓'}"]
+    except Exception as exc:
+        log.error("O_行业轮动 调仓失败: %r", exc)
+        return ["【异常】O_行业轮动 候选重取失败, 持仓不变"]
+
+
 def build_close_summary(led: dict, px: dict) -> str:
     """收盘消息：排名 + 今日操作 + 每槽持仓明细（数量/成本/现价/盈亏）+ 风险状态。"""
     equity = {name: s.get("equity", 0) for name, s in led["strategies"].items()}
@@ -1714,7 +1798,7 @@ def build_close_summary(led: dict, px: dict) -> str:
     actions = (led.get("_actions", {}).get(today) or [])
     lines += [f"· {a}" for a in actions] if actions else ["· 无调仓"]
     lines.append("▎持仓明细")
-    for name in ("A_动量", "B_轮动", "E_可转债双低", "F_小市值20", "F2_小市值5只神帖对照", "X_事件套利", "G_MWU融合", "H_MWU_CB融合", "I_PEAD业绩预告", "J_短期反转", "K_项目选股", "L_北向择时", "M_筹码集中度", "N_技术形态对照", "C_沪深300持有", "D_红利低波持有"):
+    for name in ("A_动量", "B_轮动", "E_可转债双低", "F_小市值20", "F2_小市值5只神帖对照", "X_事件套利", "G_MWU融合", "H_MWU_CB融合", "I_PEAD业绩预告", "J_短期反转", "K_项目选股", "L_北向择时", "M_筹码集中度", "N_技术形态对照", "O_行业轮动", "C_沪深300持有", "D_红利低波持有"):
         holds = led["strategies"][name].get("holds", [])
         if not holds:
             lines.append(f"{name}: 空仓")
@@ -1838,6 +1922,7 @@ def run_close(dry: bool) -> str:
                       + reversal_rebalance(led, px, dry)
                       + buywatch_rebalance(led, px, dry)
                       + holder_rebalance(led, px, dry)
+                      + industry_rebalance(led, px, dry)
                       + sequoia_scan(dry)):
                 msgs.append(m)
             done[month_key] = "all"
