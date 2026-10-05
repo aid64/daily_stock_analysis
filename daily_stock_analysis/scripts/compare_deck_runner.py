@@ -1447,14 +1447,19 @@ def reversal_universe(days: int = 21, top: int = 8) -> list[dict]:
     out = [r for r in out if _ok_symbol(names.get(r["ts_code"], ""), r["ts_code"])]
     out.sort(key=lambda r: r["ret21"])
     # 崩刀过滤: 跌幅最深候选当日主力净流出≥3000万 → 真崩非超跌, 剔除
+    # moneyflow 日期回退: 月首交易日前一天可能是休市日
     for r in out:
         code6 = ("sh" if r["ts_code"].endswith(".SH") else "sz") + r["ts_code"][:6]
-        try:
-            mf = pro.moneyflow(trade_date=(EX_DATE - timedelta(days=1)).strftime("%Y%m%d"),
-                               ts_code=r["ts_code"], fields="net_mf_amount")
-            r["net_mf"] = float(mf["net_mf_amount"].iloc[0]) if mf is not None and len(mf) else None
-        except Exception:
-            r["net_mf"] = None
+        r["net_mf"] = None
+        for back in range(1, 6):
+            day = (EX_DATE - timedelta(days=back)).strftime("%Y%m%d")
+            try:
+                mf = pro.moneyflow(trade_date=day, ts_code=r["ts_code"], fields="net_mf_amount")
+                if mf is not None and len(mf):
+                    r["net_mf"] = float(mf["net_mf_amount"].iloc[0])
+                    break
+            except Exception:
+                continue
     out = [r for r in out if r.get("net_mf") is None or r["net_mf"] > -3000]
     return out[:top]
 
