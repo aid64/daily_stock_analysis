@@ -146,6 +146,26 @@ def main() -> int:
         check("抽样净值", "WARN", "无可抽样持仓(行情缺失)")
     elif not any(r["check"] == "抽样净值" and r["status"] == "FAIL" for r in results):
         check("抽样净值", "PASS", "; ".join(drifts))
+    # 4b. 多源交叉验证: baostock vs 腾讯 同标的收盘价偏差
+    try:
+        import baostock as bs
+        lg = bs.login()
+        rs = bs.query_history_k_data_plus("sh.510300", "date,close",
+                                          start_date="2026-09-30", end_date="2026-09-30")
+        bs_rows = []
+        while rs.error_code == "0" and rs.next():
+            bs_rows.append(rs.get_row_data())
+        bs.logout()
+        if bs_rows:
+            bs_close = float(bs_rows[-1][1])
+            tt = tencent_live(["sh510300"]).get("510300")
+            if tt and abs(bs_close - tt) / tt > 0.005:
+                check("多源一致性", "WARN", f"baostock {bs_close} vs 腾讯 {tt} 偏差>0.5%")
+            else:
+                check("多源一致性", "PASS", f"baostock {bs_close} ≈ 腾讯 {tt}")
+    except Exception as exc:
+        check("多源一致性", "WARN", f"交叉验证不可用: {exc!r:.60}")
+
     # 5. 时间健康
     stamp = exchange_stamp()
     if stamp:
