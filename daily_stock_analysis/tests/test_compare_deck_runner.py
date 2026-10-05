@@ -358,3 +358,51 @@ def test_cb_target_lots_e2_defensive_halves():
     assert full["113062.SH"] == 20
     assert half["113062.SH"] == 10
     assert all(v % 10 == 0 for v in half.values())
+
+
+# ---------------------------------------------------------------- e_take_profit_pass
+def test_e_take_profit_sells_at_130(tmp_path, monkeypatch):
+    """E 单券止盈: 现价≥130 卖出, <130 不动。"""
+    import json as _json
+    from datetime import date as _date, datetime as _dt
+    real = mod.LEDGER
+    led = _json.loads(real.read_text(encoding="utf-8"))
+    led["strategies"]["E_可转债双低"]["holds"] = [
+        {"symbol": "113062.SH", "name": "常银转债", "qty": 20, "price": 125.0},
+        {"symbol": "113691.SH", "name": "和邦转债", "qty": 20, "price": 134.0}]
+    led["strategies"]["E_可转债双低"]["cash"] = 2291.74
+    test_led = tmp_path / "ledger.json"
+    test_led.write_text(_json.dumps(led, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(mod, "LEDGER", test_led)
+    monkeypatch.setattr(mod, "EX_DATE", _date(2026, 10, 8))
+    monkeypatch.setattr(mod, "notify", lambda *a, **k: False)
+    px = {"113062.SH": {"price": 126.0, "pct": 0.0}, "113691.SH": {"price": 134.0, "pct": 0.0}}
+    mod.e_take_profit_pass(mod.load_ledger(), px, dry=False)
+    new_led = mod.load_ledger()
+    holds = {h["symbol"]: h["qty"] for h in new_led["strategies"]["E_可转债双低"]["holds"]}
+    assert "113691.SH" not in holds  # ≥130 卖出
+    assert holds.get("113062.SH") == 20  # <130 不动
+
+
+def test_e_take_profit_noop_below_threshold(tmp_path, monkeypatch):
+    import json as _json
+    from datetime import date as _date
+    real = mod.LEDGER
+    led = _json.loads(real.read_text(encoding="utf-8"))
+    led["strategies"]["E_可转债双低"]["holds"] = [
+        {"symbol": "113062.SH", "name": "常银转债", "qty": 20, "price": 125.0}]
+    test_led = tmp_path / "ledger.json"
+    test_led.write_text(_json.dumps(led, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(mod, "LEDGER", test_led)
+    monkeypatch.setattr(mod, "EX_DATE", _date(2026, 10, 8))
+    px = {"113062.SH": {"price": 126.0, "pct": 0.0}}
+    mod.e_take_profit_pass(mod.load_ledger(), px, dry=False)
+    new_led = mod.load_ledger()
+    assert len(new_led["strategies"]["E_可转债双低"]["holds"]) == 1  # 未卖出
+
+
+# ---------------------------------------------------------------- N 槽 sequoia_ready
+def test_sequoia_ready_threshold():
+    """N 槽闸门: ≥200 万行即就绪(修正后的真实全量标准)。"""
+    # 用实际数据库验证(231 万行 > 200 万阈值)
+    assert mod.sequoia_ready() is True

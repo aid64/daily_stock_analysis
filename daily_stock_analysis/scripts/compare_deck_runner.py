@@ -38,6 +38,7 @@ PROJECT_DIR = Path(__file__).resolve().parents[1]
 LEDGER = PROJECT_DIR.parent / ".scratch" / "dsa-strategy-validation" / "compare_strategies.json"
 CAPITAL = 12411.0
 LEDGER_SCHEMA_VERSION = 3
+_TRADING_OK = True  # main() 用交易所时间覆盖; 测试/直调默认放行
 EX_DATE = date.today()  # 交易所日历日（main 启动时用行情时间戳校准；本机时钟不可信）
 COMM_RATE, COMM_MIN = 0.0000845, 5.0
 STAMP_SELL = 0.0005  # 股票卖出印花税（ETF 免）
@@ -1507,6 +1508,7 @@ def e_take_profit_pass(led: dict, px: dict, dry: bool) -> list[str]:
         return []
     if not dry:
         apply_orders(slot, sells, [], px)
+        save_ledger(led)
         slot.setdefault("tuning", []).append(
             {"date": EX_DATE.isoformat(), "change": f"单券止盈 {[s['symbol'] for s in sells]}",
              "why": "≥130元强赎博弈区(社区共识口径)"})
@@ -1940,7 +1942,7 @@ def run_close(dry: bool) -> str:
             # 总闸缩放: ERP/E2 防御态下, 月度重建的主动槽立即减半(重建后再缩放, 语义=策略目标×总闸系数)
             factor = 0.5 if (ctrl.get("erp_state") == "defensive" or ctrl.get("e2_state") == "defensive") else 1.0
             if factor < 1.0:
-                for s in ("A_动量", "F_小市值20", "F2_小市值5只神帖对照", "G_MWU融合", "H_MWU_CB融合", "I_PEAD业绩预告", "J_短期反转", "K_项目选股", "M_筹码集中度"):
+                for s in ("A_动量", "F_小市值20", "F2_小市值5只神帖对照", "G_MWU融合", "H_MWU_CB融合", "I_PEAD业绩预告", "J_短期反转", "K_项目选股", "M_筹码集中度", "O_行业轮动", "N_技术形态对照"):
                     slot2 = led["strategies"].get(s, {})
                     half = [{"symbol": h["symbol"], "qty": h["qty"] // 2,
                              "price": px.get(h["symbol"], {}).get("price") or h.get("price", 0),
