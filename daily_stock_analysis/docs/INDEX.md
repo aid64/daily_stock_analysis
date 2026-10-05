@@ -28,6 +28,7 @@
 | [FAQ](FAQ.md) | 常见配置、模型、通知、部署和运行问题 |
 | [数据源稳定性与故障处理图示](data-source-stability.md) | Tushare、TickFlow、AkShare、Efinance、YFinance、Longbridge 等已接入源的使用场景、fallback 链路和推荐配置 |
 | [更新日志](CHANGELOG.md) | 版本变化、能力调整和迁移说明 |
+| [文档编写规范](DOCUMENTATION-STANDARD.md) | 文档分类/结构/状态管理/引用/写作纪律/提交前检查清单 |
 
 ## 配置
 
