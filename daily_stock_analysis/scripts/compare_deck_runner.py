@@ -1157,6 +1157,10 @@ def monthly_report(led: dict, dry: bool) -> str:
     meta = led.get("prereg", {}).get("_meta", {})
     if meta.get("review"):
         lines.append(f"预注册复核: {meta['review']}")
+    idle = sum(s.get("cash", 0) for s in led.get("strategies", {}).values())
+    lines.append(f"闲置现金合计 ¥{idle:,.0f} (真钱阶段: 月末/节前逆回购化)")
+    if EX_DATE.month == 12:
+        lines.append("⚠ 预注册硬复核临近(12-31): 18 张卡逐一对照晋级/死亡标准")
     return chr(10).join(lines)
 
 _CAL_CACHE: dict = {}
