@@ -37,6 +37,7 @@ from urllib import request as urlrequest
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 LEDGER = PROJECT_DIR.parent / ".scratch" / "dsa-strategy-validation" / "compare_strategies.json"
 CAPITAL = 12411.0
+LEDGER_SCHEMA_VERSION = 3
 EX_DATE = date.today()  # 交易所日历日（main 启动时用行情时间戳校准；本机时钟不可信）
 COMM_RATE, COMM_MIN = 0.0000845, 5.0
 STAMP_SELL = 0.0005  # 股票卖出印花税（ETF 免）
