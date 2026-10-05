@@ -85,6 +85,7 @@ def load_ledger() -> dict:
 
 def save_ledger(led: dict) -> None:
     """原子写：临时文件 + os.replace；写前滚动保留一份 .bak（台账在 .scratch，防误删）。"""
+    led.setdefault("_meta", {})["schema_version"] = LEDGER_SCHEMA_VERSION
     if not LEDGER.parent.exists():
         LEDGER.parent.mkdir(parents=True, exist_ok=True)
     if LEDGER.exists():
