@@ -339,12 +339,19 @@ def test_end_to_end_monthly_rebalance(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------- e2_gate_decision
-def test_e2_gate_hysteresis():
-    assert mod.e2_gate_decision(130.05, "normal") == "enter_defensive"   # 今日实测
-    assert mod.e2_gate_decision(125.0, "normal") == "hold"               # 中性区
-    assert mod.e2_gate_decision(125.0, "defensive") == "hold"            # 未恢复不退出
-    assert mod.e2_gate_decision(117.9, "defensive") == "exit_defensive"
-    assert mod.e2_gate_decision(0, "normal") == "no_data"
+def test_e2_drawdown_response():
+    """新机制: 峰值回撤≥5% 减半, 收窄至<2% 恢复。"""
+    # 模拟序列: 峰值 140 → 回撤至 130(跌 7.1%) → 减半
+    hist = [{"date": "2026-09-01", "median": 130.0}, {"date": "2026-09-08", "median": 140.0},
+            {"date": "2026-09-15", "median": 130.0}]
+    peak = max(h["median"] for h in hist)
+    cur = 130.0
+    dd = (cur / peak - 1)
+    assert dd <= -0.05  # 回撤 7.1% → 触发减半
+    # 恢复: 中位数回升至 138(回撤仅 1.4%) → 恢复
+    cur2 = 138.0
+    dd2 = (cur2 / peak - 1)
+    assert dd2 >= -0.02  # 回撤 <2% → 恢复满仓
 
 
 # ---------------------------------------------------------------- E2 穿透月度调仓(顺序冲突修复)

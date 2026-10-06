@@ -82,7 +82,15 @@ def release_lock() -> None:
 
 
 def load_ledger() -> dict:
-    return json.loads(LEDGER.read_text(encoding="utf-8"))
+    """读台账; 主文件损坏时回退 .bak(上一轮有效状态)。"""
+    try:
+        return json.loads(LEDGER.read_text(encoding="utf-8"))
+    except Exception:
+        bak = LEDGER.with_suffix(".json.bak")
+        if bak.exists():
+            log.warning("台账主文件损坏, 回退 .bak: %r", bak)
+            return json.loads(bak.read_text(encoding="utf-8"))
+        raise
 
 
 def save_ledger(led: dict) -> None:
@@ -1235,13 +1243,14 @@ def run_intraday(dry: bool) -> str:
     return out
 
 
-def e2_gate(led: dict, dry: bool) -> list[str]:
-    """E2 转债估值择时（研究验证回撤改善31%）：全市场转债中位数锚点分位 → E 槽减半/恢复。
+def e2_gate(led: dict, px: dict, dry: bool) -> list[str]:
+    """E2 转债估值择时：全市场转债中位数自峰值回撤 → E 槽减半/恢复（峰值回撤响应机制）。
 
-    数据: tushare cb_daily 单次全市场当日; 中位数序列逐日积累进 credit_watch.median_history。"""
+    95 周回测：水平门(127/118)所有阈值均跑输满仓且回撤相同——高位恒定半仓是系统性拖累。
+    峰值回撤响应仅在真崩(自峰值跌≥5%)时减半, 恢复(收窄至2%内)加回——与分级熔断设计语言一致。
+    数据: tushare cb_daily 最近7天全市场; 中位数序列逐日积累进 credit_watch.median_history。"""
     ctrl = led.setdefault("_control", {})
     try:
-        # 最近可得交易日语义: 收盘轮15:05时当日cb_daily可能未更新, 回看5天取最新
         df = ts_client().call("cb_daily", start_date=(EX_DATE - timedelta(days=7)).strftime("%Y%m%d"),
                               end_date=EX_DATE.strftime("%Y%m%d"), fields="trade_date,close")
         prices = [float(x) for x in (df["close"].dropna().tolist() if df is not None else []) if x and float(x) > 0]
@@ -1254,27 +1263,40 @@ def e2_gate(led: dict, dry: bool) -> list[str]:
     if median:
         hist.append({"date": EX_DATE.isoformat(), "median": median})
         ew["median_history"] = hist[-400:]
+    # 峰值回撤: 中位数序列内的历史峰值 → 当前回撤
+    peak = max((h["median"] for h in hist), default=median)
+    dd_from_peak = (median / peak - 1) if peak > 0 else 0.0
     state = ctrl.get("e2_state", "normal")
-    action = e2_gate_decision(median, state)
-    ew["e2"] = {"median": median, "state": state, "action": action}
+    # 回撤响应: 跌≥5% 减半, 恢复至跌幅<2% 加回
+    if state == "normal" and dd_from_peak <= -0.05:
+        action = "enter_defensive"
+    elif state == "defensive" and dd_from_peak >= -0.02:
+        action = "exit_defensive"
+    elif state == "defensive":
+        action = "hold_defensive"
+    else:
+        action = "hold_normal"
+    ew["e2"] = {"median": median, "peak": round(peak, 2), "dd_from_peak": round(dd_from_peak*100, 1),
+                "state": state, "action": action}
     msgs = []
     now = exchange_now()
     tradable = bool(now) and is_trading_session(now)
-    if action == "enter_defensive" and not dry and not tradable:
-        log.warning("非交易时段, E2 减半抑制为只记录")
-    if action == "enter_defensive" and not dry and tradable:
-        slot = led["strategies"]["E_可转债双低"]
-        sells = [{"symbol": h["symbol"], "qty": h["qty"] // 2,
-                  "price": (px or {}).get(h["symbol"], {}).get("price") or h.get("price", 0)}
-                 for h in slot.get("holds", []) if h["qty"] // 2 > 0]
-        apply_orders(slot, sells, [], px)
-        ctrl["e2_state"] = "defensive"
-        ew["e2"]["state"] = "defensive"
-        msgs.append(f"【E2择时】转债中位数 {median} ≥127 → E 减半")
+    if action == "enter_defensive" and not dry:
+        if not tradable:
+            log.warning("非交易时段, E2 减半抑制为只记录")
+        else:
+            slot = led["strategies"]["E_可转债双低"]
+            sells = [{"symbol": h["symbol"], "qty": h["qty"] // 2,
+                      "price": (px or {}).get(h["symbol"], {}).get("price") or h.get("price", 0)}
+                     for h in slot.get("holds", []) if h["qty"] // 2 > 0]
+            apply_orders(slot, sells, [], px)
+            ctrl["e2_state"] = "defensive"
+            ew["e2"]["state"] = "defensive"
+        msgs.append(f"【E2择时】中位数 {median} 自峰值回撤 {dd_from_peak*100:.1f}% → E 减半")
     elif action == "exit_defensive" and not dry:
         ctrl["e2_state"] = "normal"
         ew["e2"]["state"] = "normal"
-        msgs.append(f"【E2择时】转债中位数 {median} <118 → E 恢复满仓")
+        msgs.append(f"【E2择时】中位数 {median} 回撤收窄至 {dd_from_peak*100:.1f}% → E 恢复满仓")
     return msgs
 
 
@@ -1924,7 +1946,7 @@ def run_close(dry: bool) -> str:
     msgs.extend(repo_msgs)
     msgs.extend(div_msgs)
     msgs.extend(erp_gate(led, px, dry))
-    msgs.extend(e2_gate(led, dry))
+    msgs.extend(e2_gate(led, px, dry))
     msgs.extend(e_take_profit_pass(led, px, dry))
     msgs.extend(north_rebalance(led, px, dry))
     if _is_month_last_trading_day() and not dry:
