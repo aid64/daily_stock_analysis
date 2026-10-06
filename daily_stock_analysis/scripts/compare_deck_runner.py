@@ -518,10 +518,9 @@ def smallcap_rebalance(led: dict, slot_name: str, slots: int, cap_per: float,
     def tcode(ts_code: str) -> str:
         c, m = ts_code.split(".")
         return ("SH" if m == "SH" else "SZ") + c
-    # 缓冲带: 持仓排名未跌出 buffer 位(2×slots)则保留, 空位按排名补新——月度换手减半以上
+    # 纯小市值排序(23月回测: 缓冲带月均拖累0.72pp——去缓冲)
     rank = {tcode(r["ts_code"]): i + 1 for i, r in enumerate(recs)}
-    buffer = slots * 2
-    picks_syms = [h["symbol"] for h in slot.get("holds", []) if rank.get(h["symbol"], 10 ** 9) <= buffer][:slots]
+    picks_syms = []
     picks = []
     for r in recs:
         if len(picks_syms) >= slots:
