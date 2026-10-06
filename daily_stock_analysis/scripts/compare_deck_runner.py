@@ -118,6 +118,17 @@ def notify(content: str, dedup_key: str, dry: bool = False) -> bool:
         return False
 
 
+def ensure_prices(px: dict, symbols: list[str]) -> dict:
+    """补齐候选标的缺失报价(新槽首建仓时 symbol 不在已持仓预热列表)——就地更新 px。"""
+    missing = [s for s in symbols if not px.get(s, {}).get("price")]
+    if not missing:
+        return px
+    for code, info in realtime_quotes(missing).items():
+        if info.get("price"):
+            px[code] = info
+    return px
+
+
 def _chunks(lst: list, n: int):
     for i in range(0, len(lst), n):
         yield lst[i:i + n]
@@ -796,6 +807,7 @@ def cb_target_lots(targets: dict, px: dict, e2_defensive: bool, capital: float =
 
 def cb_rebalance(led: dict, px: dict, dry: bool) -> list[dict]:
     """E 月度调仓：重取引擎目标 → 按 weight 换算整手张数 → 与持仓 diff 先卖后买。"""
+    ctrl = led.setdefault("_control", {})
     if dry:
         return ["E_可转债双低(dry) 月度重取目标"]
     try:
@@ -1539,6 +1551,8 @@ def north_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
         if action == "hold_index":
             price = px.get("510300.SH", {}).get("price") or 4.4
             target = {"510300.SH": int(CAPITAL * 0.98 // (price * 100)) * 100}
+        elif action in ("keep", "no_data"):
+            target = {h["symbol"]: h["qty"] for h in slot.get("holds", [])}  # 中间区/数据缺失: 维持现仓
         sells = [{"symbol": h["symbol"], "qty": h["qty"], "price": px.get(h["symbol"], {}).get("price") or h.get("price", 0)}
                  for h in slot.get("holds", []) if h["symbol"] not in target]
         buys = []
@@ -1670,11 +1684,10 @@ def sequoia_ready() -> bool:
         return False
 
 
-def sequoia_scan(dry: bool) -> list[str]:
+def sequoia_scan(led: dict, px: dict, dry: bool) -> list[str]:
     """N_技术形态对照: Sequoia-X 七策略扫描（命中≥2策略优先），月度窗调用。
 
-    条件式: 数据回填未完成(≥300万行)时返回"回填中"并跳过——回填为小时级后台任务。"""
-    slot = led_slot_N = None
+    条件式: 数据就绪(≥200万行且最新bar在10天内)才扫描, 否则跳过。"""
     if dry:
         return ["N_技术形态(dry) 待数据就绪"]
     if not sequoia_ready():
@@ -1693,6 +1706,7 @@ def sequoia_scan(dry: bool) -> list[str]:
         slot = led["strategies"].get("N_技术形态对照")
         if not slot:
             return []
+        px = ensure_prices(px, [("SH" if c.startswith(("6", "5")) else "SZ") + c[:6] for c in ranked])
         picks = []
         for c in ranked:
             sym = ("SH" if c.startswith(("6", "5")) else "SZ") + c[:6]
@@ -1936,7 +1950,7 @@ def run_close(dry: bool) -> str:
                       + buywatch_rebalance(led, px, dry)
                       + holder_rebalance(led, px, dry)
                       + industry_rebalance(led, px, dry)
-                      + sequoia_scan(dry)):
+                      + sequoia_scan(led, px, dry)):
                 msgs.append(m)
             done[month_key] = "all"
             # 总闸缩放: ERP/E2 防御态下, 月度重建的主动槽立即减半(重建后再缩放, 语义=策略目标×总闸系数)
