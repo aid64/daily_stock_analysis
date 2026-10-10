@@ -74,7 +74,19 @@ def main() -> int:
     marks = led.get("marks", [])
     if marks:
         last = marks[-1]
-        check("marks 最新", "PASS", f"{last['date']} ({len(marks)} 条)")
+        # 新鲜度三态: >15 天 FAIL(执行链实质断供) / >10 天 WARN / 新鲜 PASS。
+        # 旧实现只查非空, 2000-01-01 的陈旧 marks 也判 PASS。
+        try:
+            age_days = (datetime.now() - datetime.strptime(str(last["date"])[:10],
+                                                            "%Y-%m-%d")).days
+        except ValueError:
+            age_days = 9999
+        if age_days > 15:
+            check("marks 最新", "FAIL", f"{last['date']} 距今 {age_days} 天 (>{15}天断供)")
+        elif age_days > 10:
+            check("marks 最新", "WARN", f"{last['date']} 距今 {age_days} 天")
+        else:
+            check("marks 最新", "PASS", f"{last['date']} ({len(marks)} 条)")
     else:
         check("marks 最新", "FAIL", "无任何净值记录")
 
@@ -91,7 +103,7 @@ def main() -> int:
             bad.append(f"{name}(¥{approx:,.0f} vs ¥{eq:,.0f})")
     check("槽位自洽", "PASS" if not bad else "FAIL", "全部自洽" if not bad else "; ".join(bad))
 
-    # 2. 执行日志
+    # 2. 执行日志: 解析最近 start/exit, 非零退出码 FAIL（旧实现只查有记录, exit=9 也判 PASS）。
     recent = {"intraday": None, "close": None}
     try:
         lines = TASK_LOG.read_text(encoding="utf-8", errors="replace").splitlines()[-60:]
@@ -101,9 +113,16 @@ def main() -> int:
                 recent[m.group(2)] = (m.group(1), m.group(3))
     except FileNotFoundError:
         pass
-    ok_log = recent["intraday"] is not None
-    check("执行日志", "PASS" if ok_log else "WARN",
-          f"intraday 最近 {recent['intraday']}" if ok_log else f"{TASK_LOG.name} 缺失/无记录")
+    entry = recent["intraday"]
+    if entry is None:
+        check("执行日志", "WARN", f"{TASK_LOG.name} 缺失/无记录")
+    else:
+        stamp, status = entry
+        code = int(status.split("=", 1)[1])
+        if code != 0:
+            check("执行日志", "FAIL", f"intraday 最近 {stamp} {status} 非零退出")
+        else:
+            check("执行日志", "PASS", f"intraday 最近 {stamp} {status}")
 
     # 3. 计划任务
     try:
@@ -175,7 +194,8 @@ def main() -> int:
               f"交易所时间戳 {ex:%m-%d %H:%M} | 本机偏差约 {skew_min/60:.1f}h (时钟不可信已知, 执行器已用交易所时间校准)")
 
     _emit()
-    return 0
+    n_fail = sum(1 for r in results if r["status"] == "FAIL")
+    return 1 if n_fail else 0
 
 
 def _emit() -> None:
@@ -184,7 +204,15 @@ def _emit() -> None:
     for r in results:
         mark = {"PASS": "✓", "WARN": "⚠", "FAIL": "✗"}[r["status"]]
         print(f"{mark} {r['check']}: {r['detail']}")
-    verdict = "正常" if n_fail == 0 else f"【异常】{n_fail} 项 FAIL"
+    # 三态结论: 有 FAIL → 异常; 核心证据(marks/执行日志/抽样净值)任一非 PASS → 样本不足;
+    # 其余 WARN 属提醒项不阻断判定。
+    core = ("marks 最新", "执行日志", "抽样净值")
+    if n_fail:
+        verdict = f"【异常】{n_fail} 项 FAIL"
+    elif any(r["status"] != "PASS" and r["check"] in core for r in results):
+        verdict = "样本不足, 无法判定"
+    else:
+        verdict = "正常"
     print(f"结论: {verdict}")
 
 
@@ -194,9 +222,8 @@ if __name__ == "__main__":
     args = ap.parse_args()
     if args.json:
         results.clear()
-        _emit_orig = _emit
-        def _emit():  # noqa: F811
+
+        def _emit():  # noqa: F811  --json 模式: 以 JSON 数组替代文本报告
             print(json.dumps(results, ensure_ascii=False, indent=2))
-        main()
-    else:
-        main()
+    # 退出码传播: FAIL 存在 → 1 (供计划任务/CI 感知), 台账不可读 → 2。
+    raise SystemExit(main())

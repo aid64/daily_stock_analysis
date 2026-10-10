@@ -38,8 +38,8 @@ PROJECT_DIR = Path(__file__).resolve().parents[1]
 LEDGER = PROJECT_DIR.parent / ".scratch" / "dsa-strategy-validation" / "compare_strategies.json"
 CAPITAL = 12411.0
 LEDGER_SCHEMA_VERSION = 3
-_TRADING_OK = True  # main() 用交易所时间覆盖; 测试/直调默认放行
-EX_DATE = date.today()  # 交易所日历日（main 启动时用行情时间戳校准；本机时钟不可信）
+_TRADING_OK = True  # 交易闸: _main_inner 按时段设置(15:10 后收盘补结算为 False); 测试/直调默认放行
+EX_DATE = date.today()  # 交易所日历日（_main_inner 启动时取墙钟日期；旧行情戳只用于报价新鲜度，不倒拨运行日期）
 COMM_RATE, COMM_MIN = 0.0000845, 5.0
 STAMP_SELL = 0.0005  # 股票卖出印花税（ETF 免）
 
@@ -54,24 +54,72 @@ os.chdir(PROJECT_DIR)  # .env / data/ 均以项目目录为根
 _LOCK_PATH = PROJECT_DIR / "data" / "cache" / "compare_deck.lock"
 
 
+def _pid_alive(pid: int) -> bool:
+    """跨平台进程探活。Windows 上 os.kill(pid, 0) 会终止进程（Win32 无信号0语义），
+    必须用 ctypes OpenProcess + GetExitCodeProcess 探测；POSIX 用信号 0。"""
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        try:
+            import ctypes
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            STILL_ACTIVE = 259
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not handle:
+                return False                     # 进程不存在 → 死
+            try:
+                code = ctypes.c_ulong()
+                if kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                    return code.value == STILL_ACTIVE
+                return False
+            finally:
+                kernel32.CloseHandle(handle)
+        except Exception:
+            return True                          # 探活机制失效 → 保守视为存活(不抢锁)
+    try:
+        os.kill(pid, 0)                          # POSIX: 信号0仅探活不投递
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True                              # 存在但属他人 → 存活
+    except OSError:
+        return False
+
+
 def acquire_lock() -> bool:
-    """O_EXCL 独占锁；超过 15 分钟的残留视为死锁清除（本机时钟不可信，阈值放宽）。"""
+    """O_EXCL 独占锁 + JSON 属主探活（四分支）:
+
+    ① 锁不存在 → 创建并写入 {"pid","started"} → True
+    ② 属主进程存活 → False（活跃长任务不得仅因运行时长被抢）
+    ③ 属主进程已退出 → 判定残留, 清除后重试
+    ④ 锁内容不可解析 → 保守不抢（未知格式可能是手写/他因, 需人工清理）
+
+    旧实现按 mtime 60 分钟阈值强抢, 会误杀超过 1 小时的活跃长任务（如慢数据日）;
+    属主探活替代时长阈值后, 死锁自愈仍成立(③), 且不再有 ② 的误杀。"""
     _LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
     try:
         fd = os.open(_LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        os.write(fd, str(datetime.now()).encode())
+        os.write(fd, json.dumps(
+            {"pid": os.getpid(), "started": datetime.now().isoformat()}).encode())
         os.close(fd)
         return True
     except FileExistsError:
         try:
-            age = datetime.now() - datetime.fromtimestamp(_LOCK_PATH.stat().st_mtime)
-            if age > timedelta(minutes=60):
-                log.warning("锁超过60分钟视为残留, 强制清除")
-                _LOCK_PATH.unlink()
-                return acquire_lock()
-        except Exception as exc:
-            log.warning("锁清理失败: %r", exc)
-        return False
+            owner = json.loads(_LOCK_PATH.read_text(encoding="utf-8"))
+            pid = int(owner["pid"])
+        except Exception:
+            log.warning("锁内容不可解析, 保守不抢(需人工清理): %s", _LOCK_PATH)
+            return False
+        if _pid_alive(pid):
+            return False
+        log.warning("锁属主 pid=%s 已退出, 视为残留清除", pid)
+        try:
+            _LOCK_PATH.unlink()
+        except FileNotFoundError:
+            pass
+        return acquire_lock()
 
 
 def release_lock() -> None:
@@ -94,15 +142,23 @@ def load_ledger() -> dict:
 
 
 def save_ledger(led: dict) -> None:
-    """原子写：临时文件 + os.replace；写前滚动保留一份 .bak（台账在 .scratch，防误删）。"""
+    """原子写：临时文件 + os.replace；写前滚动保留一份 .bak（台账在 .scratch，防误删）。
+
+    主文件损坏（load_ledger 刚从 .bak 恢复过的场景）时不回滚备份：
+    现有 .bak 是唯一好副本，不能被坏主文件覆盖。"""
     led.setdefault("_meta", {})["schema_version"] = LEDGER_SCHEMA_VERSION
     if not LEDGER.parent.exists():
         LEDGER.parent.mkdir(parents=True, exist_ok=True)
     if LEDGER.exists():
         try:
-            shutil.copyfile(LEDGER, LEDGER.with_suffix(".json.bak"))
-        except Exception as exc:
-            log.warning("台账备份失败(不影响主写): %r", exc)
+            json.loads(LEDGER.read_text(encoding="utf-8"))
+        except Exception:
+            log.warning("台账主文件损坏, 跳过备份回滚以保留现有 .bak")
+        else:
+            try:
+                shutil.copyfile(LEDGER, LEDGER.with_suffix(".json.bak"))
+            except Exception as exc:
+                log.warning("台账备份失败(不影响主写): %r", exc)
     fd, tmp = tempfile.mkstemp(dir=str(LEDGER.parent), suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -176,12 +232,19 @@ def realtime_quotes(codes: list[str]) -> dict[str, dict]:
 
 
 def is_trading_session(now: datetime | None = None) -> bool:
-    """A股交易时段（含 15:00-15:10 收盘处理窗）。午休/开盘前/周末为 False。"""
+    """A股运行时段（含 15:00-15:10 收盘处理窗）。午休/开盘前/周末为 False。
+
+    撮合窗截止 15:00: 15:00-15:10 为只结算窗（新成交闸关闭, 见 _fills_open/_session_gate）。"""
     now = now or datetime.now()
     if now.weekday() >= 5:
         return False
     hm = now.hour * 100 + now.minute
     return (930 <= hm <= 1130) or (1300 <= hm <= 1510)
+
+
+def _fills_open(now: datetime | None) -> bool:
+    """撮合窗: 运行时段内且 ≤15:00。15:00 后连续竞价已止, 1501-1510 只结算不成交。"""
+    return bool(now) and is_trading_session(now) and (now.hour * 100 + now.minute) <= 1500
 
 
 def exchange_now() -> datetime | None:
@@ -214,37 +277,104 @@ def trade_fee(notional: float, side: str, is_stock: bool) -> float:
     return round(fee, 2)
 
 
-def apply_orders(slot: dict, sells: list[dict], buys: list[dict], px: dict) -> None:
-    """先卖后买。sells/buys: {symbol,name,qty,price,is_stock}。现金不足的买入跳过。"""
+_OLD_LOT_DAY = date(2000, 1, 1)  # 未知购入日的旧仓批次：视为非当日买入（可卖）
+
+
+def _lot_buy_day(h: dict) -> date:
+    raw = h.get("held_since")
+    if raw:
+        try:
+            return datetime.strptime(str(raw)[:10], "%Y-%m-%d").date()
+        except ValueError:
+            pass
+    return _OLD_LOT_DAY
+
+
+def _apply_orders_intent(o: dict, side: str, slot_name: str | None):
+    """订单 dict → Intent。资产类别解析顺序：显式 asset > 槽位注册表 > 代码前缀。"""
+    from src.core.paper_execution import AssetClass, Intent
+    from src.services import deck_registry
+    explicit = o.get("asset")
+    if explicit:
+        cls = AssetClass(explicit)
+    else:
+        spec = deck_registry.get_slot(slot_name) if slot_name else None
+        cls = spec.asset_class if spec is not None else deck_registry.classify_symbol(o["symbol"])
+    return Intent(symbol=o["symbol"], side=side, qty=int(o["qty"]), asset_class=cls,
+                  name=o.get("name", ""), price_hint=o.get("price"))
+
+
+def apply_orders(slot: dict, sells: list[dict], buys: list[dict], px: dict,
+                 slot_name: str | None = None) -> list[str]:
+    """旧签名执行适配器：全部交易约束在 src/core/paper_execution 实现，此处只做形态转换。
+
+    - 报价闸：无报价/零价 → 拒绝（不再按意图价或成本价成交）。
+    - 幂等：同槽同日同标的同方向同数量只成交一次（键持久化在 slot._executed_keys）。
+    - _TRADING_OK=False 时该批全部拒绝（修复"全局闸关闭仍成交"）。
+    - 现金不足 → 记录拒绝（不再静默跳过）。
+    返回拒绝说明列表；成交结果直接写回 slot（cash/holds/fees_paid）。"""
+    from src.core.paper_execution import (
+        ExecutionContext, Intent, Lot, Quote, execute_intents, merge_lots_view)
+
+    name_by_symbol = {h["symbol"]: h.get("name", "") for h in slot.get("holds", [])}
+    for o in sells + buys:
+        if o.get("name"):
+            name_by_symbol.setdefault(o["symbol"], o["name"])
+
+    intents: list[Intent] = []
+    rejects: list[str] = []
     for o in sells:
-        notional = o["qty"] * o["price"]
-        fee = trade_fee(notional, "SELL", o.get("is_stock", False))
-        slot["cash"] = round(slot.get("cash", 0) + notional - fee, 2)
-        slot["fees_paid"] = round(slot.get("fees_paid", 0.0) + fee, 2)
-        remaining = []
-        for h in slot.get("holds", []):
-            if h["symbol"] == o["symbol"]:
-                left = h["qty"] - o["qty"]
-                if left > 0:  # 部分减仓: 扣量保留, 成本价不变
-                    h["qty"] = left
-                    h["notional"] = round(left * h["price"], 2)
-                    remaining.append(h)
-                # left==0 → 移除
-            else:
-                remaining.append(h)
-        slot["holds"] = remaining
-        log.info("SELL %s %s x%s @%s fee=%s", o["symbol"], o.get("name", ""), o["qty"], o["price"], fee)
+        try:
+            intents.append(_apply_orders_intent(o, "SELL", slot_name))
+        except ValueError as exc:
+            rejects.append(f"SELL {o['symbol']} 无法识别代码: {exc}")
     for b in buys:
-        notional = b["qty"] * b["price"]
-        fee = trade_fee(notional, "BUY", b.get("is_stock", False))
-        if notional + fee > slot.get("cash", 0):
-            log.warning("BUY 跳过(现金不足) %s 需¥%.2f 现金¥%.2f", b["symbol"], notional + fee, slot["cash"])
-            continue
-        slot["cash"] = round(slot["cash"] - notional - fee, 2)
-        slot["fees_paid"] = round(slot.get("fees_paid", 0.0) + fee, 2)
-        slot["holds"].append({"symbol": b["symbol"], "name": b.get("name", ""), "qty": b["qty"],
-                              "price": b["price"], "notional": round(notional, 2), "fee": fee})
-        log.info("BUY %s %s x%s @%s fee=%s", b["symbol"], b.get("name", ""), b["qty"], b["price"], fee)
+        try:
+            intents.append(_apply_orders_intent(b, "BUY", slot_name))
+        except ValueError as exc:
+            rejects.append(f"BUY {b['symbol']} 无法识别代码: {exc}")
+
+    lots = [Lot(h["symbol"], int(h["qty"]), float(h.get("price") or 0.0), _lot_buy_day(h))
+            for h in slot.get("holds", [])]
+    quotes: dict[str, Quote] = {}
+    for sym in {o["symbol"] for o in sells + buys}:
+        info = px.get(sym) or {}
+        raw = info.get("price")
+        if raw is None:
+            continue                      # 无报价 → 核心判 NO_QUOTE
+        try:
+            quotes[sym] = Quote(symbol=sym, price=float(raw))
+        except (TypeError, ValueError):
+            continue                      # 非数值价 → 核心判 NO_QUOTE
+
+    day_keys = slot.setdefault("_executed_keys", {}).setdefault(str(EX_DATE), [])
+    ctx = ExecutionContext(slot=slot_name or "deck", trading_day=EX_DATE,
+                           trading_ok=_TRADING_OK, executed_order_keys=frozenset(day_keys))
+    result = execute_intents(float(slot.get("cash", 0.0)), lots, intents, quotes, ctx)
+    for key in result.order_keys:
+        if key not in day_keys:
+            day_keys.append(key)
+
+    slot["cash"] = result.cash
+    view = merge_lots_view(result.lots)
+    earliest: dict[str, date] = {}
+    for l in result.lots:
+        earliest[l.symbol] = min(earliest.get(l.symbol, l.buy_day), l.buy_day)
+    holds = []
+    for sym, v in sorted(view.items()):
+        row = {"symbol": sym, "name": name_by_symbol.get(sym, sym),
+               "qty": v["qty"], "price": v["avg_cost"],
+               "notional": round(v["qty"] * v["avg_cost"], 2)}
+        if earliest[sym] > _OLD_LOT_DAY:
+            row["held_since"] = earliest[sym].isoformat()
+        holds.append(row)
+    slot["holds"] = holds
+    slot["fees_paid"] = round(slot.get("fees_paid", 0.0) + result.fees_total, 2)
+    rejects += [f"{r.side} {r.symbol} x{r.qty} 拒绝[{r.reason.value}] {r.detail}"
+                for r in result.rejections]
+    for r in rejects:
+        log.warning("apply_orders: %s", r)
+    return rejects
 
 
 def dividend_accrued(ts_code: str, since: str, spot: float, qty: int) -> tuple[float, str]:
@@ -297,14 +427,22 @@ def repo_maturity_pass(led: dict, dry: bool) -> list[str]:
 
 
 def revalue(slot: dict, px: dict) -> float:
-    eq = slot.get("cash", 0.0)
+    """估值：缺价持仓不计入净值并显式标记 valuation_status（不再伪装成成本价）。
+
+    fixed_value 行（逆回购等面值计价）按名义额计入，与执行内核口径一致。"""
+    eq = float(slot.get("cash", 0.0))
+    unvalued: dict[str, str] = {}
     for h in slot.get("holds", []):
-        if h.get("fixed_value"):  # 逆回购等面值计价品种, 行情价不适用
-            eq += h["notional"]
+        if h.get("fixed_value"):
+            eq += h.get("notional", 0.0)
             continue
-        p = px.get(h["symbol"], {}).get("price") or h.get("price", 0)
-        eq += h["qty"] * p
+        p = (px.get(h["symbol"]) or {}).get("price")
+        if not p:
+            unvalued[h["symbol"]] = "missing"
+            continue
+        eq += h["qty"] * float(p)
     slot["equity"] = round(eq, 2)
+    slot["valuation_status"] = {"fully_valued": not unvalued, "unvalued": unvalued}
     return slot["equity"]
 
 
@@ -444,7 +582,7 @@ def momentum_signal(led: dict, px: dict, dry: bool) -> list[dict]:
             o["is_stock"] = False
         changed = bool(sells or buys)
         now = exchange_now()
-        tradable = bool(now) and is_trading_session(now)
+        tradable = bool(now) and _fills_open(now)
         if changed and not tradable:
             log.warning("非交易时段(交易所 %s), A 槽调仓抑制为只记录", now)
         if changed and tradable:
@@ -519,7 +657,6 @@ def smallcap_rebalance(led: dict, slot_name: str, slots: int, cap_per: float,
         c, m = ts_code.split(".")
         return ("SH" if m == "SH" else "SZ") + c
     # 纯小市值排序(23月回测: 缓冲带月均拖累0.72pp——去缓冲)
-    rank = {tcode(r["ts_code"]): i + 1 for i, r in enumerate(recs)}
     picks_syms = []
     picks = []
     for r in recs:
@@ -555,6 +692,7 @@ def pead_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
         if not cands:
             slot["note"] = f"{EX_DATE} 无新预增候选, 维持旧仓"
             return [f"I_PEAD 无新预增候选, 维持旧仓"]
+        ensure_prices(px, [("SH" if r["ts_code"].endswith(".SH") else "SZ") + r["ts_code"][:6] for r in cands])
         picks = []
         for r in cands:
             sym = ("SH" if r["ts_code"].endswith(".SH") else "SZ") + r["ts_code"][:6]
@@ -591,6 +729,7 @@ def reversal_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
         cands = reversal_universe()
         if not cands:
             return ["J_反转 无候选(全市场无合格超跌), 维持旧仓"]
+        ensure_prices(px, [("SH" if r["ts_code"].endswith(".SH") else "SZ") + r["ts_code"][:6] for r in cands])
         picks = []
         for r in cands:
             sym = ("SH" if r["ts_code"].endswith(".SH") else "SZ") + r["ts_code"][:6]
@@ -626,22 +765,14 @@ def buywatch_universe(top: int = 5) -> list[dict]:
     merged = snap
     if snap is not None and snap.get("pe", pd.Series(dtype=float)).notna().sum() < 100:
         try:
-            import tushare as ts
-            token = ""
-            for line in (PROJECT_DIR / ".env").read_text(encoding="utf-8").splitlines():
-                if line.startswith("TUSHARE_TOKEN="):
-                    token = line.split("=", 1)[1].strip().strip('"').strip("'")
             pro = ts_client()
             db = None
             for back in range(0, 8):  # 休市日回退找最近有数据的交易日
                 day = (EX_DATE - timedelta(days=back)).strftime("%Y%m%d")
-                try:
-                    db = pro.daily_basic(trade_date=day,
-                                         fields="ts_code,turnover_rate,volume_ratio,pe,circ_mv,close")
-                    if db is not None and len(db):
-                        break
-                except Exception:
-                    continue
+                db = pro.call("daily_basic", trade_date=day,
+                              fields="ts_code,turnover_rate,volume_ratio,pe,circ_mv,close")
+                if db is not None and len(db):
+                    break
             if db is not None and len(db):
                 db["code"] = db["ts_code"].apply(lambda x: ("sh" if x.endswith(".SH") else "sz") + x[:6])
                 db = db.set_index("code")
@@ -657,12 +788,11 @@ def buywatch_universe(top: int = 5) -> list[dict]:
         except Exception as exc:
             log.warning("tushare 补列失败: %r", exc)
             merged = snap
-    orig = mss.load_snapshot
-    mss.load_snapshot = lambda *a, **k: merged
-    try:
+    if merged is None:
+        # 当日快照不可用: 回落服务自带近7天回退+新鲜度审计, 不静默用旧数据
         wl = build_buy_watchlist()
-    finally:
-        mss.load_snapshot = orig
+        return wl.get("candidates", []) or []
+    wl = build_buy_watchlist(snapshot=merged)  # 参数注入, 不再 monkeypatch 服务模块
     return wl.get("candidates", []) or []
 
 
@@ -708,16 +838,15 @@ def names_of(cands: list[dict]) -> dict[str, str]:
 
 
 def _prev_month_end() -> str:
-    import calendar
-    t = EX_DATE.replace(day=1) - __import__("datetime").timedelta(days=1)
-    return f"{t:%Y%m}{calendar.monthrange(t.year, t.month)[1]:02d}"[:8] if False else f"{t:%Y%m%d}"
+    t = EX_DATE.replace(day=1) - timedelta(days=1)
+    return f"{t:%Y%m%d}"
 
 
 def _is_month_first_trading_day() -> bool:
     """EX_DATE 是否本月首个交易日（tushare trade_cal；失败回退 day<=5 的旧窗）。"""
     if not is_exchange_trading_day(EX_DATE):
         return False
-    if getattr(_is_month_first_trading_day, "_cache", None) == f"{EX_DATE:%Y%m}":
+    if getattr(_is_month_first_trading_day, "_cache", None) == f"{EX_DATE:%Y%m%d}":
         return _is_month_first_trading_day._result  # type: ignore[attr-defined]
     result = False
     try:
@@ -734,7 +863,7 @@ def _is_month_first_trading_day() -> bool:
     except Exception as exc:
         log.warning("月首交易日判定失败, 回退 day<=5 窗: %r", exc)
         result = EX_DATE.day <= 5
-    _is_month_first_trading_day._cache = f"{EX_DATE:%Y%m}"  # type: ignore[attr-defined]
+    _is_month_first_trading_day._cache = f"{EX_DATE:%Y%m%d}"  # type: ignore[attr-defined]
     _is_month_first_trading_day._result = result  # type: ignore[attr-defined]
     return result
 
@@ -784,7 +913,7 @@ def mwu_rebalance(led: dict, px: dict, dry: bool, slot_name: str = "G_MWU融合"
         for o in sells + buys:
             o["is_stock"] = False
         now = exchange_now()
-        tradable = bool(now) and is_trading_session(now)
+        tradable = bool(now) and _fills_open(now)
         if (sells or buys) and not tradable:
             log.warning("非交易时段(交易所 %s), %s 调仓抑制为只记录", now, slot_name)
         if (sells or buys) and tradable:
@@ -818,15 +947,26 @@ def cb_rebalance(led: dict, px: dict, dry: bool) -> list[dict]:
     if dry:
         return ["E_可转债双低(dry) 月度重取目标"]
     try:
-        subprocess.run([sys.executable, str(PROJECT_DIR.parent / "quant_research" / "scripts" / "run_paper_tracking.py"),
-                        "--export-plan", "--once", "--capital", str(int(CAPITAL))],
-                       cwd=str(PROJECT_DIR.parent / "quant_research"), capture_output=True, text=True, timeout=300)
+        r = subprocess.run([sys.executable, str(PROJECT_DIR.parent / "quant_research" / "scripts" / "run_paper_tracking.py"),
+                            "--export-plan", "--once", "--capital", str(int(CAPITAL))],
+                           cwd=str(PROJECT_DIR.parent / "quant_research"), capture_output=True, text=True, timeout=300)
+        if r.returncode != 0:
+            # 导出失败必须显式失败: 继续读旧 current_plan.json 会执行过期目标
+            log.error("E 月度调仓: quant 导出失败(exit=%s) %s", r.returncode, (r.stderr or "")[-300:])
+            return [f"【异常】E 月度调仓: quant 导出失败(exit={r.returncode}), 持仓不变"]
         plan = json.loads((PROJECT_DIR.parent / "quant_research" / "output" / "paper_tracking" / "current_plan.json").read_text(encoding="utf-8"))
         targets = {k: v for k, v in (plan.get("targets") or {}).items()
                    if isinstance(v, dict) and v.get("signal_state") == "executable"}
         slot = led["strategies"]["E_可转债双低"]
         cur = {h["symbol"]: h["qty"] for h in slot.get("holds", [])}
-        want = cb_target_lots(targets, px, e2_defensive=(ctrl.get("e2_state") == "defensive"))
+        # 目标资金按当前 equity(现金+持仓市值), 不再用常数 CAPITAL——
+        # 盈亏后仍按初始本金配比会系统性偏离目标权重
+        equity = float(slot.get("cash", 0.0))
+        for h in slot.get("holds", []):
+            equity += h["qty"] * (px.get(h["symbol"], {}).get("price") or h.get("price", 0))
+        ensure_prices(px, sorted(targets))
+        want = cb_target_lots(targets, px, e2_defensive=(ctrl.get("e2_state") == "defensive"),
+                              capital=max(equity, 1.0))
         price_of = {sym: px.get(sym, {}).get("price") for sym in want}
         sells = [{"symbol": h["symbol"], "qty": h["qty"] - want.get(h["symbol"], 0),
                   "price": px.get(h["symbol"], {}).get("price") or h.get("price", 0)}
@@ -834,9 +974,12 @@ def cb_rebalance(led: dict, px: dict, dry: bool) -> list[dict]:
         sells = [s for s in sells if s["qty"] > 0]
         buys = [{"symbol": sym, "qty": lots - cur.get(sym, 0), "price": price_of[sym]}
                 for sym, lots in want.items() if lots > cur.get(sym, 0)]
-        apply_orders(slot, sells, buys, px)
+        rejects = apply_orders(slot, sells, buys, px)
         slot["note"] = f"月度调仓 {EX_DATE} 目标{len(want)}只 executable"
-        return [f"E_可转债双低 月度调仓→{sorted(want)}"]
+        msgs = [f"E_可转债双低 月度调仓→{sorted(want)}"]
+        if rejects:
+            msgs.append(f"E 成交拒绝: {rejects}")
+        return msgs
     except Exception as exc:
         log.error("E 月度调仓失败: %r", exc)
         return []
@@ -1053,35 +1196,81 @@ def risk_round(led: dict, px: dict, dry: bool) -> list[dict]:
     except Exception as exc:
         log.warning("跌停家数获取失败: %r", exc)
     triggered = (micro and med <= -4.0) or idx_pct <= -3.0 or limit_dn >= 50
+    # 熔断动作/状态迁移只在可交易时段生效（仿 e2_gate）：15:10 后 catch-up 窗口 _TRADING_OK=False，
+    # 卖单会被内核拒绝；若状态照迁移将出现"已减仓/已清仓"假记录与失实消息。非交易时段只记录。
+    now = exchange_now()
+    tradable = bool(now) and _fills_open(now)
     if triggered:
         cause = ("跌停家数 " + str(limit_dn)) if limit_dn >= 50 else (f"微盘中位数 {med}%" if med <= -4.0 else f"国证2000 {idx_pct}%")
+        trigger_key = EX_DATE.isoformat()  # 观察期"再触"按日判定: 同日行情微变（med/idx 抖动）不构成新事件
         if crash == "normal":
-            crash = "watch"
-            ctrl["crash_state"] = "watch"
-            ctrl["crash_watch_until"] = (EX_DATE + timedelta(days=30)).isoformat()
-            ctrl["crash_cause"] = cause
-            if not dry:
-                for s in ("F_小市值20", "F2_小市值5只神帖对照"):
-                    slot = led["strategies"][s]
-                    sells = [{"symbol": h["symbol"], "qty": h["qty"] // 3,
-                              "price": px[h["symbol"]]["price"], "is_stock": True}
-                             for h in slot.get("holds", []) if h["qty"] // 3 > 0]
-                    apply_orders(slot, sells, [], px)
-            msgs.append(f"【熔断一级】{cause} → F/F2 减1/3, 进入观察期(30日历日内再触即清仓)")
-        elif crash == "watch":
-            until = ctrl.get("crash_watch_until", "")
-            if EX_DATE.isoformat() <= until:
-                crash = "defensive"
-                ctrl["crash_state"] = "defensive"
+            if not dry and not tradable:
+                log.warning("非交易时段, 熔断一级迁移抑制为只记录: %s", cause)
+            else:
+                reduced_any = True          # dry 模拟: 假定动作执行, 保持原语义
+                pending: list[str] = []
                 if not dry:
+                    reduced_any = False
                     for s in ("F_小市值20", "F2_小市值5只神帖对照"):
                         slot = led["strategies"][s]
-                        sells = [{"symbol": h["symbol"], "qty": h["qty"], "price": px[h["symbol"]]["price"], "is_stock": True}
-                                 for h in slot.get("holds", [])]
+                        before = sum(h["qty"] for h in slot.get("holds", []))
+                        sells = [{"symbol": h["symbol"], "qty": h["qty"] // 3,
+                                  "price": px.get(h["symbol"], {}).get("price") or h.get("price", 0),
+                                  "is_stock": True}
+                                 for h in slot.get("holds", []) if h["qty"] // 3 > 0]
                         apply_orders(slot, sells, [], px)
-                msgs.append(f"【熔断二级】观察期内再次触发({cause}) → F/F2 全部清仓")
-            else:
-                ctrl["crash_watch_until"] = (EX_DATE + timedelta(days=30)).isoformat()
+                        after = sum(h["qty"] for h in slot.get("holds", []))
+                        if after < before:
+                            reduced_any = True
+                        elif before > 0:
+                            pending.append(s)   # 有仓但卖单全被拒(如T+1) → 不得声称已减仓
+                if reduced_any:
+                    crash = "watch"
+                    ctrl["crash_state"] = "watch"
+                    ctrl["crash_watch_until"] = (EX_DATE + timedelta(days=30)).isoformat()
+                    ctrl["crash_cause"] = cause
+                    ctrl["crash_trigger_key"] = trigger_key
+                    msgs.append(f"【熔断一级】{cause} → F/F2 减1/3"
+                                + (f"(未成交: {','.join(pending)})" if pending else "")
+                                + ", 进入观察期(30日历日内再触即清仓)")
+                else:
+                    msgs.append(f"【熔断一级】{cause} → F/F2 减1/3 卖单未成交, 保持原状态待下轮重试")
+        elif crash == "watch":
+            until = ctrl.get("crash_watch_until", "")
+            new_event = trigger_key != ctrl.get("crash_trigger_key")
+            if until and EX_DATE.isoformat() <= until and new_event:
+                if not dry and not tradable:
+                    log.warning("非交易时段, 熔断二级迁移抑制为只记录: %s", cause)
+                else:
+                    cleared = True          # dry 模拟: 假定动作执行
+                    pending_clear: list[str] = []
+                    if not dry:
+                        for s in ("F_小市值20", "F2_小市值5只神帖对照"):
+                            slot = led["strategies"][s]
+                            before = sum(h["qty"] for h in slot.get("holds", []))
+                            sells = [{"symbol": h["symbol"], "qty": h["qty"],
+                                      "price": px.get(h["symbol"], {}).get("price") or h.get("price", 0),
+                                      "is_stock": True}
+                                     for h in slot.get("holds", [])]
+                            apply_orders(slot, sells, [], px)
+                            after = sum(h["qty"] for h in slot.get("holds", []))
+                            if before > 0 and after >= before:
+                                cleared = False
+                                pending_clear.append(s)   # 清仓卖单全被拒 → 不得声称已清仓
+                    if cleared:
+                        crash = "defensive"
+                        ctrl["crash_state"] = "defensive"
+                        msgs.append(f"【熔断二级】观察期内再次触发({cause}) → F/F2 全部清仓")
+                    else:
+                        msgs.append(f"【熔断二级】观察期内再次触发({cause}) → F/F2 清仓未成交"
+                                    f"({','.join(pending_clear)}), 保持观察待下轮重试")
+            elif new_event:
+                if not dry and not tradable:
+                    log.warning("非交易时段, 熔断观察窗重设抑制为只记录: %s", cause)
+                else:
+                    ctrl["crash_watch_until"] = (EX_DATE + timedelta(days=30)).isoformat()
+                    ctrl["crash_trigger_key"] = trigger_key
+                    ctrl["crash_cause"] = cause
         # defensive 状态: 持仓已空, 无需动作
     # E 信用监测
     prices = tencent_quotes(["sh113062", "sh113631", "sh113691", "sh118031"])
@@ -1092,12 +1281,24 @@ def risk_round(led: dict, px: dict, dry: bool) -> list[dict]:
                    "checked": EX_DATE.isoformat()})
     ew.setdefault("seen_alerts", [])
     if 0 < lowest < 100 and not dry:
-        slot = led["strategies"]["E_可转债双低"]
-        sells = [{"symbol": h["symbol"], "qty": h["qty"] // 2,
-                  "price": prices.get(h["symbol"].split(".")[0], {}).get("price") or h["price"]}
-                 for h in slot.get("holds", [])]
-        apply_orders(slot, sells, [], px)
-        msgs.append(f"【信用告警】转债最低 {lowest} → E 减半仓")
+        if not ew.get("credit_half_active"):
+            if not tradable:
+                log.warning("非交易时段, E 信用减半抑制为只记录")
+            else:
+                slot = led["strategies"]["E_可转债双低"]
+                before = sum(h["qty"] for h in slot.get("holds", []))
+                sells = [{"symbol": h["symbol"], "qty": h["qty"] // 2,
+                          "price": prices.get(h["symbol"].split(".")[0], {}).get("price") or h["price"]}
+                         for h in slot.get("holds", [])]
+                apply_orders(slot, sells, [], px)
+                if before <= 0 or sum(h["qty"] for h in slot.get("holds", [])) < before:
+                    ew["credit_half_active"] = True
+                    msgs.append(f"【信用告警】转债最低 {lowest} → E 减半仓")
+                else:
+                    msgs.append(f"【信用告警】转债最低 {lowest} → E 减半卖单未成交, 待下轮重试")
+        # 已减半则同一阈值事件不重复减半; 价格回升≥100 后重新武装
+    elif lowest >= 100:
+        ew["credit_half_active"] = False
     for code6 in ("113062", "113631", "113691", "118031"):
         try:
             anns = fetch_recent_announcements(code6, size=3)
@@ -1132,26 +1333,24 @@ def slot_drawdown(marks: list, slot_name: str, current_eq: float) -> float:
 
 
 def _is_month_last_trading_day() -> bool:
-    """EX_DATE 是否本月最后一个交易日（tushare trade_cal 升序取月末；失败回退月底3日窗）。"""
+    """EX_DATE 是否本月最后一个交易日。
+
+    逐日询问 EX_DATE 之后的当月日期（is_exchange_trading_day 自带按日缓存与保守回落），
+    任一为交易日即非月末。旧实现 trade_cal 查询区间终点=EX_DATE 自身，
+    月初/月中交易日会被误判为月末（查询终点即自身的自证缺陷）。
+    """
     if not is_exchange_trading_day(EX_DATE):
         return False
-    if getattr(_is_month_last_trading_day, "_cache", None) == f"{EX_DATE:%Y%m}":
+    day_key = f"{EX_DATE:%Y%m%d}"
+    if getattr(_is_month_last_trading_day, "_cache", None) == day_key:
         return _is_month_last_trading_day._result
-    result = False
-    try:
-        import tushare as ts
-        token = ""
-        for line in (PROJECT_DIR / ".env").read_text(encoding="utf-8").splitlines():
-            if line.startswith("TUSHARE_TOKEN="):
-                token = line.split("=", 1)[1].strip().strip('"').strip("'")
-        cal = ts.pro_api(token).trade_cal(exchange="SSE", start_date=f"{EX_DATE:%Y%m}01",
-                                          end_date=f"{EX_DATE:%Y%m%d}", fields="cal_date,is_open")
-        open_days = sorted(str(x) for x in cal[cal["is_open"] == 1]["cal_date"])
-        result = bool(open_days) and open_days[-1] == f"{EX_DATE:%Y%m%d}"
-    except Exception as exc:
-        log.warning("月末交易日判定失败, 回退月底3日窗: %r", exc)
-        result = EX_DATE.day >= 28
-    _is_month_last_trading_day._cache = f"{EX_DATE:%Y%m}"
+    result = True
+    import calendar
+    for day in range(EX_DATE.day + 1, calendar.monthrange(EX_DATE.year, EX_DATE.month)[1] + 1):
+        if is_exchange_trading_day(EX_DATE.replace(day=day)):
+            result = False
+            break
+    _is_month_last_trading_day._cache = day_key
     _is_month_last_trading_day._result = result
     return result
 
@@ -1189,7 +1388,11 @@ _CAL_CACHE: dict = {}
 
 
 def is_exchange_trading_day(d: date) -> bool:
-    """tushare trade_cal 交易日校验；接口失败时保守视为交易日（close_done 幂等兜底）。"""
+    """tushare trade_cal 交易日校验；接口失败时保守视为交易日（close_done 幂等兜底）。
+
+    周末直接 False（确定性判定, 不依赖 API 可用性: 修复两套日历函数周末降级行为不一致）。"""
+    if d.weekday() >= 5:
+        return False
     if _CAL_CACHE.get(d.isoformat()) is not None:
         return _CAL_CACHE[d.isoformat()]
     result = True
@@ -1228,16 +1431,19 @@ def run_intraday(dry: bool) -> str:
         for i, m in enumerate(set(msgs)):
             notify(m, dedup_key=f"deck_intraday_{EX_DATE:%Y%m%d}_{i}")
     out = "盘中轮: " + ("; ".join(sorted(set(msgs))) if msgs else "无触发")
-    # 收盘自动触发：交易所时间 ≥15:00 且当日收盘轮未跑 → 补跑（幂等）
+    # 收盘自动触发：交易所时间(仅当日有效)或墙钟 ≥15:00 且当日收盘轮未跑 → 补跑（幂等）。
+    # 行情源故障时 exchange_now() 为空/旧戳不得导致"进来了却结不了算且无告警"——回退墙钟。
     ex_now = exchange_now()
-    if ex_now and ex_now.hour * 100 + ex_now.minute >= 1500:
-        if ctrl.get("close_done") == ex_now.date().isoformat():
+    session_now = ex_now if (ex_now and ex_now.date() == EX_DATE) else datetime.now()
+    if session_now.hour * 100 + session_now.minute >= 1500 and is_exchange_trading_day(EX_DATE):
+        done_key = EX_DATE.isoformat()
+        if ctrl.get("close_done") == done_key:
             out += " | 收盘轮当日已执行, 跳过"
         else:
             out += " | " + run_close(dry)
             if not dry:
                 led2 = load_ledger()
-                led2.setdefault("_control", {})["close_done"] = ex_now.date().isoformat()
+                led2.setdefault("_control", {})["close_done"] = done_key
                 save_ledger(led2)
     return out
 
@@ -1247,25 +1453,38 @@ def e2_gate(led: dict, px: dict, dry: bool) -> list[str]:
 
     95 周回测：水平门(127/118)所有阈值均跑输满仓且回撤相同——高位恒定半仓是系统性拖累。
     峰值回撤响应仅在真崩(自峰值跌≥5%)时减半, 恢复(收窄至2%内)加回——与分级熔断设计语言一致。
-    数据: tushare cb_daily 最近7天全市场; 中位数序列逐日积累进 credit_watch.median_history。"""
+    数据: tushare cb_daily, 只取最新交易日全市场截面中位数（不混合多日样本）,
+    逐日积累进 credit_watch.median_history; 缺数据保持仓位（median=0 不得当作 -100% 回撤）。
+    恢复满仓=按减半前登记数量买回（登记持久于 _control，缺登记则按现有持仓×2）；
+    减半/恢复均按 apply_orders 实际结果转状态与报消息，卖买被拒时保持原状态待下轮重试。"""
     ctrl = led.setdefault("_control", {})
+    msgs: list[str] = []
     try:
         df = ts_client().call("cb_daily", start_date=(EX_DATE - timedelta(days=7)).strftime("%Y%m%d"),
                               end_date=EX_DATE.strftime("%Y%m%d"), fields="trade_date,close")
-        prices = [float(x) for x in (df["close"].dropna().tolist() if df is not None else []) if x and float(x) > 0]
+        if df is not None and not df.empty and "close" in df.columns:
+            df = df.dropna(subset=["close"]).sort_values("trade_date")
+            latest = str(df["trade_date"].iloc[-1])
+            prices = [float(x) for x in df[df["trade_date"] == latest]["close"] if x and float(x) > 0]
+        else:
+            prices = []
     except Exception as exc:
         log.warning("E2 数据失败: %r", exc)
         prices = []
-    median = round(pd_median(prices), 2) if prices else 0.0
     ew = led["strategies"]["E_可转债双低"].setdefault("credit_watch", {})
     hist = ew.setdefault("median_history", [])
+    state = ctrl.get("e2_state", "normal")
+    if not prices:  # 缺数据必须保持仓位: 不得把 median=0 当作自峰值 -100% 回撤
+        ew["e2"] = {"median": 0.0, "peak": round(max((h["median"] for h in hist), default=0.0), 2),
+                    "dd_from_peak": None, "state": state, "action": "no_data"}
+        return msgs
+    median = round(pd_median(prices), 2)
     if median:
         hist.append({"date": EX_DATE.isoformat(), "median": median})
         ew["median_history"] = hist[-400:]
     # 峰值回撤: 中位数序列内的历史峰值 → 当前回撤
     peak = max((h["median"] for h in hist), default=median)
     dd_from_peak = (median / peak - 1) if peak > 0 else 0.0
-    state = ctrl.get("e2_state", "normal")
     # 回撤响应: 跌≥5% 减半, 恢复至跌幅<2% 加回
     if state == "normal" and dd_from_peak <= -0.05:
         action = "enter_defensive"
@@ -1277,45 +1496,115 @@ def e2_gate(led: dict, px: dict, dry: bool) -> list[str]:
         action = "hold_normal"
     ew["e2"] = {"median": median, "peak": round(peak, 2), "dd_from_peak": round(dd_from_peak*100, 1),
                 "state": state, "action": action}
-    msgs = []
     now = exchange_now()
-    tradable = bool(now) and is_trading_session(now)
+    tradable = bool(now) and _fills_open(now)
     if action == "enter_defensive" and not dry:
         if not tradable:
             log.warning("非交易时段, E2 减半抑制为只记录")
+            msgs.append(f"【E2择时】中位数 {median} 自峰值回撤 {dd_from_peak*100:.1f}% → 待交易时段减半")
         else:
             slot = led["strategies"]["E_可转债双低"]
+            total = sum(h["qty"] for h in slot.get("holds", []))
             sells = [{"symbol": h["symbol"], "qty": h["qty"] // 2,
                       "price": (px or {}).get(h["symbol"], {}).get("price") or h.get("price", 0)}
                      for h in slot.get("holds", []) if h["qty"] // 2 > 0]
             apply_orders(slot, sells, [], px)
-            ctrl["e2_state"] = "defensive"
-            ew["e2"]["state"] = "defensive"
-        msgs.append(f"【E2择时】中位数 {median} 自峰值回撤 {dd_from_peak*100:.1f}% → E 减半")
+            reduced = total <= 0 or sum(h["qty"] for h in slot.get("holds", [])) < total
+            if reduced:
+                ctrl["e2_state"] = "defensive"
+                ew["e2"]["state"] = "defensive"
+                # 恢复目标持久于 _control: ew["e2"] 每轮整体重建, 存其中必丢
+                ctrl["e2_pre_defensive_qty"] = total
+                msgs.append(f"【E2择时】中位数 {median} 自峰值回撤 {dd_from_peak*100:.1f}% → E 减半")
+            else:
+                msgs.append(f"【E2择时】中位数 {median} 自峰值回撤 {dd_from_peak*100:.1f}% → E 减半卖单未成交, 保持正常待下轮重试")
     elif action == "exit_defensive" and not dry:
-        ctrl["e2_state"] = "normal"
-        ew["e2"]["state"] = "normal"
-        msgs.append(f"【E2择时】中位数 {median} 回撤收窄至 {dd_from_peak*100:.1f}% → E 恢复满仓")
+        if not tradable:
+            log.warning("非交易时段, E2 恢复买回抑制为只记录")
+            msgs.append(f"【E2择时】中位数 {median} 回撤收窄至 {dd_from_peak*100:.1f}% → 待交易时段恢复满仓")
+        else:
+            slot = led["strategies"]["E_可转债双低"]
+            cur = sum(h["qty"] for h in slot.get("holds", []))
+            target = int(ctrl.get("e2_pre_defensive_qty") or cur * 2)
+            if cur <= 0:
+                # 无持仓可恢复: 择时条件已解除, 据实报(不声称恢复满仓)
+                ctrl["e2_state"] = "normal"
+                ew["e2"]["state"] = "normal"
+                ctrl.pop("e2_pre_defensive_qty", None)
+                msgs.append(f"【E2择时】中位数 {median} 回撤收窄至 {dd_from_peak*100:.1f}% → 无持仓可恢复, 状态转正常")
+            elif target <= cur:
+                ctrl["e2_state"] = "normal"
+                ew["e2"]["state"] = "normal"
+                ctrl.pop("e2_pre_defensive_qty", None)
+                msgs.append(f"【E2择时】中位数 {median} 回撤收窄至 {dd_from_peak*100:.1f}% → 仓位已足({cur}张), 状态转正常")
+            else:
+                # 买回须为转债手单位(10张/手)整数倍: 执行内核对 CB 买入强制 LOT_SIZE,
+                # 旧 round() 按张分配产生零股买单 → 恒被拒 → 恢复死锁。
+                from src.core.paper_execution import AssetClass, DEFAULT_ASSET_POLICIES
+                lot = DEFAULT_ASSET_POLICIES[AssetClass.CB].lot_size
+                deficit = target - cur
+                if deficit < lot:
+                    # 距目标不足 1 手(减半零股卖出的固有差额): 买不进整手, 据实转正常而非死等
+                    ctrl["e2_state"] = "normal"
+                    ew["e2"]["state"] = "normal"
+                    ctrl.pop("e2_pre_defensive_qty", None)
+                    msgs.append(f"【E2择时】中位数 {median} 回撤收窄至 {dd_from_peak*100:.1f}% → "
+                                f"距目标不足1手({cur}/{target}张), 状态转正常")
+                    return msgs
+                remaining_lots = deficit // lot
+                holds = slot.get("holds", [])
+                buys: list[dict] = []
+                for i, h in enumerate(holds):
+                    if i == len(holds) - 1:
+                        lots = remaining_lots               # 末位吸收剩余整手
+                    else:
+                        lots = min(remaining_lots,
+                                   max(1, round(deficit * h["qty"] / cur) // lot))
+                    share = lots * lot
+                    price = (px or {}).get(h["symbol"], {}).get("price") or h.get("price", 0)
+                    if share <= 0 or price <= 0:
+                        continue
+                    buys.append({"symbol": h["symbol"], "qty": share, "price": price})
+                    remaining_lots -= lots
+                rejects = apply_orders(slot, [], buys, px) if buys else []
+                filled = sum(h["qty"] for h in slot.get("holds", []))
+                if filled >= target:
+                    ctrl["e2_state"] = "normal"
+                    ew["e2"]["state"] = "normal"
+                    ctrl.pop("e2_pre_defensive_qty", None)
+                    msgs.append(f"【E2择时】中位数 {median} 回撤收窄至 {dd_from_peak*100:.1f}% → E 恢复满仓"
+                                + (f"(买回{filled - cur}张)" if filled > cur else ""))
+                elif filled > cur:
+                    # 部分成交: 保持防御, 下轮按差额补足(登记保留)
+                    msgs.append(f"【E2择时】中位数 {median} 回撤收窄至 {dd_from_peak*100:.1f}% → E 部分恢复"
+                                f"(+{filled - cur}张, 未达{target}), 保持防御待下轮补足")
+                else:
+                    msgs.append(f"【E2择时】中位数 {median} 回撤收窄至 {dd_from_peak*100:.1f}% → 恢复买回未成交"
+                                + (f"({'; '.join(rejects[:2])})" if rejects else "(无有效报价)")
+                                + ", 保持防御待下轮重试")
     return msgs
 
 
 def erp_gate(led: dict, px: dict, dry: bool) -> list[str]:
-    """ERP 总闸（每周一查，滞回 80/60）：沪深300 PE 10年分位 >80% → 主动槽减半；<60% 解除。
+    """PE 分位总闸（原称 ERP——PE 历史分位并非股权风险溢价，按 spec 改名；每周一查，滞回 80/60）：
+    沪深300 PE 10年分位 >80% → 转入防御（主动槽减半由 erp_scale_pass 执行）；<60% 解除。
 
-    研究依据：估值分位只在极值区有效（国信实证 R²=0.13/0.24），中性区不动。"""
+    研究依据：估值分位只在极值区有效（国信实证 R²=0.13/0.24），中性区不动。
+    纯决策：只迁移 erp_state 与登记，不直接下卖单——执行统一走 erp_scale_pass
+    （据实 + 被拒次日补做）；作用域以 deck_registry risk_scope 为唯一真源。"""
     ctrl = led.setdefault("_control", {})
     last = ctrl.get("erp_last_check")
     if last and (EX_DATE - datetime.strptime(last, "%Y-%m-%d").date()).days < 5:
         return []
     try:
         df = ts_client().call("index_dailybasic", ts_code="000300.SH",
-                              start_date=(EX_DATE - datetime.timedelta(days=3652)).strftime("%Y%m%d"),
+                              start_date=(EX_DATE - timedelta(days=3652)).strftime("%Y%m%d"),
                               end_date=EX_DATE.strftime("%Y%m%d"), fields="trade_date,pe_ttm",
                               cache_ttl_days=5)
         pe = df.dropna(subset=["pe_ttm"]).sort_values("trade_date")
         hist = [float(x) for x in pe["pe_ttm"] if x and float(x) > 0]
     except Exception as exc:
-        log.warning("ERP 总闸数据失败(乐咕兜底): %r", exc)
+        log.warning("PE分位总闸数据失败(乐咕兜底): %r", exc)
         hist = []
         try:
             import akshare as ak
@@ -1323,7 +1612,7 @@ def erp_gate(led: dict, px: dict, dry: bool) -> list[str]:
             col = "滚动市盈率" if "滚动市盈率" in df2.columns else "pe_ttm"
             hist = [float(x) for x in df2[col].tolist() if x and float(x) > 0]
         except Exception as exc2:
-            log.warning("ERP 乐咕兜底也失败: %r", exc2)
+            log.warning("PE分位总闸 乐咕兜底也失败: %r", exc2)
     cur = hist[-1] if hist else 0.0
     pct = pe_percentile(hist, cur)
     state = ctrl.get("erp_state", "normal")
@@ -1331,24 +1620,63 @@ def erp_gate(led: dict, px: dict, dry: bool) -> list[str]:
     ctrl["erp_last_check"] = EX_DATE.isoformat()
     ctrl["erp"] = {"pe": round(cur, 2), "percentile": pct, "state": state, "action": action}
     msgs = []
-    active = ("A_动量", "E_可转债双低", "F_小市值20", "F2_小市值5只神帖对照", "G_MWU融合", "H_MWU_CB融合")
     if action == "enter_defensive" and not dry:
-        for s in active:
-            slot = led["strategies"][s]
-            is_stock = s in ("F_小市值20", "F2_小市值5只神帖对照")
-            sells = [{"symbol": h["symbol"], "qty": h["qty"] // 2,
-                      "price": px.get(h["symbol"], {}).get("price") or h.get("price", 0),
-                      "is_stock": is_stock}
-                     for h in slot.get("holds", []) if h["qty"] // 2 > 0]
-            apply_orders(slot, sells, [], px)
-            slot["erp_note"] = f"ERP防御 {EX_DATE} 分位{pct}%"
         ctrl["erp_state"] = "defensive"
-        msgs.append(f"【ERP总闸】沪深300 PE分位 {pct}% >80 → 主动槽减半")
+        msgs.append(f"【PE分位总闸】沪深300 PE分位 {pct}% >80 → 转入防御, 主动槽减半执行中")
     elif action == "exit_defensive" and not dry:
         ctrl["erp_state"] = "normal"
-        for s in active:
-            led["strategies"][s].pop("erp_note", None)
-        msgs.append(f"【ERP总闸】PE分位 {pct}% <60 → 解除防御")
+        ctrl.pop("erp_scaled", None)   # 解除: 清缩放登记, 不再补做
+        for s in _erp_scale_slots():
+            led.get("strategies", {}).get(s, {}).pop("erp_note", None)
+        msgs.append(f"【PE分位总闸】PE分位 {pct}% <60 → 解除防御")
+    return msgs
+
+
+def _erp_scale_slots() -> tuple[str, ...]:
+    """ERP 主动槽（单一真源=deck_registry）: risk_scope ∈ (etf_cycle, stock_cycle) 且非观察态。
+
+    L_北向择时按槽名排除（观察态冻结禁卖；解除观察后移除此排除即自动纳入）。
+    E/H（cb）不受 PE 分位总闸（与 E2 只作用 E 槽对称）；C/D（基准）/X（事件）/Y（现金）不适用。"""
+    from src.services.deck_registry import SLOTS
+    return tuple(s.slot for s in SLOTS
+                 if s.risk_scope in ("etf_cycle", "stock_cycle") and s.slot != "L_北向择时")
+
+
+def erp_scale_pass(led: dict, px: dict, dry: bool) -> list[str]:
+    """ERP 缩放执行侧（决策/执行分离）: 防御态下对未标记主动槽 qty//2 卖出, 逐槽据实标记。
+
+    - erp_state != defensive → 空操作；槽访问用 .get() 容忍 fixture 台账缺槽。
+    - 无拒绝 → 标记 erp_scaled[slot]=EX_DATE + erp_note；被拒（T+1/闸关/无报价）→ 不标记,
+      消息注明"待次日补做", 次日 close 自然重试（逐槽增量语义, 区别于月度整批顺延）。
+    - 周度/月度重建成功的槽由重建方清除 erp_scaled 标记 → 本 pass 重新应用 ×0.5（重建后重缩放）。
+    """
+    ctrl = led.setdefault("_control", {})
+    if ctrl.get("erp_state") != "defensive":
+        return []
+    scaled = ctrl.setdefault("erp_scaled", {})
+    msgs: list[str] = []
+    for s in _erp_scale_slots():
+        if scaled.get(s):
+            continue  # 已缩放: 不重复减半
+        slot = led.get("strategies", {}).get(s)
+        if slot is None:
+            continue
+        half = [{"symbol": h["symbol"], "qty": h["qty"] // 2,
+                 "price": px.get(h["symbol"], {}).get("price") or h.get("price", 0)}
+                for h in slot.get("holds", []) if h["qty"] // 2 > 0]
+        if not half:
+            scaled[s] = EX_DATE.isoformat()   # 空仓/零股: 目标状态已达成
+            continue
+        if dry:
+            msgs.append(f"【总闸缩放】(dry) {s} 计划减半 {len(half)} 笔")
+            continue
+        rejects = apply_orders(slot, half, [], px, slot_name=s)
+        if rejects:
+            msgs.append(f"【总闸缩放】{s} 减半卖单被拒({'; '.join(rejects)[:100]}), 待次日补做")
+        else:
+            scaled[s] = EX_DATE.isoformat()
+            slot["erp_note"] = f"PE分位防御 {EX_DATE} 减半"
+            msgs.append(f"【总闸缩放】{s} 主动槽减半")
     return msgs
 
 
@@ -1405,17 +1733,45 @@ def ts_client() -> TushareClient:
     return TushareClient.instance()
 
 
-def _tushare_pro():  # 兼容旧调用点
-    return ts_client().pro
+def _recent_trading_days(n: int, end: date) -> list[str]:
+    """最近 n 个交易日(含 end, 升序 YYYYMMDD)。trade_cal 优先, 不可用时按工作日回退。
+
+    回退路径不含法定假日(仅周末), 是日历服务不可用时的诚实降级: 窗口可能
+    混入 1-2 个休市日, 调用方对返回行数做容差判断。"""
+    try:
+        cal = ts_client().call("trade_cal", exchange="SSE",
+                               start_date=(end - timedelta(days=n * 2 + 20)).strftime("%Y%m%d"),
+                               end_date=end.strftime("%Y%m%d"),
+                               fields="cal_date,is_open", cache_ttl_days=1)
+        if cal is not None and len(cal) and "is_open" in cal.columns:
+            opens = sorted(str(x) for x in cal.loc[cal["is_open"] == 1, "cal_date"].tolist())
+            if len(opens) >= n:
+                return opens[-n:]
+    except Exception as exc:
+        log.warning("trade_cal 失败, 交易日窗口按工作日回退: %r", exc)
+    out, day = [], end
+    while len(out) < n:
+        if day.weekday() < 5:
+            out.append(day.strftime("%Y%m%d"))
+        day -= timedelta(days=1)
+    return list(reversed(out))
 
 
-def _tushare_pro():
-    import tushare as ts
-    token = ""
-    for line in (PROJECT_DIR / ".env").read_text(encoding="utf-8").splitlines():
-        if line.startswith("TUSHARE_TOKEN="):
-            token = line.split("=", 1)[1].strip().strip('"').strip("'")
-    return ts.pro_api(token)
+def _stock_basic_names() -> dict[str, str]:
+    """上市股票 {ts_code: name}(list_status=L)。取数失败返回空 dict, 调用方保守处理。"""
+    sb = ts_client().call("stock_basic", list_status="L", fields="ts_code,name", cache_ttl_days=7)
+    if sb is None or not len(sb):
+        return {}
+    return dict(sb.values.tolist())
+
+
+def _float_or_none(raw) -> float | None:
+    """None/''/NaN/不可解析 → None, 其余转 float。"""
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return val if val == val else None
 
 
 def _ok_symbol(name: str, ts_code: str) -> bool:
@@ -1423,49 +1779,54 @@ def _ok_symbol(name: str, ts_code: str) -> bool:
 
 
 def pead_universe(days_back: int = 40, top: int = 8) -> list[dict]:
-    """I_PEAD 候选: 最近 N 天公告的预增(预告净利同比≥50%) → 按公告日新鲜度排序。
+    """I_预增动量 候选: 最近 N 天公告的预增(预告净利同比下限≥50%) → 公告日新→旧排序。
 
-    数据: tushare forecast 逐日 ann_date(接口限制); 三季报/年报预告季密集。"""
+    字段契约(tushare forecast, 官方 doc_id=45): p_change_min/p_change_max(%),
+    net_profit_min(万元, 下限为正才排雷"基数型假预增"); 不存在的 p_change 字段
+    不得作为"缺字段放行"的依据。同股多公告按 ann_date 降序去重, 取最新版本。
+
+    口径澄清: 同比预增≠相对市场预期的超预期(PEAD/SUE), 本槽是"预增动量"前向检验。"""
     pro = ts_client()
     seen, out = set(), []
-    for d in range(days_back, 0, -1):
+    for d in range(1, days_back + 1):  # 新→旧遍历: 同股首次命中即最新公告
         day = (EX_DATE - timedelta(days=d)).strftime("%Y%m%d")
         df = pro.call("forecast", ann_date=day,
-                      fields="ts_code,ann_date,type,p_change,net_profit_min")
+                      fields="ts_code,ann_date,type,p_change_min,p_change_max,net_profit_min")
         if df is None or df.empty:
             continue
         for _, r in df.iterrows():
             code = str(r.get("ts_code", ""))
             typ = str(r.get("type", ""))
-            chg = r.get("p_change")
-            chg = float(chg) if chg not in (None, "", "nan") else None
-            np_raw = r.get("net_profit_min")
-            try:
-                np_ok = float(np_raw) > 0  # 预告下限净利润为正(排雷: 基数型假预增)
-            except (TypeError, ValueError):
-                np_ok = True  # 未披露下限时放行(预告季早期常见)
-            if typ != "预增" or (chg is not None and chg < 50) or not np_ok:
+            chg_min = _float_or_none(r.get("p_change_min"))
+            np_min = _float_or_none(r.get("net_profit_min"))
+            if typ != "预增" or chg_min is None or chg_min < 50:
+                continue  # 下限缺失/不足 50% 均拒绝; 缺字段不再放行
+            if np_min is not None and np_min <= 0:
                 continue
             if code in seen or not _ok_symbol("", code):
                 continue
             seen.add(code)
-            out.append({"ts_code": code, "ann_date": day, "p_change": chg})
+            out.append({"ts_code": code, "ann_date": day, "p_change_min": chg_min,
+                        "p_change_max": _float_or_none(r.get("p_change_max"))})
     return out[:top]
 
 
 def reversal_universe(days: int = 21, top: int = 8) -> list[dict]:
-    """J_短期反转候选: 全市场 21 日跌幅最深 + 流动性过滤(金额≥3000万) + 剔ST/北交所/科创板。
+    """J_短期反转候选: 全市场 21 日跌幅最深 + 流动性过滤(成交额≥3000万) + 剔ST/北交所/科创板。
 
-    数据: tushare daily 逐日(daily 单次上限6000行)。机制: A股短期反转(LSY2019/STREV实证)。"""
+    数据: tushare trade_cal 取交易日窗口(doc), daily 逐日(daily 单次上限6000行)。
+    单位契约(tushare doc_id=27): daily.amount 为千元 → 换算成元后再比较阈值。
+    机制: A股短期反转(LSY2019/STREV实证)。"""
     pro = ts_client()
-    series: dict[str, dict[str, float]] = {}
-    for d in range(days, -1, -1):
-        day = (EX_DATE - timedelta(days=d)).strftime("%Y%m%d")
+    sessions = _recent_trading_days(days + 1, EX_DATE)  # days 期收益 = days+1 个收盘
+    series: dict[str, dict[str, tuple[float, float]]] = {}
+    for day in sessions:
         df = pro.call("daily", trade_date=day, fields="ts_code,close,amount")
         if df is None or df.empty:
             continue
         for _, r in df.iterrows():
-            series.setdefault(str(r["ts_code"]), {})[day] = (float(r["close"]), float(r.get("amount") or 0))
+            amount_yuan = (_float_or_none(r.get("amount")) or 0.0) * 1000.0  # 千元 → 元
+            series.setdefault(str(r["ts_code"]), {})[day] = (float(r["close"]), amount_yuan)
     out = []
     for code, pxmap in series.items():
         days_sorted = sorted(pxmap)
@@ -1476,24 +1837,23 @@ def reversal_universe(days: int = 21, top: int = 8) -> list[dict]:
         if c0 <= 0 or amt < 3e7:
             continue
         out.append({"ts_code": code, "ret21": round((c1 / c0 - 1) * 100, 2)})
-    sb = _tushare_pro().stock_basic(list_status="L", fields="ts_code,name")
-    names = dict(sb.values.tolist())
+    names = _stock_basic_names()
+    if not names:
+        log.warning("J_反转: stock_basic 不可用, 候选保守置空(不降级 ST/板块过滤)")
+        return []
     out = [r for r in out if _ok_symbol(names.get(r["ts_code"], ""), r["ts_code"])]
     out.sort(key=lambda r: r["ret21"])
     # 崩刀过滤: 跌幅最深候选当日主力净流出≥3000万 → 真崩非超跌, 剔除
-    # moneyflow 日期回退: 月首交易日前一天可能是休市日
+    # moneyflow 经 TushareClient 统一限频/审计; 日期回退: 月首交易日前一天可能是休市日
     for r in out:
-        code6 = ("sh" if r["ts_code"].endswith(".SH") else "sz") + r["ts_code"][:6]
         r["net_mf"] = None
         for back in range(1, 6):
             day = (EX_DATE - timedelta(days=back)).strftime("%Y%m%d")
-            try:
-                mf = pro.moneyflow(trade_date=day, ts_code=r["ts_code"], fields="net_mf_amount")
-                if mf is not None and len(mf):
-                    r["net_mf"] = float(mf["net_mf_amount"].iloc[0])
-                    break
-            except Exception:
-                continue
+            mf = pro.call("moneyflow", trade_date=day, ts_code=r["ts_code"],
+                          fields="net_mf_amount")
+            if mf is not None and len(mf):
+                r["net_mf"] = _float_or_none(mf["net_mf_amount"].iloc[0])
+                break
     out = [r for r in out if r.get("net_mf") is None or r["net_mf"] > -3000]
     return out[:top]
 
@@ -1549,15 +1909,18 @@ def e_take_profit_pass(led: dict, px: dict, dry: bool) -> list[str]:
 
 
 def north_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
-    """L_北向择时: 昨日北向净买入250日分位 → 持有/清仓 510300(与C槽同标的, 受控实验)。
+    """L_北向择时: **观察态**——信号照算并记录, 但持仓冻结, 不产生任何新交易。
 
-    数据: tushare moneyflow_hsgt(2026-10 实测逐日可得)。机制: 聪明钱信息优势
-    (聚宽北向三部曲, 2.5万浏览实证帖); 披露规则2024-08改变后信息含量是否衰减=本槽检验点。"""
+    依据: 上交所上证发〔2024〕106号(2024-08-19 实施)后, 沪股通每日只公布成交
+    总额/笔数/前十大活跃证券成交总额, 单只证券持股改季度披露; moneyflow_hsgt
+    现值是否为"官方每日净买入"无法证实。拿未证实字段驱动真金交易不负责任,
+    故本槽只做前向观察记录, 等字段语义有官方结论后再评估是否恢复交易。
+    信号计算保留(纯函数 north_percentile/north_decision 仍可测)。"""
     slot = led["strategies"].get("L_北向择时")
     if not slot:
         return []
     if dry:
-        return ["L_北向(dry) 信号计算"]
+        return ["L_北向(dry) 观察态: 信号计算, 不交易"]
     try:
         pro = ts_client()
         df = pro.call("moneyflow_hsgt", start_date=(EX_DATE - timedelta(days=400)).strftime("%Y%m%d"),
@@ -1567,66 +1930,76 @@ def north_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
         yesterday = float(df["north_money"].iloc[-1]) if df["trade_date"].iloc[-1] == EX_DATE.strftime("%Y%m%d") else (float(df["north_money"].iloc[-2]) if len(df) > 1 else None)
         pct = north_percentile(series[:-1], yesterday)  # 用截至昨日的窗口, 信号=昨日值
         action = north_decision(pct)
-        cur = {h["symbol"]: h["qty"] for h in slot.get("holds", [])}
-        target = {}
-        if action == "hold_index":
-            price = px.get("510300.SH", {}).get("price") or 4.4
-            target = {"510300.SH": int(CAPITAL * 0.98 // (price * 100)) * 100}
-        elif action in ("keep", "no_data"):
-            target = {h["symbol"]: h["qty"] for h in slot.get("holds", [])}  # 中间区/数据缺失: 维持现仓
-        sells = [{"symbol": h["symbol"], "qty": h["qty"], "price": px.get(h["symbol"], {}).get("price") or h.get("price", 0)}
-                 for h in slot.get("holds", []) if h["symbol"] not in target]
-        buys = []
-        for k, v in target.items():
-            have = cur.get(k, 0)
-            price = px.get(k, {}).get("price") or 0
-            if v > have and price:
-                buys.append({"symbol": k, "qty": v - have, "price": price, "is_stock": False})
-        apply_orders(slot, sells, buys, px)
         slot["signal"] = {"date": EX_DATE.isoformat(), "north_yesterday": yesterday,
-                          "pct": pct, "action": action}
-        tag = f"{action}(北向分位{pct}%)"
-        return [f"L_北向择时 {tag} → {sorted(target) or '空仓'}"]
+                          "pct": pct, "action": action, "mode": "observation",
+                          "note": "106号后字段语义未证, 观察态不交易"}
+        held = sum(h["qty"] for h in slot.get("holds", []))
+        return [f"L_北向择时[观察态] {action}(北向分位{pct}%) 持仓冻结{held}份, 不交易"]
     except Exception as exc:
         log.error("L_北向 信号失败: %r", exc)
         return ["【异常】L_北向 信号计算失败, 持仓不变"]
 
 
+def _holder_period_frame(pro, period: str) -> pd.DataFrame:
+    """单报告期股东户数(ts_code, holder_num): 同股多次披露按 ann_date 取最新版本。
+
+    官方 doc_id=166: ann_date=公告日(可能晚于报告期), end_date=截止日, 同一报告期
+    可因更正/补充披露出现多行 → 不去重会产生同股重复候选(笛卡尔积)。"""
+    df = pro.call("stk_holdernumber", enddate=period,
+                  fields="ts_code,ann_date,end_date,holder_num", cache_ttl_days=30)
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["ts_code", "holder_num"])
+    df = df.copy()
+    if "ann_date" in df.columns:
+        # NaN 公告日按"最旧"处理(na_position=first), keep=last 确保取到最大真实 ann_date
+        df = df.sort_values("ann_date", kind="stable", na_position="first")
+    return df.drop_duplicates(subset=["ts_code"], keep="last")[["ts_code", "holder_num"]]
+
+
 def holder_concentration_universe(top: int = 8) -> list[dict]:
     """M_筹码集中度候选: 最新报告期股东户数降幅≥10% 排序(筹码向主力集中)。
 
-    数据: tushare stk_holdernumber 按报告期全市场单次查询(季度频率)。
-    过滤: ST/北交所/科创板; 流动性与市值约束在 px 层做。"""
+    数据: tushare stk_holdernumber 按报告期全市场单次查询(季度频率, doc_id=166)。
+    过滤: ST/北交所/科创板; 流动性与市值约束在 px 层做。
+    口径降级声明: 户数下降不必然等于"主力建仓"(可能只是散户离场), 低获利比例
+    亦不等于安全区——cyq 仅作剔除"筹码已高位"的辅助筛, 不构成正向依据。"""
     pro = ts_client()
     cur_q = _latest_report_period(EX_DATE)
     prev_q = _prev_report_period(cur_q)
-    df = pro.call("stk_holdernumber", enddate=cur_q, fields="ts_code,holder_num", cache_ttl_days=30)
-    prev = pro.call("stk_holdernumber", enddate=prev_q, fields="ts_code,holder_num", cache_ttl_days=30)
+    df = _holder_period_frame(pro, cur_q)
+    prev = _holder_period_frame(pro, prev_q)
+    if df.empty or prev.empty:
+        log.warning("M_筹码集中度: 报告期数据缺失(%s/%s), 本次不调仓", cur_q, prev_q)
+        return []
     m = df.merge(prev, on="ts_code", suffixes=("_new", "_prev"))
     m = m[(m["holder_num_new"] > 0) & (m["holder_num_prev"] > 0)]
     m["chg"] = (m["holder_num_new"] / m["holder_num_prev"] - 1) * 100
     m = m[m["chg"] <= -10].sort_values("chg")
-    sb = _tushare_pro().stock_basic(list_status="L", fields="ts_code,name")
-    names = dict(sb.values.tolist())
+    names = _stock_basic_names()
+    if not names:
+        log.warning("M_筹码集中度: stock_basic 不可用, 候选保守置空(不降级 ST/板块过滤)")
+        return []
     out = []
     for _, r in m.iterrows():
         code = str(r["ts_code"])
         nm = names.get(code, "")
         if not _ok_symbol(nm, code):
             continue
-        # cyq_perf 二次验证: 最新获利比例>60% → 筹码已高位, 剔除(防追已完成行情)
-        try:
-            cyq = ts_client().call("cyq_perf", ts_code=code,
-                                   start_date=(EX_DATE - timedelta(days=14)).strftime("%Y%m%d"),
-                                   end_date=EX_DATE.strftime("%Y%m%d"), fields="trade_date,winner_rate")
-            if cyq is not None and len(cyq):
-                wr = float(cyq.sort_values("trade_date")["winner_rate"].iloc[-1])
-                if wr > 60:
-                    continue
-        except Exception:
-            pass  # 筹码查询失败不阻塞候选(保守放行, 下游还有过滤)
+        # cyq_perf 二次验证: 最新获利比例>60% → 筹码已高位, 剔除(防追已完成行情);
+        # 接口异常(None) → 显式跳过该候选, 不静默放行未经校验的标的
+        wr = None
+        cyq = pro.call("cyq_perf", ts_code=code,
+                       start_date=(EX_DATE - timedelta(days=14)).strftime("%Y%m%d"),
+                       end_date=EX_DATE.strftime("%Y%m%d"), fields="trade_date,winner_rate")
+        if cyq is None:
+            log.warning("M: cyq_perf 不可用(%s), 跳过该候选", code)
+            continue
+        if len(cyq):
+            wr = _float_or_none(cyq.sort_values("trade_date")["winner_rate"].iloc[-1])
+        if wr is not None and wr > 60:
+            continue
         out.append({"ts_code": code, "name": nm, "chg": round(float(r["chg"]), 1),
-                    "winner_rate": round(float(cyq.sort_values("trade_date")["winner_rate"].iloc[-1]), 1) if cyq is not None and len(cyq) else None})
+                    "winner_rate": round(wr, 1) if wr is not None else None})
         if len(out) >= top:
             break
     return out
@@ -1666,6 +2039,7 @@ def holder_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
         return ["M_筹码集中度(dry) 候选重取"]
     try:
         cands = holder_concentration_universe()
+        ensure_prices(px, [("SH" if r["ts_code"].endswith(".SH") else "SZ") + r["ts_code"][:6] for r in cands])
         picks = []
         for r in cands:
             sym = ("SH" if r["ts_code"].endswith(".SH") else "SZ") + r["ts_code"][:6]
@@ -1687,17 +2061,20 @@ def holder_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
         return ["【异常】M_筹码集中度 候选重取失败, 持仓不变"]
 
 
+_SEQUOIA_DB = PROJECT_DIR.parent / "quant_research" / "vendor" / "Sequoia-X" / "data" / "sequoia_v2.db"
+_SEQUOIA_MIN_ROWS = 2_000_000  # 实测全量231万, 阈值取整200万
+
+
 def sequoia_ready() -> bool:
-    """Sequoia-X 数据就绪: 行数≥200万(实测全量231万) 且 最新bar在近10天内。"""
-    db = PROJECT_DIR.parent / "quant_research" / "vendor" / "Sequoia-X" / "data" / "sequoia_v2.db"
+    """Sequoia-X 数据就绪: 行数≥_SEQUOIA_MIN_ROWS 且 最新bar在近10天内。"""
     try:
         import sqlite3
-        con = sqlite3.connect(db)
+        con = sqlite3.connect(_SEQUOIA_DB)
         n = con.execute("SELECT COUNT(*) FROM stock_daily").fetchone()[0]
         latest = con.execute("SELECT MAX(date) FROM stock_daily").fetchone()[0]
         from datetime import datetime as _dt
         age_days = (_dt.now() - _dt.strptime(latest, "%Y-%m-%d")).days if latest else 9999
-        ready = n >= 2_000_000 and age_days <= 10
+        ready = n >= _SEQUOIA_MIN_ROWS and age_days <= 10
         if not ready:
             log.info("Sequoia-X 数据未就绪: %s 行, 最新 %s", f"{n:,}", latest)
         return ready
@@ -1749,54 +2126,57 @@ def sequoia_scan(led: dict, px: dict, dry: bool) -> list[str]:
 
 
 def industry_momentum_universe(top_industries: int = 3, per_industry: int = 2, top: int = 8) -> list[dict]:
-    """O_行业轮动候选: 28个申万L1行业20日动量排序 → 前3行业 → 成分股按流通市值选龙头(每行业2只)。
+    """O_行业轮动候选: 申万 L1 行业最近 20 个交易日动量排序 → 前 N 行业 → 成分股按流通市值选龙头。
 
-    数据: tushare sw_daily(行业指数) + index_member_all(成分) + daily_basic(市值)。28次调用/月。"""
+    数据: tushare index_classify(src=SW2021 钉版本, 行业分类口径不随默认值漂移)
+    + sw_daily(行业指数, 先升序再算动量) + index_member_all(全量成分, 不再先截 200,
+    避免漏掉大市值龙头) + daily_basic(市值)。窗口: trade_cal 最近 21 个收盘 = 20 期收益。"""
     pro = ts_client()
-    lv1 = pro.call("index_classify", level="L1", fields="index_code")
-    codes = lv1["index_code"].tolist() if lv1 is not None else []
+    lv1 = pro.call("index_classify", level="L1", src="SW2021", fields="index_code")
+    codes = lv1["index_code"].tolist() if lv1 is not None and len(lv1) else []
+    sessions = _recent_trading_days(21, EX_DATE)
+    start, end = sessions[0], EX_DATE.strftime("%Y%m%d")
+    # 窗口完整性下限(75%): trade_cal 不可用按工作日回退时会混入休市日, 少于 15 根不评分
+    min_rows = max(10, int(len(sessions) * 0.75))
     scored = []
     for c in codes:
-        try:
-            d = pro.call("sw_daily", ts_code=c,
-                         start_date=(EX_DATE - timedelta(days=45)).strftime("%Y%m%d"),
-                         end_date=EX_DATE.strftime("%Y%m%d"), fields="trade_date,close")
-        except Exception:
+        d = pro.call("sw_daily", ts_code=c, start_date=start, end_date=end,
+                     fields="trade_date,close")
+        if d is None or d.empty:
             continue
-        if d is None or len(d) < 10:
+        d = d.dropna(subset=["close"]).sort_values("trade_date")  # 官方降序返回 → 先升序
+        if len(d) < min_rows:
             continue
-        ret20 = (float(d["close"].iloc[-1]) / float(d["close"].iloc[0]) - 1) * 100
+        closes = d["close"].astype(float).tail(len(sessions)).tolist()
+        if closes[0] <= 0:
+            continue
+        ret20 = (closes[-1] / closes[0] - 1) * 100
         scored.append((c, ret20))
     scored.sort(key=lambda x: -x[1])
     top_ind = [c for c, _ in scored[:top_industries]]
     if not top_ind:
         return []
-    # 成分股(每行业按流通市值取前2)
+    # 成分股(每行业按流通市值取前 per_industry 只, 全量成员再排序)
     pool = []
     for ind in top_ind:
-        try:
-            members = pro.call("index_member_all", l1_code=ind, fields="ts_code")
-            if members is None or members.empty:
-                continue
-            syms = [str(x) for x in members["ts_code"].tolist()[:200]]
-            day0 = EX_DATE.strftime("%Y%m%d")
-            db = None
-            for back in range(0, 8):  # 休市日回退
-                try:
-                    db = pro.call("daily_basic", trade_date=(EX_DATE - timedelta(days=back)).strftime("%Y%m%d"),
-                                  fields="ts_code,circ_mv")
-                    if db is not None and len(db):
-                        break
-                except Exception:
-                    continue
-            if db is None or db.empty:
-                continue
-            db = db[db["ts_code"].isin(syms)].dropna(subset=["circ_mv"])
-            # 行业β代表: 选行业内市值最大2只(流动性龙头)——不混小市值因子, 保持行业动量归因纯净
-            for _, r in db.nlargest(2, "circ_mv").iterrows():
-                pool.append({"ts_code": r["ts_code"], "industry": ind})
-        except Exception:
+        members = pro.call("index_member_all", l1_code=ind, fields="ts_code")
+        if members is None or members.empty:
             continue
+        syms = {str(x) for x in members["ts_code"].tolist()}
+        db = None
+        for back in range(0, 8):  # 休市日回退
+            db = pro.call("daily_basic", trade_date=(EX_DATE - timedelta(days=back)).strftime("%Y%m%d"),
+                          fields="ts_code,circ_mv")
+            if db is not None and len(db):
+                break
+        if db is None or db.empty:
+            continue
+        db = db[db["ts_code"].isin(syms)].dropna(subset=["circ_mv"])
+        if db.empty:
+            continue
+        # 行业β代表: 选行业内市值最大 per_industry 只(流动性龙头)——不混小市值因子, 保持行业动量归因纯净
+        for _, r in db.nlargest(per_industry, "circ_mv").iterrows():
+            pool.append({"ts_code": r["ts_code"], "industry": ind})
     return pool[:top]
 
 
@@ -1812,6 +2192,7 @@ def industry_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
         if not cands:
             slot["note"] = f"{EX_DATE} 无候选, 维持旧仓"
             return ["O_行业轮动 无候选, 维持旧仓"]
+        ensure_prices(px, [("SH" if r["ts_code"].endswith(".SH") else "SZ") + r["ts_code"][:6] for r in cands])
         picks = []
         for r in cands:
             sym = ("SH" if r["ts_code"].endswith(".SH") else "SZ") + r["ts_code"][:6]
@@ -1877,23 +2258,34 @@ def build_close_summary(led: dict, px: dict) -> str:
 def daily_dividend_pass(led: dict, px: dict, dry: bool) -> list[str]:
     """每日一次：股票/ETF 持仓的除息分红计入现金（红利策略语义=分红到账）。
 
-    节流：EX_DATE 一天一次；结果缓存 (ts_code, since)。"""
+    幂等：分红按事件入账——每 (槽位, 证券) 登记已入账事件（desc 含除息日集），
+    同事件跨日/跨进程不重复入账；起算日随入账推进到 EX_DATE，历史事件不再重复聚合。
+    缓存键 (sym, since, qty) 含持仓数量：同证券不同账户各按自身份额计。"""
     ctrl = led.setdefault("_control", {})
     if ctrl.get("dividend_check_last") == EX_DATE.isoformat():
         return []
     msgs = []
-    since = (led.get("start_date") or "2026-09-28").replace("-", "")
+    since_base = (led.get("start_date") or "2026-09-28").replace("-", "")
+    booked = ctrl.setdefault("dividend_booked", {})   # "槽位|证券" -> 已入账事件
+    since_mark = ctrl.setdefault("dividend_since", {})  # "槽位|证券" -> 已入账至 YYYYMMDD
     for name, s in led["strategies"].items():
         for h in s.get("holds", []):
             sym = h["symbol"]
             if not sym.endswith((".SH", ".SZ")) or sym.startswith(("SH204001",)):
                 continue
-            key = (sym, since)
+            acct = f"{name}|{sym}"
+            since = max(since_base, since_mark.get(acct, ""))
+            key = (sym, since, h["qty"])
             if key not in _DIV_CACHE:
                 _DIV_CACHE[key] = dividend_accrued(sym, since, h.get("price", 0), h["qty"])
             cash, desc = _DIV_CACHE[key]
+            prior = booked.get(acct)
+            if cash > 0 and prior and prior.get("desc") == desc:
+                continue  # 同一分红事件已入账（跨日重复聚合），跳过
             if cash > 0 and not dry:
                 s["cash"] = round(s.get("cash", 0) + cash, 2)
+                booked[acct] = {"since": since, "desc": desc, "amount": cash}
+                since_mark[acct] = EX_DATE.strftime("%Y%m%d")
                 s.setdefault("tuning", []).append(
                     {"date": EX_DATE.isoformat(), "change": f"分红到账 ¥{cash}", "why": desc})
                 msgs.append(f"分红 {name} {h.get('name', sym)} +¥{cash} ({desc})")
@@ -1908,21 +2300,62 @@ _WEEK_CACHE: dict = {}
 
 
 def _is_week_first_trading_day() -> bool:
-    """EX_DATE 是否本周(周一~今天)首个交易日——假期周(如10-08周四开盘)不跳过周频信号。"""
-    week_key = f"week{EX_DATE - timedelta(days=EX_DATE.weekday()):%Y%m%d}"
-    if _WEEK_CACHE.get(week_key) is not None:
-        return _WEEK_CACHE[week_key]
+    """EX_DATE 是否本周(周一~今天)首个交易日——假期周(如10-08周四开盘)不跳过周频信号。
+
+    缓存键必须含具体日期：旧实现按"周"作键，同进程跨日复调用会返回前一天的结果。
+    """
+    day_key = f"{EX_DATE:%Y%m%d}"
+    if _WEEK_CACHE.get(day_key) is not None:
+        return _WEEK_CACHE[day_key]
     result = True
     for back in range(1, EX_DATE.weekday() + 1):
         d = EX_DATE - timedelta(days=back)
         if is_exchange_trading_day(d):
             result = False
             break
-    _WEEK_CACHE[week_key] = result
+    _WEEK_CACHE[day_key] = result
     return result
 
 
+def _monthly_tasks(led: dict, px: dict, dry: bool) -> list:
+    """月度调仓注册表: (标签, 槽位元组, 调用) 列表。函数内构造, 探针 ns 可逐个替换策略。
+
+    - 标签: rebalance_done 月度记录的子任务标识; 全部成功登记 "all",
+      部分成功登记已成功标签列表(次日 close 经列表门续做, 避免"整月丢失")。
+    - 槽位元组: 子任务重建的槽位, 成功后清除 erp_scaled 标记
+      (重建后重缩放: 否则月度重建满仓后标记仍在, 防御系数永久丢失)。
+    """
+    return [
+        ("smallcap20", ("F_小市值20",),
+         lambda: smallcap_rebalance(led, "F_小市值20", 20, 2500, True, px, dry)),
+        ("smallcap5", ("F2_小市值5只神帖对照",),
+         lambda: smallcap_rebalance(led, "F2_小市值5只神帖对照", 5, 4000, False, px, dry)),
+        ("cb", ("E_可转债双低",),
+         lambda: cb_rebalance(led, px, dry)),
+        ("mwu_cb", ("H_MWU_CB融合",),
+         lambda: mwu_rebalance(led, px, dry, slot_name="H_MWU_CB融合",
+                               strategy="etf_mwu_cb",
+                               strategy_config="config/strategy/etf_mwu_cb_monthly.yaml")),
+        ("pead", ("I_PEAD业绩预告",),
+         lambda: pead_rebalance(led, px, dry)),
+        ("reversal", ("J_短期反转",),
+         lambda: reversal_rebalance(led, px, dry)),
+        ("buywatch", ("K_项目选股",),
+         lambda: buywatch_rebalance(led, px, dry)),
+        ("holder", ("M_筹码集中度",),
+         lambda: holder_rebalance(led, px, dry)),
+        ("industry", ("O_行业轮动",),
+         lambda: industry_rebalance(led, px, dry)),
+        ("sequoia", ("N_技术形态对照",),
+         lambda: sequoia_scan(led, px, dry)),
+    ]
+
+
 def run_close(dry: bool) -> str:
+    # 交易日守卫: run_intraday 内部 catch-up 会直调本函数, 15:10 后 CLI close 模式也无盘中守卫,
+    # 非交易日（周末/节假日）不得补结算写 marks；接口失败时 is_exchange_trading_day 保守 True（幂等兜底）。
+    if not is_exchange_trading_day(EX_DATE):
+        return f"休市(交易所日历 {EX_DATE})，跳过"
     led = load_ledger()
     px = slot_prices(led)
     today = EX_DATE.isoformat()
@@ -1954,44 +2387,57 @@ def run_close(dry: bool) -> str:
             notify(rep, dedup_key=f"deck_monthly_{EX_DATE:%Y-%m}")
     ctrl = led.setdefault("_control", {})
     if _is_week_first_trading_day():
-        for m in momentum_signal(led, px, dry) + rotation_signal(led, px, dry) + mwu_rebalance(led, px, dry):
-            msgs.append(m)
+        wk = (momentum_signal(led, px, dry) + rotation_signal(led, px, dry)
+              + mwu_rebalance(led, px, dry))
+        msgs.extend(wk)
+        # 重建后重缩放(D2): 周度重建(A/B/G)无异常 → 清缩放标记, 待 erp_scale_pass 重新应用
+        if not dry and not any(isinstance(m, str) and m.startswith("【异常】") for m in wk):
+            scaled = ctrl.get("erp_scaled")
+            if scaled:
+                for s in ("A_动量", "B_轮动", "G_MWU融合"):   # momentum→A / rotation→B / mwu→G
+                    scaled.pop(s, None)
     month_key = today[:7]
     done = ctrl.setdefault("rebalance_done", {})
-    if _is_month_first_trading_day() and done.get(month_key) != "all" and not dry:
-        try:
-            for m in (smallcap_rebalance(led, "F_小市值20", 20, 2500, True, px, dry)
-                      + smallcap_rebalance(led, "F2_小市值5只神帖对照", 5, 4000, False, px, dry)
-                      + cb_rebalance(led, px, dry)
-                      + mwu_rebalance(led, px, dry, slot_name="H_MWU_CB融合",
-                                      strategy="etf_mwu_cb",
-                                      strategy_config="config/strategy/etf_mwu_cb_monthly.yaml")
-                      + pead_rebalance(led, px, dry)
-                      + reversal_rebalance(led, px, dry)
-                      + buywatch_rebalance(led, px, dry)
-                      + holder_rebalance(led, px, dry)
-                      + industry_rebalance(led, px, dry)
-                      + sequoia_scan(led, px, dry)):
-                msgs.append(m)
-            done[month_key] = "all"
-            # 总闸缩放: ERP/E2 防御态下, 月度重建的主动槽立即减半(重建后再缩放, 语义=策略目标×总闸系数)
-            factor = 0.5 if (ctrl.get("erp_state") == "defensive" or ctrl.get("e2_state") == "defensive") else 1.0
-            if factor < 1.0:
-                for s in ("A_动量", "F_小市值20", "F2_小市值5只神帖对照", "G_MWU融合", "H_MWU_CB融合", "I_PEAD业绩预告", "J_短期反转", "K_项目选股", "M_筹码集中度", "O_行业轮动", "N_技术形态对照"):
-                    slot2 = led["strategies"].get(s, {})
-                    half = [{"symbol": h["symbol"], "qty": h["qty"] // 2,
-                             "price": px.get(h["symbol"], {}).get("price") or h.get("price", 0),
-                             "is_stock": s.startswith(("F", "I", "J", "K", "M"))}
-                            for h in slot2.get("holds", []) if h["qty"] // 2 > 0]
-                    apply_orders(slot2, half, [], px)
-                msgs.append("【总闸缩放】防御态 → 主动槽月度建仓×0.5")
-        except Exception as exc:
-            log.error("月度调仓失败(不影响净值落账): %r", exc)
-            msgs.append(f"【异常】月度调仓失败: {exc!r:.120}")
-    summary = build_close_summary(led, px)
+    # 月度注册表: 子策略粒度幂等 + 失败重试 + 非撮合窗顺延。
+    # 门: 月首交易日启动; 部分完成(列表记录)则每日 close 续做至齐备。
+    if (not dry and done.get(month_key) != "all"
+            and (_is_month_first_trading_day() or isinstance(done.get(month_key), list))):
+        if not _fills_open(exchange_now() or datetime.now()):
+            # 非撮合时段(如 15:0x 补结算轮): 只顺延不执行; 已有部分完成记录不被覆盖。
+            if not isinstance(done.get(month_key), list):
+                done[month_key] = []
+            msgs.append("【月度调仓】非撮合时段, 月度调仓顺延")
+        else:
+            tasks = _monthly_tasks(led, px, dry)
+            ok = list(done.get(month_key)) if isinstance(done.get(month_key), list) else []
+            for label, slots, call in tasks:
+                if label in ok:
+                    continue  # 幂等: 已完成子任务不重跑
+                try:
+                    sub = list(call() or [])
+                except Exception as exc:
+                    log.error("月度子任务 %s 失败(不影响净值落账): %r", label, exc)
+                    msgs.append(f"【异常】月度子任务 {label} 失败: {exc!r:.120}")
+                    continue
+                msgs.extend(sub)
+                if any(isinstance(m, str) and m.startswith("【异常】") for m in sub):
+                    continue  # 子策略自报失败: 不登记, 次日重试
+                ok.append(label)
+                # 重建后重缩放(D2): 子任务槽位已重建, 清除缩放标记, 待总闸缩放/erp_scale_pass 重应用
+                scaled = ctrl.get("erp_scaled")
+                if scaled:
+                    for s in slots:
+                        scaled.pop(s, None)
+            done[month_key] = "all" if len(ok) == len(tasks) else ok
+    # ERP 缩放执行侧: 周度/月度重建之后调用(重建清标记 → 此处重新应用 ×0.5; 据实 + 被拒次日补做)
+    msgs.extend(erp_scale_pass(led, px, dry))
+    # 本轮操作先并入 _actions 再出 summary: 收盘通知的"今日操作"必须含当轮成交,
+    # 旧顺序 summary 先构建 → 通知声称"无调仓"而台账实际有交易。
     if not dry:
         acts = led.setdefault("_actions", {}).setdefault(today, [])
         led["_actions"][today] = sorted(set(acts) | set(msgs))
+    summary = build_close_summary(led, px)
+    if not dry:
         save_ledger(led)
         for m in msgs:
             notify(m, dedup_key=f"deck_close_{today}_{m[:12]}")
@@ -2014,13 +2460,37 @@ def main() -> int:
         release_lock()
 
 
+def _session_gate(stamp: datetime | None, wall: datetime, force: bool):
+    """会话闸（运行窗 + 撮合窗）: 返回 (运行日期, 时段基准, 成交闸, 拒绝原因)。
+
+    - 运行日期只取墙钟: 旧行情戳不得倒拨（休市时行情戳停在过去）。
+    - 时段基准: 交易所时间戳优先（本机时钟不可信）。
+    - 成交闸 = force or _fills_open: 15:00 后新成交关闭, 15:10 后 catch-up 只结算。
+    - 旧行情戳拒入 / 15:10 后 catch-up 仅交易日放行, 语义原样保留。
+    拒绝原因非空时调用方跳过本轮。"""
+    ex_date = wall.date()
+    session_now = stamp or wall
+    hm = session_now.hour * 100 + session_now.minute
+    trading_ok = force or _fills_open(session_now)
+    reason = ""
+    if not force:
+        stale_intraday = (stamp is not None and stamp.date() != ex_date and hm <= 1510)
+        after_close = hm > 1510  # 15:10 后放行收盘补结算（撮合窗已关, 内核拒绝新成交）
+        if after_close and not is_exchange_trading_day(ex_date):
+            # 15:10 后 catch-up 只对交易日放行: 周末/节假日不得补结算写 marks
+            reason = f"非交易日(交易所日历 {ex_date})，跳过"
+        elif stale_intraday or (not is_trading_session(session_now) and not after_close):
+            reason = f"非交易时段(交易所时间 {session_now:%m-%d %H:%M})，跳过"
+    return ex_date, session_now, trading_ok, reason
+
+
 def _main_inner(args: argparse.Namespace) -> int:
     global EX_DATE, _TRADING_OK
-    now = exchange_now() or datetime.now()
-    EX_DATE = now.date()
-    _TRADING_OK = args.force or is_trading_session(now)
-    if not args.force and not is_trading_session(now):
-        print(f"非交易时段(交易所时间 {now:%m-%d %H:%M})，跳过 {args.mode} 轮")
+    stamp = exchange_now()
+    wall = datetime.now()
+    EX_DATE, _session_now, _TRADING_OK, reject = _session_gate(stamp, wall, args.force)
+    if reject:
+        print(f"{reject} {args.mode} 轮")
         return 0
     out = run_intraday(args.dry_run) if args.mode == "intraday" else run_close(args.dry_run)
     print(out)

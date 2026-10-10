@@ -21,7 +21,7 @@
 | 接口 | 用途 | 已落地 |
 |---|---|---|
 | daily_basic | 市值/估值/换手（K/M 槽选股、快照补列） | ✅ |
-| stock_basic / daily / index_daily / index_dailybasic | 基础数据、ERP 分位（10年PE） | ✅ |
+| stock_basic / daily / index_daily / index_dailybasic | 基础数据、PE 分位总闸（10年PE） | ✅ |
 | moneyflow_hsgt | 北向净买入（L 槽信号） | ✅ |
 | cb_daily / forecast / stk_holdernumber / fund_div | E2/I/M 槽核心 | ✅ |
 | **limit_list_d** | 全市场跌停家数（熔断第三信号） | ✅ |
@@ -40,7 +40,7 @@
 | stock_notice_report | ✅ | 全市场公告流（X 事件扫描核心） |
 | stock_zt_pool_dtgc_em | ✅ | 跌停池（9 行/日，与 limit_list_d 交叉验证） |
 | stock_margin_sse | ✅ | 两融明细 |
-| stock_index_pe_lg | ⚠ 仅 258 行 | ERP 兜底（主源 tushare） |
+| stock_index_pe_lg | ⚠ 仅 258 行 | PE 分位兜底（主源 tushare） |
 | stock_news_em | ❌ 参数/解析异常 | 个股新闻（观察，待换接口） |
 
 ## 四、baostock（交叉验证源）
@@ -56,6 +56,6 @@
 
 ## 五、纪律
 
-1. 阈值信号（熔断/ERP/E2）一律**双源交叉验证**后才允许触发交易动作
+1. 阈值信号（熔断/PE分位/E2）**双源交叉验证未实施**——当前为单源+保守回落：数据失败时不动仓位（E2 缺数据保持仓位、熔断信号缺失不触发、PE分位走乐咕兜底），禁止把缺数据当作有效触发
 2. 单源限速（tickflow 10/min、report_rc 10/天、tushare 积分）——调用前查缓存，禁止无谓重复拉取
 3. 新数据源接入必须先进本矩阵登记+实测，再写代码

@@ -3,6 +3,7 @@
 
 import importlib.util
 import sys
+from datetime import date, datetime
 from pathlib import Path
 
 RUNNER = Path(__file__).resolve().parents[1] / "scripts" / "compare_deck_runner.py"
@@ -32,42 +33,118 @@ def _slot(cash=12411.0, holds=None):
 
 
 def test_apply_orders_sell_before_buy_and_cash_conservation():
-    slot = _slot(cash=100.0)
+    slot = _slot(cash=100.0, holds=[{"symbol": "512890.SH", "name": "红利低波ETF",
+                                     "qty": 100, "price": 1.18, "notional": 118.0}])
     mod.apply_orders(
         slot,
         sells=[{"symbol": "512890.SH", "qty": 100, "price": 50.0}],   # 回款 5000-5
         buys=[{"symbol": "510300.SH", "qty": 100, "price": 4.416}],   # 需 446.6
-        px={},
+        px={"512890.SH": {"price": 50.0}, "510300.SH": {"price": 4.416}},
     )
     assert len(slot["holds"]) == 1
     assert slot["holds"][0]["symbol"] == "510300.SH"
     total = slot["cash"] + slot["holds"][0]["notional"]
-    assert total <= 12411.0 + 0.01  # 现金+持仓+费用 ≤ 本金
+    assert total <= 12411.0 + 0.01
 
 
-def test_apply_orders_buy_skipped_when_cash_insufficient():
+def test_apply_orders_unaffordable_buy_skipped_after_sell():
     slot = _slot(cash=100.0, holds=[])
-    # 卖 118 元回款 113, 买 446.6 买不起 → 买入跳过, 持仓空
-    mod.apply_orders(
+    # 卖 118 元回款 113, 买 446.6 买不起 → 买入拒绝, 持仓空
+    rejects = mod.apply_orders(
         slot,
         sells=[{"symbol": "512890.SH", "qty": 100, "price": 1.18}],
         buys=[{"symbol": "510300.SH", "qty": 100, "price": 4.416}],
-        px={},
+        px={"512890.SH": {"price": 1.18}, "510300.SH": {"price": 4.416}},
     )
     assert slot["holds"] == []
+    assert any("insufficient_cash" in r for r in rejects)
 
 
 def test_apply_orders_buy_skipped_when_cash_insufficient():
     slot = _slot(cash=50.0)
-    mod.apply_orders(slot, sells=[], buys=[{"symbol": "510300.SH", "qty": 100, "price": 4.416}], px={})
+    rejects = mod.apply_orders(slot, sells=[],
+                               buys=[{"symbol": "510300.SH", "qty": 100, "price": 4.416}],
+                               px={"510300.SH": {"price": 4.416}})
     assert slot["holds"] == []
     assert slot["cash"] == 50.0  # 未动
+    assert any("insufficient_cash" in r for r in rejects)
 
 
 def test_apply_orders_replaces_position():
-    slot = _slot(holds=[{"symbol": "A", "qty": 1, "price": 1, "notional": 1}])
-    mod.apply_orders(slot, sells=[{"symbol": "A", "qty": 1, "price": 1.0}], buys=[], px={})
+    slot = _slot(holds=[{"symbol": "600000.SH", "qty": 1, "price": 1, "notional": 1}])
+    mod.apply_orders(slot, sells=[{"symbol": "600000.SH", "qty": 1, "price": 1.0}], buys=[],
+                     px={"600000.SH": {"price": 1.0}})
     assert slot["holds"] == []
+
+
+# ------------------------------------------------------- apply_orders 新约束
+def test_apply_orders_trading_gate_blocks_all(monkeypatch):
+    """反例: _TRADING_OK=False 仍买入100。适配器下闸关闭→该批全部拒绝。"""
+    monkeypatch.setattr(mod, "_TRADING_OK", False)
+    slot = _slot(cash=12411.0)
+    rejects = mod.apply_orders(slot, [],
+                               [{"symbol": "510300.SH", "qty": 100, "price": 4.5}],
+                               {"510300.SH": {"price": 4.5}})
+    assert slot["holds"] == [] and slot["cash"] == 12411.0
+    assert any("session_closed" in r for r in rejects)
+    monkeypatch.setattr(mod, "_TRADING_OK", True)
+
+
+def test_apply_orders_phantom_sell_rejected():
+    """反例: 未持有证券凭空卖出增加现金。"""
+    slot = _slot(cash=12411.0)
+    rejects = mod.apply_orders(
+        slot,
+        sells=[{"symbol": "600000.SH", "qty": 100, "price": 10.0, "is_stock": True}],
+        buys=[], px={"600000.SH": {"price": 10.0}})
+    assert slot["cash"] == 12411.0 and slot["holds"] == []
+    assert any("no_position" in r for r in rejects)
+
+
+def test_apply_orders_zero_price_rejected():
+    """反例: 价格0也能买入。"""
+    slot = _slot(cash=12411.0)
+    rejects = mod.apply_orders(
+        slot, [],
+        buys=[{"symbol": "600000.SH", "qty": 100, "price": 0.0, "is_stock": True}],
+        px={"600000.SH": {"price": 0.0}})
+    assert slot["cash"] == 12411.0 and slot["holds"] == []
+    assert any("price_invalid" in r for r in rejects)
+
+
+def test_apply_orders_missing_quote_rejected_hold_retained():
+    """反例: 无报价不得按意图价/成本价成交。"""
+    slot = _slot(cash=100.0, holds=[{"symbol": "512890.SH", "name": "红利低波",
+                                     "qty": 100, "price": 1.18, "notional": 118.0}])
+    rejects = mod.apply_orders(slot,
+                               sells=[{"symbol": "512890.SH", "qty": 100, "price": 1.5}],
+                               buys=[], px={})
+    assert slot["holds"] and slot["holds"][0]["symbol"] == "512890.SH"
+    assert any("no_quote" in r for r in rejects)
+
+
+def test_apply_orders_same_day_retry_idempotent():
+    """反例: 相同输入重试 100→200→300。同槽同日同键只成交一次。"""
+    slot = _slot(cash=12411.0)
+    order = [{"symbol": "510300.SH", "qty": 100, "price": 4.5}]
+    px = {"510300.SH": {"price": 4.5}}
+    mod.apply_orders(slot, [], order, px)
+    cash1, holds1 = slot["cash"], list(slot["holds"])
+    rejects = mod.apply_orders(slot, [], order, px)
+    assert slot["cash"] == cash1 and slot["holds"] == holds1
+    assert any("duplicate_order" in r for r in rejects)
+
+
+def test_apply_orders_preserves_names_and_row_shape():
+    slot = _slot(cash=12411.0, holds=[{"symbol": "512890.SH", "name": "红利低波ETF",
+                                       "qty": 100, "price": 1.18, "notional": 118.0}])
+    mod.apply_orders(slot, [],
+                     buys=[{"symbol": "510500.SH", "name": "中证500ETF", "qty": 100, "price": 6.0}],
+                     px={"510500.SH": {"price": 6.0}})
+    row = [h for h in slot["holds"] if h["symbol"] == "510500.SH"][0]
+    assert row["name"] == "中证500ETF" and row["qty"] == 100
+    assert row["notional"] == 600.0
+    assert row["held_since"] == mod.EX_DATE.isoformat()   # 当日买入批次带 held_since
 
 
 # ---------------------------------------------------------------- 转债目标换算
@@ -123,7 +200,10 @@ def test_chunks_splits_by_batch_size():
 
 # ---------------------------------------------------------------- build_close_summary
 def _fake_ledger():
-    return {"strategies": {
+    """18 槽全量 fake 台账（含 Y 逆回购与控制键），供 summary/e2e 等测试离线复用。"""
+    return {"start_date": "2026-09-28", "capital_each": 12411.0,
+            "marks": [], "_control": {}, "_actions": {},
+            "strategies": {
         "A_动量": {"holds": [{"symbol": "512890.SH", "name": "红利低波ETF", "qty": 5200, "price": 1.18}], "cash": 6270.0, "equity": 12406.0},
         "B_轮动": {"holds": [], "cash": 12411.0, "equity": 12411.0},
         "E_可转债双低": {"holds": [{"symbol": "113062.SH", "name": "常银转债", "qty": 20, "price": 125.356}], "cash": 2291.74, "equity": 12391.0,
@@ -142,10 +222,15 @@ def _fake_ledger():
         "J_短期反转": {"holds": [], "cash": 12411.0, "equity": 12411.0},
         "C_沪深300持有": {"holds": [{"symbol": "510300.SH", "name": "沪深300ETF", "qty": 2800, "price": 4.416}], "cash": 41.2, "equity": 12406.0},
         "D_红利低波持有": {"holds": [{"symbol": "512890.SH", "name": "红利低波ETF", "qty": 10500, "price": 1.18}], "cash": 16.0, "equity": 12406.0},
+        "Y_确定性收益": {"holds": [{"symbol": "SH204001", "name": "GC001逆回购", "qty": 120, "price": 100.0,
+                                    "notional": 12000.0, "fixed_value": True,
+                                    "maturity_date": "2099-01-01"}],   # 远期到期防分支触发
+                        "cash": 411.0, "equity": 12411.0},
     }}
 
 
-def test_build_close_summary_contains_actions_positions_risk():
+def test_build_close_summary_contains_actions_positions_risk(monkeypatch):
+    monkeypatch.setattr(mod, "_is_month_last_trading_day", lambda: False)  # 隔离日历网络
     led = _fake_ledger()
     led["_actions"] = {mod.EX_DATE.isoformat(): ["A_动量 调仓→['510300.SH']"]}
     px = {"512890.SH": {"price": 1.20}, "113062.SH": {"price": 126.0}, "SZ301578": {"price": 23.98}, "510300.SH": {"price": 4.416}}
@@ -160,7 +245,8 @@ def test_build_close_summary_contains_actions_positions_risk():
     assert "信用最低116.46" in out
 
 
-def test_build_close_summary_flat_when_no_actions():
+def test_build_close_summary_flat_when_no_actions(monkeypatch):
+    monkeypatch.setattr(mod, "_is_month_last_trading_day", lambda: False)  # 隔离日历网络
     out = mod.build_close_summary(_fake_ledger(), {})
     assert "▎今日操作\n· 无调仓" in out
 
@@ -211,7 +297,8 @@ def test_momentum_engine_empty_ranked_yields_empty():
 # ---------------------------------------------------------------- apply_orders 部分减仓
 def test_apply_orders_partial_sell_keeps_remaining():
     slot = _slot(cash=0.0, holds=[{"symbol": "512890.SH", "name": "红利低波ETF", "qty": 5200, "price": 1.18, "notional": 6136.0}])
-    mod.apply_orders(slot, sells=[{"symbol": "512890.SH", "qty": 100, "price": 1.196}], buys=[], px={})
+    mod.apply_orders(slot, sells=[{"symbol": "512890.SH", "qty": 100, "price": 1.196}], buys=[],
+                     px={"512890.SH": {"price": 1.196}})
     assert len(slot["holds"]) == 1
     assert slot["holds"][0]["qty"] == 5100            # 扣量保留, 不清空
     assert slot["holds"][0]["price"] == 1.18          # 成本价不变
@@ -219,10 +306,18 @@ def test_apply_orders_partial_sell_keeps_remaining():
 
 
 def test_apply_orders_full_sell_removes():
-    slot = _slot(cash=0.0, holds=[{"symbol": "A", "qty": 100, "price": 2.0, "notional": 200.0}])
-    mod.apply_orders(slot, sells=[{"symbol": "A", "qty": 100, "price": 2.0}], buys=[], px={})
+    slot = _slot(cash=0.0, holds=[{"symbol": "600000.SH", "name": "浦发银行", "qty": 100, "price": 2.0, "notional": 200.0}])
+    mod.apply_orders(slot, sells=[{"symbol": "600000.SH", "qty": 100, "price": 2.0}], buys=[],
+                     px={"600000.SH": {"price": 2.0}})
     assert slot["holds"] == []
-    assert abs(slot["cash"] - (200.0 - 5.0)) < 0.01
+    assert abs(slot["cash"] - (200.0 - 5.0 - 0.1)) < 0.01   # 佣金5 + 股票印花0.1
+
+
+def test_apply_orders_sell_without_quote_rejected():
+    slot = _slot(cash=0.0, holds=[{"symbol": "512890.SH", "name": "红利低波ETF", "qty": 5200, "price": 1.18, "notional": 6136.0}])
+    rejects = mod.apply_orders(slot, sells=[{"symbol": "512890.SH", "qty": 100, "price": 1.196}], buys=[], px={})
+    assert slot["holds"][0]["qty"] == 5200            # 缺报价不成交
+    assert any("no_quote" in r for r in rejects)
 
 
 # ---------------------------------------------------------------- pe_percentile / erp_decision
@@ -269,25 +364,27 @@ def test_slot_drawdown_peak_to_current():
 
 # ---------------------------------------------------------------- 端到端月度大考回归（固化 10-08 预演）
 def test_end_to_end_monthly_rebalance(tmp_path, monkeypatch):
-    """固化 10-08 预演: mock 交易所时间/行情/引擎子进程, 验证月度调仓全链不崩。"""
+    """固化 10-08 预演: fake 台账 + mock 交易所时间/行情/引擎子进程, 验证月度调仓全链不崩。
+    全程离线——不读真实台账、不触任何网络（日历/快照/公告/转债数据源均 mock）。"""
     import json as _json
-    import shutil as _shutil
     from datetime import date as _date, datetime as _dt
+    from types import SimpleNamespace
 
-    # 台账副本到 tmp（不碰真台账）
-    real = mod.LEDGER
-    led = _json.loads(real.read_text(encoding="utf-8"))
+    # fake 台账副本到 tmp（不碰真台账）
+    led = _fake_ledger()
     for k in ("rebalance_done", "close_done", "erp_last_check"):
         led.setdefault("_control", {}).pop(k, None)
     test_led = tmp_path / "ledger.json"
     test_led.write_text(_json.dumps(led, ensure_ascii=False), encoding="utf-8")
     monkeypatch.setattr(mod, "LEDGER", test_led)
 
-    # mock 时间与交易日历
+    # mock 时间与交易日历（15:00 撮合窗内: 集合竞价收盘前, 成交闸放行）
     monkeypatch.setattr(mod, "EX_DATE", _date(2026, 10, 8))
-    monkeypatch.setattr(mod, "exchange_now", lambda: _dt(2026, 10, 8, 15, 5))
+    monkeypatch.setattr(mod, "exchange_now", lambda: _dt(2026, 10, 8, 15, 0))
     monkeypatch.setattr(mod, "is_exchange_trading_day", lambda d: True)
     monkeypatch.setattr(mod, "_is_month_last_trading_day", lambda: False)
+    monkeypatch.setattr(mod, "_is_month_first_trading_day", lambda: True)   # 月度块执行
+    monkeypatch.setattr(mod, "_is_week_first_trading_day", lambda: True)    # 周度块执行(保 calls>=1)
     monkeypatch.setattr(mod, "notify", lambda *a, **k: False)
     # mock 行情（全部 1.00, 无涨跌）
     monkeypatch.setattr(mod, "realtime_quotes",
@@ -310,15 +407,25 @@ def test_end_to_end_monthly_rebalance(tmp_path, monkeypatch):
     fake_recs = [{"ts_code": "301578.SZ", "name": "辰奕智能", "circ_mv": 100, "close": 1.0},
                  {"ts_code": "000820.SZ", "name": "神雾节能", "circ_mv": 101, "close": 1.0}]
     monkeypatch.setattr(mod, "smallcap_universe", lambda *a, **k: fake_recs)
-    # ERP mock(单测已覆盖 erp_decision)
+    # ERP/E2/E止盈 mock(单测已覆盖 erp_decision/e2 决策)
     monkeypatch.setattr(mod, "erp_gate", lambda led, px, dry: [])
+    monkeypatch.setattr(mod, "e2_gate", lambda led, px, dry: [])
+    monkeypatch.setattr(mod, "e_take_profit_pass", lambda led, px, dry: [])
+    # 隔离公告流/快照重建/转债数据源（均为真实网络调用点）
+    monkeypatch.setattr(mod, "event_round", lambda led, dry: [])
+    monkeypatch.setattr(mod, "watchlist_round", lambda led, dry: [])
+    monkeypatch.setattr(mod, "maybe_refresh_snapshot", lambda dry: "")
+    monkeypatch.setattr(mod, "cb_rebalance", lambda led, px, dry: [])
+    monkeypatch.setattr(mod, "ts_client",
+                        lambda: SimpleNamespace(call=lambda *a, **k: None))
+    monkeypatch.setattr(mod, "fetch_recent_announcements", lambda *a, **k: [])  # risk_round 信用公告流
     monkeypatch.setattr(mod, "pead_universe", lambda *a, **k: [])
     monkeypatch.setattr(mod, "buywatch_universe", lambda *a, **k: [])
     monkeypatch.setattr(mod, "reversal_universe", lambda *a, **k: [])
     monkeypatch.setattr(mod, "holder_concentration_universe", lambda *a, **k: [])
+    monkeypatch.setattr(mod, "industry_momentum_universe", lambda *a, **k: [])
     monkeypatch.setattr(mod, "sequoia_ready", lambda: False)
     monkeypatch.setattr(mod, "north_rebalance", lambda led, px, dry: ["L_北向(dry)"])
-    monkeypatch.setattr(mod, "_tushare_pro", lambda: None)
     monkeypatch.setattr(mod, "daily_dividend_pass", lambda led, px, dry: [])
 
     out = mod.run_intraday(dry=False)  # 完整真实链: intraday 尾部自动触发 close(与 10-08 真实路径一致)
@@ -331,11 +438,174 @@ def test_end_to_end_monthly_rebalance(tmp_path, monkeypatch):
     # F 槽: 缓冲带保留旧持仓(rank≤40) + 补新 → 不会崩
     assert "F_小市值20" in last["equity"]
     assert "G_MWU融合" in last["equity"]
-    # 引擎被调用 ≥1 次(A 动量 + G mwu)
+    # 引擎被调用 ≥1 次(周度 A/G + 月度 H 均走引擎子进程)
     assert calls["n"] >= 1
     # Y 槽面值模型不被污染
     assert new_led["strategies"]["Y_确定性收益"]["equity"] >= 12000
     assert "月度再平衡" in out or "无调仓" in out
+
+
+# ------------------------------------------------- 月度注册表(子任务幂等/失败重试/顺延)
+def _monthly_env(tmp_path, monkeypatch, fills_time, fail=()):
+    """月度块聚焦环境: fake 台账 + 全策略/数据源 mock, 返回 (台账路径, 各策略调用计数)。"""
+    import json as _json
+    from datetime import date as _date
+
+    led = _fake_ledger()
+    led["_control"].pop("rebalance_done", None)
+    p = tmp_path / "monthly.json"
+    p.write_text(_json.dumps(led, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(mod, "LEDGER", p)
+    monkeypatch.setattr(mod, "EX_DATE", _date(2026, 10, 8))
+    monkeypatch.setattr(mod, "exchange_now", lambda: fills_time)
+    monkeypatch.setattr(mod, "is_exchange_trading_day", lambda d: True)
+    monkeypatch.setattr(mod, "_is_month_last_trading_day", lambda: False)
+    monkeypatch.setattr(mod, "_is_week_first_trading_day", lambda: False)
+    monkeypatch.setattr(mod, "_is_month_first_trading_day", lambda: True)
+    monkeypatch.setattr(mod, "maybe_refresh_snapshot", lambda *a, **k: "")
+    monkeypatch.setattr(mod, "slot_prices", lambda led: {})
+    monkeypatch.setattr(mod, "notify", lambda *a, **k: False)
+    for fn in ("repo_maturity_pass", "daily_dividend_pass", "erp_gate", "e2_gate",
+               "e_take_profit_pass", "north_rebalance"):
+        monkeypatch.setattr(mod, fn, lambda *a, **k: [])
+    strat = ("smallcap_rebalance", "cb_rebalance", "mwu_rebalance", "pead_rebalance",
+             "reversal_rebalance", "buywatch_rebalance", "holder_rebalance",
+             "industry_rebalance", "sequoia_scan")
+    calls = {fn: 0 for fn in strat}
+
+    def _seam(fn):
+        def f(*a, **k):
+            calls[fn] += 1
+            return ["【异常】fixture source failed"] if fn in fail else []
+        return f
+
+    for fn in strat:
+        monkeypatch.setattr(mod, fn, _seam(fn))
+    return p, calls
+
+
+def test_monthly_registry_failure_not_all_and_retry_next_day(tmp_path, monkeypatch):
+    """失败子任务不得登记 "all"; 次日列表门只补做失败项, 不重跑已成功项。"""
+    import json as _json
+
+    p, calls = _monthly_env(tmp_path, monkeypatch, datetime(2026, 10, 8, 10, 0),
+                            fail=("smallcap_rebalance",))
+    mod.run_close(False)
+    saved = _json.loads(p.read_text(encoding="utf-8"))
+    done = saved["_control"]["rebalance_done"]["2026-10"]
+    assert done != "all" and isinstance(done, list)
+    assert "smallcap20" not in done and "smallcap5" not in done
+    assert {"cb", "mwu_cb", "pead", "reversal", "buywatch",
+            "holder", "industry", "sequoia"} <= set(done)
+
+    # 次日(非月首交易日): 列表门放行, 只补做失败子任务
+    monkeypatch.setattr(mod, "_is_month_first_trading_day", lambda: False)
+    retried = {"n": 0}
+
+    def _ok_smallcap(*a, **k):
+        retried["n"] += 1
+        return []
+    monkeypatch.setattr(mod, "smallcap_rebalance", _ok_smallcap)
+    mod.run_close(False)
+    saved = _json.loads(p.read_text(encoding="utf-8"))
+    assert saved["_control"]["rebalance_done"]["2026-10"] == "all"
+    assert retried["n"] == 2            # 两个小市值子任务补做
+    assert calls["cb_rebalance"] == 1   # 已成功项不重跑(仅首轮 1 次)
+
+
+def test_monthly_registry_deferred_outside_fills_window(tmp_path, monkeypatch):
+    """非撮合时段(15:05 补结算轮): 只顺延不执行; 空列表占位且不覆盖已有部分完成记录。"""
+    import json as _json
+
+    p, calls = _monthly_env(tmp_path, monkeypatch, datetime(2026, 10, 8, 15, 5))
+    out = mod.run_close(False)
+    saved = _json.loads(p.read_text(encoding="utf-8"))
+    assert saved["_control"]["rebalance_done"]["2026-10"] == []   # 顺延占位
+    assert sum(calls.values()) == 0                               # 不执行任何子任务
+    assert "顺延" in out
+    assert saved["marks"][-1]["date"] == "2026-10-08"             # 结算不受顺延影响
+
+    # 已有部分完成记录不被顺延覆盖
+    led = _json.loads(p.read_text(encoding="utf-8"))
+    led["_control"]["rebalance_done"]["2026-10"] = ["cb"]
+    p.write_text(_json.dumps(led, ensure_ascii=False), encoding="utf-8")
+    mod.run_close(False)
+    saved = _json.loads(p.read_text(encoding="utf-8"))
+    assert saved["_control"]["rebalance_done"]["2026-10"] == ["cb"]
+    assert sum(calls.values()) == 0
+
+
+# ---------------------------------------------------------------- ERP 缩放执行侧
+def test_erp_scale_pass_defensive_halves_and_marks():
+    """防御态首日: 主动槽 qty//2 卖出并标记; cb 槽不在作用域; 二次调用幂等。"""
+    led = _fake_ledger()
+    led["_control"]["erp_state"] = "defensive"
+    px = {"512890.SH": {"price": 1.18}, "SZ301578": {"price": 23.02}, "511010.SH": {"price": 140.0}}
+    msgs = mod.erp_scale_pass(led, px, False)
+    assert led["strategies"]["A_动量"]["holds"][0]["qty"] == 2600
+    assert led["strategies"]["F_小市值20"]["holds"][0]["qty"] == 50
+    assert led["strategies"]["G_MWU融合"]["holds"][0]["qty"] == 25
+    # cb 槽(E/H)不受 PE 分位总闸, 持仓不变
+    assert led["strategies"]["E_可转债双低"]["holds"][0]["qty"] == 20
+    assert led["strategies"]["H_MWU_CB融合"]["holds"][0]["qty"] == 50
+    assert any("主动槽减半" in m for m in msgs)
+    assert led["strategies"]["A_动量"].get("erp_note")
+    # 全部 11 个主动槽登记(空仓槽视为已缩放); E/H/L/C/D/X/Y 不在
+    assert set(led["_control"]["erp_scaled"]) == set(mod._erp_scale_slots())
+    assert "E_可转债双低" not in led["_control"]["erp_scaled"]
+    # 幂等: 已标记槽不再减半
+    assert mod.erp_scale_pass(led, px, False) == []
+    assert led["strategies"]["A_动量"]["holds"][0]["qty"] == 2600
+
+
+def test_erp_scale_pass_reject_defers_to_next_day():
+    """T+1 拒单: 不标记+消息注明待次日补做; 次日可卖后补做成功。"""
+    led = _fake_ledger()
+    led["_control"]["erp_state"] = "defensive"
+    for s in ("A_动量", "F_小市值20"):   # 聚焦 G: 清掉其他可卖持仓
+        led["strategies"][s]["holds"] = []
+    led["strategies"]["G_MWU融合"]["holds"] = [
+        {"symbol": "511010.SH", "name": "国债ETF", "qty": 200, "price": 140.0,
+         "held_since": mod.EX_DATE.isoformat()}]              # 当日买入: T+1 不可卖
+    px = {"511010.SH": {"price": 140.0}}
+    msgs = mod.erp_scale_pass(led, px, False)
+    assert led["strategies"]["G_MWU融合"]["holds"][0]["qty"] == 200     # 未减仓
+    assert "G_MWU融合" not in led["_control"]["erp_scaled"]             # 未标记
+    assert any("待次日补做" in m for m in msgs)
+    # 次日(旧批次可卖): 补做成功
+    led["strategies"]["G_MWU融合"]["holds"][0]["held_since"] = "2000-01-01"
+    msgs2 = mod.erp_scale_pass(led, px, False)
+    assert led["strategies"]["G_MWU融合"]["holds"][0]["qty"] == 100
+    assert led["_control"]["erp_scaled"]["G_MWU融合"] == mod.EX_DATE.isoformat()
+    assert any("主动槽减半" in m for m in msgs2)
+
+
+def test_erp_scale_pass_normal_noop():
+    """非防御态: 空操作, 不建 erp_scaled 登记也不动持仓。"""
+    led = _fake_ledger()
+    assert mod.erp_scale_pass(led, {}, False) == []
+    assert "erp_scaled" not in led["_control"]
+    assert led["strategies"]["A_动量"]["holds"][0]["qty"] == 5200
+
+
+def test_erp_rescale_after_monthly_rebuild(tmp_path, monkeypatch):
+    """月度重建成功清 erp_scaled 标记 → 同轮 erp_scale_pass 重新应用 ×0.5(重建后重缩放)。"""
+    import json as _json
+
+    p, calls = _monthly_env(tmp_path, monkeypatch, datetime(2026, 10, 8, 10, 0))
+    led = _json.loads(p.read_text(encoding="utf-8"))
+    led["_control"]["erp_state"] = "defensive"
+    led["_control"]["erp_scaled"] = {"F_小市值20": "2026-09-30"}
+    led["strategies"]["F_小市值20"]["holds"] = [
+        {"symbol": "SZ301578", "name": "辰奕智能", "qty": 100, "price": 23.0,
+         "held_since": "2026-09-30"}]
+    p.write_text(_json.dumps(led, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(mod, "slot_prices", lambda led: {"SZ301578": {"price": 23.0}})
+    mod.run_close(False)
+    saved = _json.loads(p.read_text(encoding="utf-8"))
+    assert saved["strategies"]["F_小市值20"]["holds"][0]["qty"] == 50                   # 重建清标记后重新减半
+    assert saved["_control"]["erp_scaled"]["F_小市值20"] == "2026-10-08"               # 重新登记
+    assert "A_动量" not in saved["_control"]["erp_scaled"]   # 无报价被拒 → 据实不标记待次日
 
 
 # ---------------------------------------------------------------- e2_gate_decision
@@ -368,16 +638,19 @@ def test_cb_target_lots_e2_defensive_halves():
 
 
 # ---------------------------------------------------------------- e_take_profit_pass
+def _e_ledger(holds, cash=2291.74):
+    """最小 fake 台账: 仅 E 槽（e_take_profit_pass 只访问该槽）。"""
+    return {"marks": [], "_actions": {}, "_control": {},
+            "strategies": {"E_可转债双低": {"cash": cash, "holds": holds}}}
+
+
 def test_e_take_profit_sells_at_130(tmp_path, monkeypatch):
     """E 单券止盈: 现价≥130 卖出, <130 不动。"""
     import json as _json
-    from datetime import date as _date, datetime as _dt
-    real = mod.LEDGER
-    led = _json.loads(real.read_text(encoding="utf-8"))
-    led["strategies"]["E_可转债双低"]["holds"] = [
+    from datetime import date as _date
+    led = _e_ledger([
         {"symbol": "113062.SH", "name": "常银转债", "qty": 20, "price": 125.0},
-        {"symbol": "113691.SH", "name": "和邦转债", "qty": 20, "price": 134.0}]
-    led["strategies"]["E_可转债双低"]["cash"] = 2291.74
+        {"symbol": "113691.SH", "name": "和邦转债", "qty": 20, "price": 134.0}])
     test_led = tmp_path / "ledger.json"
     test_led.write_text(_json.dumps(led, ensure_ascii=False), encoding="utf-8")
     monkeypatch.setattr(mod, "LEDGER", test_led)
@@ -394,10 +667,8 @@ def test_e_take_profit_sells_at_130(tmp_path, monkeypatch):
 def test_e_take_profit_noop_below_threshold(tmp_path, monkeypatch):
     import json as _json
     from datetime import date as _date
-    real = mod.LEDGER
-    led = _json.loads(real.read_text(encoding="utf-8"))
-    led["strategies"]["E_可转债双低"]["holds"] = [
-        {"symbol": "113062.SH", "name": "常银转债", "qty": 20, "price": 125.0}]
+    led = _e_ledger([
+        {"symbol": "113062.SH", "name": "常银转债", "qty": 20, "price": 125.0}])
     test_led = tmp_path / "ledger.json"
     test_led.write_text(_json.dumps(led, ensure_ascii=False), encoding="utf-8")
     monkeypatch.setattr(mod, "LEDGER", test_led)
@@ -409,7 +680,414 @@ def test_e_take_profit_noop_below_threshold(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------- N 槽 sequoia_ready
-def test_sequoia_ready_threshold():
-    """N 槽闸门: ≥200 万行即就绪(修正后的真实全量标准)。"""
-    # 用实际数据库验证(231 万行 > 200 万阈值)
+def _sequoia_db(path, rows, latest):
+    """构造最小 vendor 库: stock_daily(date) 指定行数与最新日期。"""
+    import sqlite3
+    con = sqlite3.connect(path)
+    con.execute("CREATE TABLE stock_daily (date TEXT, close REAL)")
+    con.executemany("INSERT INTO stock_daily VALUES (?, 1.0)",
+                    [((latest if i == rows - 1 else "2000-01-01"),) for i in range(rows)])
+    con.commit()
+    con.close()
+
+
+def test_sequoia_ready_true_when_rows_and_freshness_met(tmp_path, monkeypatch):
+    """N 槽闸门: 行数≥阈值且最新bar在10天内 → 就绪。"""
+    from datetime import date as _date
+    db = tmp_path / "sequoia_v2.db"
+    _sequoia_db(db, rows=3, latest=_date.today().isoformat())
+    monkeypatch.setattr(mod, "_SEQUOIA_DB", db)
+    monkeypatch.setattr(mod, "_SEQUOIA_MIN_ROWS", 3)
     assert mod.sequoia_ready() is True
+
+
+def test_sequoia_ready_false_when_rows_insufficient(tmp_path, monkeypatch):
+    """行数不足阈值 → 未就绪。"""
+    from datetime import date as _date
+    db = tmp_path / "sequoia_v2.db"
+    _sequoia_db(db, rows=2, latest=_date.today().isoformat())
+    monkeypatch.setattr(mod, "_SEQUOIA_DB", db)
+    monkeypatch.setattr(mod, "_SEQUOIA_MIN_ROWS", 3)
+    assert mod.sequoia_ready() is False
+
+
+def test_sequoia_ready_false_when_db_missing(tmp_path, monkeypatch):
+    """库文件缺失/不可读 → 未就绪（不抛异常）。"""
+    monkeypatch.setattr(mod, "_SEQUOIA_DB", tmp_path / "nonexistent.db")
+    monkeypatch.setattr(mod, "_SEQUOIA_MIN_ROWS", 3)
+    assert mod.sequoia_ready() is False
+
+
+# ---------------------------------------------------------------- 独占锁属主检查
+def test_acquire_lock_four_branches(tmp_path, monkeypatch):
+    """① 无锁可创建 ② 属主存活不抢(不论时长) ③ 属主已死清除重试 ④ 内容不可解析保守不抢。"""
+    import json as _json
+    import os as _os
+    lock = tmp_path / "run.lock"
+    monkeypatch.setattr(mod, "_LOCK_PATH", lock)
+
+    assert mod.acquire_lock() is True                    # ① 创建并登记属主 pid
+    assert _json.loads(lock.read_text(encoding="utf-8"))["pid"] == _os.getpid()
+    mod.release_lock()
+
+    lock.write_text(_json.dumps({"pid": _os.getpid(), "started": "now"}), encoding="utf-8")
+    assert mod.acquire_lock() is False                   # ② 属主=本进程存活 → 不抢
+    mod.release_lock()
+
+    lock.write_text(_json.dumps({"pid": 99999999, "started": "now"}), encoding="utf-8")
+    assert mod.acquire_lock() is True                    # ③ 属主已退出 → 残留清除重试
+    mod.release_lock()
+
+    lock.write_text("live owner", encoding="utf-8")
+    assert mod.acquire_lock() is False                   # ④ 不可解析 → 保守不抢(需人工清理)
+    mod.release_lock()
+
+
+# ---------------------------------------------------------------- 台账备份保护
+def test_save_ledger_does_not_destroy_backup_when_main_corrupt(tmp_path, monkeypatch):
+    """反例: 主文件 BROKEN、.bak 完好时，save 不得把坏主文件覆盖到唯一好备份。"""
+    import json as _json
+    good = {"_meta": {"schema_version": 3}, "strategies": {},
+            "marks": [{"date": "2026-09-29"}]}
+    bak = tmp_path / "ledger.json.bak"
+    bak.write_text(_json.dumps(good, ensure_ascii=False), encoding="utf-8")
+    main = tmp_path / "ledger.json"
+    main.write_text("BROKEN", encoding="utf-8")
+    monkeypatch.setattr(mod, "LEDGER", main)
+    mod.save_ledger({"strategies": {}, "marks": []})
+    assert _json.loads(bak.read_text(encoding="utf-8")) == good          # 好备份原样保留
+    assert _json.loads(main.read_text(encoding="utf-8"))["_meta"]["schema_version"] == 3  # 主文件已重写
+
+
+def test_save_ledger_rotates_backup_when_main_valid(tmp_path, monkeypatch):
+    """正常路径仍滚动备份：好主文件先复制到 .bak 再原子写新内容。"""
+    import json as _json
+    main = tmp_path / "ledger.json"
+    main.write_text(_json.dumps({"_meta": {"schema_version": 3}, "prev": True}),
+                    encoding="utf-8")
+    monkeypatch.setattr(mod, "LEDGER", main)
+    mod.save_ledger({"strategies": {}})
+    bak = _json.loads((tmp_path / "ledger.json.bak").read_text(encoding="utf-8"))
+    assert bak.get("prev") is True
+
+
+# ------------------------------------------------- 日历/时钟（任务06，纯函数）
+def test_is_month_last_trading_day_mid_month_not_end(monkeypatch):
+    """月初/月中交易日不得被误判为月末（旧实现查询终点=EX_DATE 自身的自证缺陷）。"""
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 8))
+    monkeypatch.setattr(mod, "is_exchange_trading_day", lambda d: True)
+    monkeypatch.setattr(mod._is_month_last_trading_day, "_cache", None, raising=False)
+    assert mod._is_month_last_trading_day() is False
+
+
+def test_is_month_last_trading_day_true_at_month_end(monkeypatch):
+    """月末之后当月无交易日时才判定为月末。"""
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 30))
+    monkeypatch.setattr(mod, "is_exchange_trading_day",
+                        lambda d: d <= date(2026, 10, 30))
+    monkeypatch.setattr(mod._is_month_last_trading_day, "_cache", None, raising=False)
+    assert mod._is_month_last_trading_day() is True
+
+
+def test_week_first_cache_keyed_by_date(monkeypatch):
+    """周首缓存键必须含具体日期：同进程跨日复调用不得返回前一天的结果。"""
+    mod._WEEK_CACHE.clear()
+    monkeypatch.setattr(mod, "is_exchange_trading_day",
+                        lambda d: d >= date(2026, 10, 8) and d.weekday() < 5)
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 8))
+    first = mod._is_week_first_trading_day()
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 9))
+    second = mod._is_week_first_trading_day()
+    assert first is True and second is False
+
+
+def test_prev_month_end_pure(monkeypatch):
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 8))
+    assert mod._prev_month_end() == "20260930"
+
+
+class _FrozenWall(datetime):
+    """冻结墙钟，消除单测对真实日历/时钟的依赖。"""
+    _fixed = datetime(2026, 10, 7, 11, 0)
+
+    @classmethod
+    def now(cls, tz=None):
+        return cls._fixed
+
+
+def test_main_inner_wall_date_not_rolled_back_by_stamp(monkeypatch, capsys):
+    """休市时旧行情戳不得倒拨运行日期，且不得进入盘中轮。"""
+    entered = []
+    monkeypatch.setattr(mod, "EX_DATE", date.today())
+    monkeypatch.setattr(mod, "datetime", _FrozenWall)               # 墙钟=2026-10-07 11:00
+    monkeypatch.setattr(mod, "exchange_now",
+                        lambda: datetime(2026, 9, 30, 10, 0))       # 旧行情戳
+    monkeypatch.setattr(mod, "run_intraday", lambda dry: entered.append(mod.EX_DATE) or "x")
+    monkeypatch.setattr(mod, "_TRADING_OK", True)
+    mod._main_inner(__import__("argparse").Namespace(force=False, mode="intraday", dry_run=True))
+    assert entered == []                                  # 旧戳宣称盘中 → 拒绝进入
+    assert mod.EX_DATE == date(2026, 10, 7)               # 运行日期=墙钟，未被倒拨
+    assert "非交易时段" in capsys.readouterr().out
+
+
+def test_main_inner_catchup_after_1510_enters_with_gate_closed(monkeypatch):
+    """15:10 后收盘补结算必须被放行进入，且 _TRADING_OK=False（内核拒绝新成交）。"""
+    class _Frozen1522(_FrozenWall):
+        _fixed = datetime(2026, 10, 8, 15, 22)
+
+    entered = []
+    monkeypatch.setattr(mod, "EX_DATE", date.today())
+    monkeypatch.setattr(mod, "datetime", _Frozen1522)
+    monkeypatch.setattr(mod, "exchange_now",
+                        lambda: datetime(2026, 10, 8, 15, 22))
+    monkeypatch.setattr(mod, "is_exchange_trading_day", lambda d: True)  # catch-up 仅对交易日放行
+    monkeypatch.setattr(mod, "run_intraday", lambda dry: entered.append("catchup") or "x")
+    monkeypatch.setattr(mod, "_TRADING_OK", True)
+    mod._main_inner(__import__("argparse").Namespace(force=False, mode="intraday", dry_run=True))
+    assert entered == ["catchup"]
+    assert mod._TRADING_OK is False
+
+
+# ------------------------------------------------- 撮合窗与会话闸（任务08 D1/D3）
+def test_fills_open_boundaries():
+    """撮合窗截 15:00: 15:00 可成交, 15:01-15:10 只结算, 15:22 catch-up 亦不成交。"""
+    assert mod._fills_open(datetime(2026, 10, 8, 10, 0)) is True    # 盘中
+    assert mod._fills_open(datetime(2026, 10, 8, 15, 0)) is True    # 收盘集合竞价截止
+    assert mod._fills_open(datetime(2026, 10, 8, 15, 5)) is False   # 只结算窗
+    assert mod._fills_open(datetime(2026, 10, 8, 15, 22)) is False  # catch-up 补结算
+    assert mod._fills_open(datetime(2026, 10, 8, 12, 0)) is False   # 午休
+    assert mod._fills_open(None) is False                           # 无时间基准
+
+
+def test_is_exchange_trading_day_weekend_deterministic():
+    """周末确定性 False: 不依赖 tushare API 可用性（两套日历降级不一致修复）。"""
+    assert mod.is_exchange_trading_day(date(2026, 10, 10)) is False  # 周六
+    assert mod.is_exchange_trading_day(date(2026, 10, 11)) is False  # 周日
+
+
+def test_session_gate_1505_runs_but_fills_closed():
+    """15:05 运行窗内正常进入, 但撮合闸关闭（D1: 1501-1510 只结算不成交）。"""
+    _, _, ok, reason = mod._session_gate(
+        datetime(2026, 10, 8, 15, 5), datetime(2026, 10, 8, 15, 5), force=False)
+    assert reason == "" and ok is False
+
+
+def test_session_gate_catchup_enters_with_fills_closed(monkeypatch):
+    """15:22 catch-up 放行运行（交易日）但成交闸关闭。"""
+    monkeypatch.setattr(mod, "is_exchange_trading_day", lambda d: True)
+    ex, _, ok, reason = mod._session_gate(
+        datetime(2026, 10, 8, 15, 22), datetime(2026, 10, 8, 15, 22), force=False)
+    assert reason == "" and ok is False and ex == date(2026, 10, 8)
+
+
+# --------------------------------------------------- 评审修复回归 (B/C/D/F)
+def test_e2_pre_defensive_qty_persists_across_calls(tmp_path, monkeypatch):
+    """修复 B 反例: 减半前数量登记若存 ew['e2'] 每轮重建即丢 → 买回恒走 cur*2。
+    防御期间持仓变动后(20+10 → 减半剩15 → 止盈清出 B → 剩10), 恢复须买回登记的 30 张, 而非 cur*2=20。"""
+    import json as _json
+    import pandas as pd
+    from types import SimpleNamespace
+
+    led = {"capital_each": 12411.0, "marks": [], "_control": {}, "_actions": {},
+           "strategies": {"E_可转债双低": {
+               "cash": 10000.0,
+               "credit_watch": {"median_history": [{"date": "2026-09-30", "median": 140.0}]},
+               "holds": [{"symbol": "113062.SH", "name": "常银转债", "qty": 20,
+                          "price": 120.0, "notional": 2400.0},
+                         {"symbol": "113691.SH", "name": "和邦转债", "qty": 10,
+                          "price": 125.0, "notional": 1250.0}]}}}
+    test_led = tmp_path / "ledger.json"
+    test_led.write_text(_json.dumps(led, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(mod, "LEDGER", test_led)
+    monkeypatch.setattr(mod, "exchange_now", lambda: datetime(2026, 10, 8, 10, 0))  # 撮合窗内
+
+    seq = [130.0, 130.0, 138.0]           # 减半 → 保持防御 → 回撤收窄恢复
+    calls = {"n": 0}
+
+    def fake_call(*a, **k):
+        med = seq[min(calls["n"], len(seq) - 1)]
+        calls["n"] += 1
+        return pd.DataFrame({"trade_date": ["20261008"], "close": [med]})
+
+    monkeypatch.setattr(mod, "ts_client", lambda: SimpleNamespace(call=fake_call))
+    px = {"113062.SH": {"price": 120.0, "pct": 0.0}, "113691.SH": {"price": 125.0, "pct": 0.0}}
+
+    # 第 1 轮: 触发减半(A 20→10, B 10→5, 剩 15 张); 登记=减半前 30 张
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 8))
+    led1 = mod.load_ledger()
+    msgs1 = mod.e2_gate(led1, px, False)
+    mod.save_ledger(led1)
+    assert any("E 减半" in m for m in msgs1)
+    saved1 = mod.load_ledger()
+    assert sum(h["qty"] for h in saved1["strategies"]["E_可转债双低"]["holds"]) == 15
+    assert saved1["_control"]["e2_state"] == "defensive"
+    assert saved1["_control"]["e2_pre_defensive_qty"] == 30      # 登记随台账持久(而非存 ew['e2'])
+
+    # 第 2 轮: 防御保持, 无动作; 期间 B 被止盈清出(模拟), 状态/登记不得丢
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 9))
+    led2 = mod.load_ledger()
+    mod.e2_gate(led2, px, False)
+    led2["strategies"]["E_可转债双低"]["holds"] = [             # 防御期间持仓变化: B 全卖
+        h for h in led2["strategies"]["E_可转债双低"]["holds"] if h["symbol"] == "113062.SH"]
+    mod.save_ledger(led2)
+    saved2 = mod.load_ledger()
+    assert saved2["_control"]["e2_state"] == "defensive"
+    assert saved2["_control"]["e2_pre_defensive_qty"] == 30
+    assert sum(h["qty"] for h in saved2["strategies"]["E_可转债双低"]["holds"]) == 10
+
+    # 第 3 轮: 回撤收窄恢复 → 按登记 30 买回 20 张(10*2=20 是登记丢失后的错误目标)
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 12))
+    led3 = mod.load_ledger()
+    msgs3 = mod.e2_gate(led3, px, False)
+    mod.save_ledger(led3)
+    saved3 = mod.load_ledger()
+    assert sum(h["qty"] for h in saved3["strategies"]["E_可转债双低"]["holds"]) == 30
+    assert saved3["_control"]["e2_state"] == "normal"
+    assert "e2_pre_defensive_qty" not in saved3["_control"]       # 恢复成功才清登记
+    assert any("恢复满仓" in m for m in msgs3)
+
+
+def test_e2_exit_buyback_lot_aligned_no_deadlock(tmp_path, monkeypatch):
+    """修复反例: 恢复买回旧 round() 按张分配产生零股买单, 被内核 CB LOT_SIZE 恒拒 → 永久防御死锁。
+    手单位分配(末位吸收) + 距目标不足1手据实转正常, 两轮内必须收敛。"""
+    import json as _json
+    import pandas as pd
+    from types import SimpleNamespace
+
+    led = {"marks": [], "_actions": {},
+           "_control": {"e2_state": "defensive", "e2_pre_defensive_qty": 70},
+           "strategies": {"E_可转债双低": {
+               "cash": 10000.0,
+               "credit_watch": {"median_history": [{"date": "2026-09-30", "median": 140.0}]},
+               "holds": [{"symbol": "113062.SH", "name": "常银转债", "qty": 15,
+                          "price": 120.0, "notional": 1800.0},
+                         {"symbol": "113691.SH", "name": "和邦转债", "qty": 10,
+                          "price": 125.0, "notional": 1250.0},
+                         {"symbol": "113692.SH", "name": "测试转债", "qty": 10,
+                          "price": 125.0, "notional": 1250.0}]}}}
+    test_led = tmp_path / "ledger.json"
+    test_led.write_text(_json.dumps(led, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(mod, "LEDGER", test_led)
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 8))
+    monkeypatch.setattr(mod, "exchange_now", lambda: datetime(2026, 10, 8, 10, 0))
+    monkeypatch.setattr(mod, "ts_client", lambda: SimpleNamespace(
+        call=lambda *a, **k: pd.DataFrame({"trade_date": ["20261008"], "close": [138.0]})))
+    px = {"113062.SH": {"price": 120.0, "pct": 0.0},
+          "113691.SH": {"price": 125.0, "pct": 0.0},
+          "113692.SH": {"price": 125.0, "pct": 0.0}}
+
+    # 第 1 轮: deficit=35 → 3手 → 三券各买回 10 张(全为整手, 不再产生零股被拒)
+    led1 = mod.load_ledger()
+    msgs1 = mod.e2_gate(led1, px, False)
+    mod.save_ledger(led1)
+    saved1 = mod.load_ledger()
+    q1 = sum(h["qty"] for h in saved1["strategies"]["E_可转债双低"]["holds"])
+    assert q1 == 65                                        # 35 + 30 整手买回全部成交
+    assert saved1["_control"]["e2_state"] == "defensive"   # 未达 70 → 保持防御(登记保留)
+    assert any("部分恢复" in m for m in msgs1)
+
+    # 第 2 轮: deficit=5 < 1手 → 据实转正常并清登记(旧实现将永久死锁)
+    led2 = mod.load_ledger()
+    msgs2 = mod.e2_gate(led2, px, False)
+    mod.save_ledger(led2)
+    saved2 = mod.load_ledger()
+    assert saved2["_control"]["e2_state"] == "normal"
+    assert "e2_pre_defensive_qty" not in saved2["_control"]
+    assert any("不足1手" in m for m in msgs2)
+
+
+def test_risk_round_circuit_breaker_suppressed_outside_trading_hours(monkeypatch):
+    """修复 C 反例: 15:10 后 _TRADING_OK=False, 熔断卖单必被内核拒绝;
+    状态不得迁 watch、仓位不得动、不得发失实消息。"""
+    from types import SimpleNamespace
+
+    led = {"_control": {}, "_actions": {}, "strategies": {
+        "F_小市值20": {"cash": 0.0, "holds": [{"symbol": "600000.SH", "name": "fixture",
+                                              "qty": 100, "price": 10.0, "notional": 1000.0}]},
+        "F2_小市值5只神帖对照": {"cash": 0.0, "holds": []},
+        "E_可转债双低": {"cash": 0.0, "holds": []}}}
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 8))
+    monkeypatch.setattr(mod, "exchange_now", lambda: datetime(2026, 10, 8, 15, 22))  # 非交易时段
+    monkeypatch.setattr(mod, "_TRADING_OK", False)                                   # catch-up 闸关闭
+    monkeypatch.setattr(mod, "ts_client", lambda: SimpleNamespace(call=lambda *a, **k: None))
+    monkeypatch.setattr(mod, "tencent_quotes",
+                        lambda codes: ({"399303": {"price": 1000.0, "pct": 0.0}}
+                                       if codes == ["sz399303"] else {}))
+    monkeypatch.setattr(mod, "fetch_recent_announcements", lambda *a, **k: [])
+
+    msgs = mod.risk_round(led, {"600000.SH": {"price": 10.0, "pct": -4.2}}, False)
+    assert led["_control"].get("crash_state") in (None, "normal")   # 无迁移
+    assert "crash_watch_until" not in led["_control"]
+    assert sum(h["qty"] for h in led["strategies"]["F_小市值20"]["holds"]) == 100
+    assert msgs == []
+
+
+def test_risk_round_same_day_noise_not_escalated(monkeypatch):
+    """修复 D 反例: 观察期内同日行情微变(med -4.5%→-4.9%)不构成新事件, 不得升级清仓。"""
+    from types import SimpleNamespace
+
+    led = {"_control": {}, "_actions": {}, "strategies": {
+        "F_小市值20": {"cash": 0.0, "holds": [{"symbol": "600000.SH", "name": "fixture",
+                                              "qty": 300, "price": 10.0, "notional": 3000.0}]},
+        "F2_小市值5只神帖对照": {"cash": 0.0, "holds": []},
+        "E_可转债双低": {"cash": 0.0, "holds": []}}}
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 8))
+    monkeypatch.setattr(mod, "exchange_now", lambda: datetime(2026, 10, 8, 10, 0))   # 盘中
+    monkeypatch.setattr(mod, "_TRADING_OK", True)
+    monkeypatch.setattr(mod, "ts_client", lambda: SimpleNamespace(call=lambda *a, **k: None))
+    monkeypatch.setattr(mod, "tencent_quotes",
+                        lambda codes: ({"399303": {"price": 1000.0, "pct": 0.0}}
+                                       if codes == ["sz399303"] else {}))
+    monkeypatch.setattr(mod, "fetch_recent_announcements", lambda *a, **k: [])
+
+    msgs1 = mod.risk_round(led, {"600000.SH": {"price": 10.0, "pct": -4.5}}, False)
+    assert led["_control"]["crash_state"] == "watch"
+    assert led["_control"]["crash_watch_until"] == "2026-11-07"
+    assert led["_control"]["crash_trigger_key"] == "2026-10-08"     # date-only 键
+    assert sum(h["qty"] for h in led["strategies"]["F_小市值20"]["holds"]) == 200  # 减 1/3
+    assert any("熔断一级" in m for m in msgs1)
+
+    msgs2 = mod.risk_round(led, {"600000.SH": {"price": 9.8, "pct": -4.9}}, False)  # 同日噪声
+    assert led["_control"]["crash_state"] == "watch"                 # 不升级
+    assert led["_control"]["crash_watch_until"] == "2026-11-07"      # 观察窗不重设
+    assert sum(h["qty"] for h in led["strategies"]["F_小市值20"]["holds"]) == 200
+    assert not any("熔断二级" in m for m in msgs2)
+    assert msgs2 == []
+
+
+def test_e2_exit_buy_rejected_keeps_defensive_state(tmp_path, monkeypatch):
+    """修复 F 反例: 恢复买入被拒(NO_QUOTE)不得声称"恢复满仓"; 状态与登记保持待下轮;
+    仅"无持仓可恢复"才据实转正常并清登记。"""
+    import json as _json
+    import pandas as pd
+    from types import SimpleNamespace
+
+    led = {"marks": [], "_actions": {},
+           "_control": {"e2_state": "defensive", "e2_pre_defensive_qty": 25},
+           "strategies": {"E_可转债双低": {
+               "cash": 10000.0,
+               "credit_watch": {"median_history": [{"date": "2026-09-30", "median": 140.0}]},
+               "holds": [{"symbol": "113062.SH", "name": "常银转债", "qty": 13,
+                          "price": 120.0, "notional": 1560.0}]}}}
+    test_led = tmp_path / "ledger.json"
+    test_led.write_text(_json.dumps(led, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(mod, "LEDGER", test_led)
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 8))
+    monkeypatch.setattr(mod, "exchange_now", lambda: datetime(2026, 10, 8, 10, 0))  # 撮合窗内
+    monkeypatch.setattr(mod, "ts_client", lambda: SimpleNamespace(
+        call=lambda *a, **k: pd.DataFrame({"trade_date": ["20261008"], "close": [138.0]})))
+
+    led1 = mod.load_ledger()
+    msgs1 = mod.e2_gate(led1, {}, False)                  # px 空 → 买回 NO_QUOTE 必被拒
+    joined1 = " ".join(msgs1)
+    assert "恢复满仓" not in joined1                       # 不得声称已恢复
+    assert "保持防御" in joined1
+    assert led1["_control"]["e2_state"] == "defensive"     # 状态保持
+    assert led1["_control"]["e2_pre_defensive_qty"] == 25  # 登记保留待下轮
+    assert sum(h["qty"] for h in led1["strategies"]["E_可转债双低"]["holds"]) == 13
+
+    led1["strategies"]["E_可转债双低"]["holds"] = []       # 无持仓可恢复 → 据实转正常
+    msgs2 = mod.e2_gate(led1, {}, False)
+    assert any("无持仓可恢复" in m for m in msgs2)
+    assert led1["_control"]["e2_state"] == "normal"
+    assert "e2_pre_defensive_qty" not in led1["_control"]
