@@ -271,6 +271,7 @@ openpyxl>=3.1.0             # Excel (.xlsx) parsing for import
 
 
 numpy>=1.24.0               # Numeric computing
+pyarrow>=14.0.0            # Parquet engine for market-scan / watchlist snapshots (pandas to_parquet/read_parquet)
 
 
 

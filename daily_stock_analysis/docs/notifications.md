@@ -47,6 +47,8 @@
 - `send_to_context()` 独立于静态渠道路由与降噪记录。
 - 告警通知发送失败只记录尝试，不回滚已写入的 trigger 或 DecisionSignal。
 
+DecisionSignal 字段、脱敏、迁移与回滚边界见 [DecisionSignal 决策信号专题](decision-signals.md)。
+
 ## 通知降噪机制
 
 进程内降噪，只影响静态渠道，不影响机器人会话回执。默认全关。
