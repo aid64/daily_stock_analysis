@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [修复] notifications.md 恢复"GitHub Actions 映射"节（U5 飞书化重写时误删，生成脚本与守卫测试被遗留成孤儿）：恢复 managed table 标记并由生成器再生现行映射表，`test_daily_analysis_workflow_notification_env` 转绿。
 - [改进] /健康 E2 择时行不再静默消失：PIT 数据缺失或价格中位数为空时显式输出 ⚠ 告警行（原整行省略造成健康视图盲区与 CI 数据敏感假红）。
 - [测试] test_cb_signal_bridge 决策包全链路测试离线确定性化：mock `PortfolioService._prefetch_realtime_position_prices`（CI 无境内行情端点访问能力，真实预取走多 fetcher 慢链路超 pytest 120s 强杀线；durations 清单修复后分片重分配首次暴露）。
+- [新功能] 纸面交易事务服务层 `paper_trading_service` + `paper_repo`（对比盘修复计划任务02）：独立 SQLite 存储、幂等重试、分红按事件一次入账、outbox 原子回滚、FK 完整性、备份恢复、估值 upsert、初始化锁重试修复 Windows 双进程 WAL 竞态（双进程恰好一单 5 连稳）；12 条服务测试。
 - [修复] 对比盘 ERP 总闸三套槽位集合漂移收敛：erp_gate/月度缩放块/registry 三处口径不一（6 槽/11 槽/语义）统一到单一真源 `_erp_scale_slots()`（读 `deck_registry.risk_scope`，取 etf_cycle+stock_cycle 排除观察态 L，共 11 槽 A/B/F/F2/G/I/J/K/M/N/O）；E/H（cb）不再受 PE 分位总闸误伤（与 E2 只作用 E 槽对称）。
 - [修复] 对比盘 ERP 决策/执行分离：`erp_gate` 降为纯决策（只写 `_control.erp_state`），新增 `erp_scale_pass` 据实执行（逐槽减半按 `apply_orders` 返回判定，被拒标注"待次日补做"而非无条件声称已×0.5，成功写 `erp_scaled[slot]`）；周度（A/B/G）与月度重建成功后清该槽 `erp_scaled` 标记 → 同轮重新缩放（防御系数不再因重建永久丢失）。
 - [修复] 对比盘月度调仓改注册表子任务粒度：`_monthly_tasks` 返回 (标签, 槽位, 调用) 列表，`rebalance_done[month]` 记成功标签（全成功→"all"、部分成功→标签列表），门条件支持列表态每日续做至齐备——单槽数据源失败不再导致整月调仓丢失。
