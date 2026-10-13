@@ -50,6 +50,14 @@
 
 3. **桥生产端建成**：`scripts/build_intake_verdict.py`（纯证据搬运封装）——以既有锁定证据试产出报告（oos 2023-01~2026-08-08，8 折 +3/-5，复利 +17.20%，含 R2 闸后 +14.7% 口径 caveat），dsa 消费端干跑：schema 校验通过、**新鲜度门正确拒绝**（滞后 34 交易日 > 5）——生产端→消费端→门全链路验证。测试产物已清理，正式报告冻结期满后由脚本再生（2 秒）。
 
+### 0.7 冻结豁免补录（2026-10-09，用户确认口径）
+
+**豁免口径（用户 2026-10-09 拍板）**：修复既有契约的变更 + 纯防护性治理控制 ≠ 新研究/新工程。边界三条：(a) 不触碰 holdout（终点 ≥2026-08-09 的研究命令仍被 `assert_holdout_clean` 拒绝，不可豁免）；(b) 不产出新研究结论、不改变 §0.2 策略矩阵三态；(c) 不新增数据依赖或研究管线。
+
+1. **追溯登记**：dsa 对比盘修复计划（`.scratch/dsa-deployment-repair-plan-20261007`）任务 05 改动 quant 执行链 4 文件 + 2 测试文件（2026-10-07/09，属上述口径的执行链契约修复，holdout 零触碰）：`convertible/snapshot.py`（+`pit_prices_to_feed`，PIT 价 → CB feed）、`core/mwu_core.py`（+`unpriced_terms` 审计属性，缺价显式可见）、`scripts/extract_mwu_targets.py`（CB feeds 生成 + 输出 `unpriced_terms`）、`scripts/run_paper_tracking.py`（导出失败显式 return 1 + `Any` 导入修复）；`tests/test_convertible.py` +6、`tests/test_mwu_core.py` +3。quant 323 测试全绿。
+2. **授权登记**：dsa 修复计划任务 09（研究治理）在本口径下执行，含：run_backtest 链补 holdout 闸（防护性）、CI 收编 quant 离线测试（基础设施）、旧研究结论状态头注（文档）、vendor 复现二选一（依赖管理）。
+3. **冻结本体不变**：8 周冻结至约 2026-11-08 照旧执行；通知收敛计划 P4 的 quant 工程项（PIT 更新后自动 assemble+export、decision snapshot 等）属新工程，**不在豁免范围**，冻结期满后再议。
+
 ## 1. 项目定位
 
 低门槛个人量化交易系统（普通人量化路线）：

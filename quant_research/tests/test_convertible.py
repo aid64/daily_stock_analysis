@@ -318,3 +318,97 @@ class TestPITConvertibleDoubleLow:
         )
         assert len(pool) < 4  # 中位数过滤后不足 4 只
         assert expert.min_candidates is not None and len(pool) < expert.min_candidates
+
+
+class TestPITPricesToFeed:
+    """H 槽 CB feed 生成（单一真源）: 债券价格序列 → backtrader OHLCV。"""
+
+    def _table(self):
+        return pd.DataFrame({
+            "as_of": pd.to_datetime(["2026-06-01", "2026-06-03", "2026-06-08"]),
+            "symbol": ["110076.SH"] * 3,
+            "price": [110.0, 111.5, 120.0],
+            "premium_rate": [5.0, 5.0, 5.0],
+            "rating": ["AA"] * 3,
+            "list_date": pd.to_datetime(["2024-01-01"] * 3),
+        })
+
+    def test_feed_shape_and_values(self):
+        from quant_research.backtest.convertible.snapshot import pit_prices_to_feed
+        feed = pit_prices_to_feed(self._table(), "110076.SH")
+        assert len(feed) == 3
+        assert list(feed.columns) == ["open", "high", "low", "close",
+                                      "volume", "amount", "openinterest"]
+        assert feed["close"].tolist() == [110.0, 111.5, 120.0]
+        assert feed.index.name == "date"
+        assert feed.index.is_monotonic_increasing
+        # amount=0 → 动量/均值回归的流动性过滤不选债券
+        assert (feed["amount"] == 0).all()
+
+    def test_drops_nonpositive_and_nan_prices(self):
+        from quant_research.backtest.convertible.snapshot import pit_prices_to_feed
+        table = self._table()
+        table.loc[1, "price"] = 0.0        # 停牌/异常价剔除
+        table.loc[2, "price"] = float("nan")
+        feed = pit_prices_to_feed(table, "110076.SH")
+        assert len(feed) == 1
+        assert feed["close"].iloc[0] == 110.0
+
+    def test_unknown_symbol_yields_empty(self):
+        from quant_research.backtest.convertible.snapshot import pit_prices_to_feed
+        assert pit_prices_to_feed(self._table(), "999999.SH").empty
+
+
+class TestPITExpertFeedDependency:
+    """H 槽"四专家"声明的机制证明：无 feed → 空选(现金)；有 feed → 真实参与。"""
+
+    def _pit(self):
+        rows = []
+        for i in range(40):   # 40 只 → 价格中位数过滤后约 20 只 ≥ min_candidates=15
+            rows.append({
+                "as_of": pd.Timestamp("2026-06-01"),
+                "symbol": f"11{i:04d}.SH",
+                "price": 100.0 + i,
+                "premium_rate": 5.0,
+                "rating": "AA",
+                "list_date": pd.Timestamp("2024-01-01"),
+                "maturity_date": pd.Timestamp("2030-01-01"),
+            })
+        return pd.DataFrame(rows)
+
+    class _Series:
+        def __init__(self, name, price):
+            self.name = name
+            self._price = price
+
+        def last_close(self):
+            return self._price
+
+    class _View:
+        def __init__(self, series):
+            self._series = series
+
+        def all_series(self):
+            return list(self._series)
+
+        def current_date(self):
+            return pd.Timestamp("2026-06-01").date()
+
+    def _expert(self):
+        return PITConvertibleDoubleLowExpert(
+            self._pit(), top_n=5, min_candidates=15,
+            max_conv_value=135.0, min_maturity_days=365,
+        )
+
+    def test_no_feed_yields_empty_selection(self):
+        """无 feed（datas 里没有这些券）→ 全部候选被无价格过滤 → 空选。"""
+        picks = self._expert().select(self._View([]))
+        assert picks == {}
+
+    def test_with_feed_expert_participates(self):
+        """有 feed（CB price feed 注入）→ 专家按双低选出目标券。"""
+        view = self._View([self._Series(f"11{i:04d}.SH", 100.0 + i) for i in range(40)])
+        picks = self._expert().select(view)
+        assert len(picks) == 5
+        assert all(v == pytest.approx(0.2) for v in picks.values())
+        assert all(s.endswith(".SH") for s in picks)

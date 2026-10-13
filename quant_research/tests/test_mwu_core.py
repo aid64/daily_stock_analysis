@@ -138,3 +138,31 @@ class TestCombineAndRecord:
         core = _core()
         core.record_picks({}, {})
         assert core.last_picks == {"a": {}, "b": {}}
+
+
+class TestUnpricedAudit:
+    """H 槽"四专家"声明的可证伪检查点：缺价建议不得静默当 0 收益混过。"""
+
+    def test_reports_unpriced_terms_per_expert(self):
+        core = MWUCore(["etf", "cb"], eta=0.1, loss_scale=0.05, share_alpha=0.02)
+        core.record_picks({"etf": {"512890.SH": 1.0}, "cb": {"113062.SH": 100.0}},
+                          {"512890.SH": 1.0, "113062.SH": 100.0})
+        core.update_weights({"512890.SH": 1.0})          # CB 缺价
+        assert core.unpriced_terms.get("cb") == ["113062.SH"]
+        assert "etf" not in core.unpriced_terms
+
+    def test_nan_and_nonpositive_prices_count_as_unpriced(self):
+        core = MWUCore(["a", "b"], eta=0.1, share_alpha=0.0)
+        core.record_picks({"a": {"X": 100.0, "Y": 100.0}, "b": {}},
+                          {"X": 100.0, "Y": 100.0})
+        core.update_weights({"X": float("nan"), "Y": 0.0})
+        assert sorted(core.unpriced_terms["a"]) == ["X", "Y"]
+
+    def test_unpriced_terms_reset_each_update(self):
+        core = MWUCore(["a", "b"], eta=0.1, share_alpha=0.0)
+        core.record_picks({"a": {"X": 100.0}, "b": {}}, {"X": 100.0})
+        core.update_weights({})
+        assert core.unpriced_terms.get("a") == ["X"]
+        core.record_picks({"a": {"X": 100.0}, "b": {}}, {"X": 100.0})
+        core.update_weights({"X": 101.0})
+        assert core.unpriced_terms == {}

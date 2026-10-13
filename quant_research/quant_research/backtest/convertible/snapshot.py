@@ -48,6 +48,31 @@ def load_pit_snapshot(path) -> pd.DataFrame:
     return table
 
 
+def pit_prices_to_feed(table: pd.DataFrame, symbol: str) -> pd.DataFrame:
+    """单只转债的 PIT 价格序列 → OHLCV feed（供回测/MWU 探针的 backtrader data）。
+
+    OHLC 用收盘价填充；volume/amount 置 0——债券行情只看收盘价，且
+    amount=0 使动量/均值回归类专家的流动性过滤天然排除债券（债券只经
+    PIT 双低专家进入组合，与 run_backtest 的 CB feed 口径一致）。
+
+    无 feed 时 PITConvertibleDoubleLowExpert._snapshot 会把全部候选按
+    "无价格"过滤，专家退化为永远空选——本函数是"H 槽四专家"声明的
+    数据前提。
+    """
+    rows = table[table["symbol"] == symbol].copy()
+    rows["price"] = pd.to_numeric(rows["price"], errors="coerce")
+    rows = rows[rows["price"] > 0].sort_values("as_of")
+    if rows.empty:
+        return pd.DataFrame()
+    rows["as_of"] = pd.to_datetime(rows["as_of"], errors="coerce")
+    rows = rows.dropna(subset=["as_of"])
+    price = rows["price"].astype(float).to_numpy()
+    return pd.DataFrame({
+        "open": price, "high": price, "low": price, "close": price,
+        "volume": 0.0, "amount": 0.0, "openinterest": 0.0,
+    }, index=pd.DatetimeIndex(rows["as_of"], name="date"))
+
+
 def validate_pit_snapshot(
     table: pd.DataFrame,
     start: Optional[str] = None,

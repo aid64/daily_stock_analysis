@@ -172,3 +172,36 @@ class TestExportPlan:
         assert out1 == out2
         plan = json.loads(out2.read_text(encoding="utf-8"))
         assert plan["capital_base"] == 20000.0  # 覆盖而非追加
+
+
+class TestPrintPlanExportFailure:
+    """E 槽契约：current_plan.json 是 dsa 的唯一数据源——导出失败必须显式失败。
+
+    回归背景（审查反例）：`_print_plan` 原实现把导出异常吞成 warning 后
+    仍 return 0，dsa 侧会继续读旧 plan 执行过期目标。"""
+
+    def test_export_failure_returns_nonzero(self, tmp_path, monkeypatch):
+        import scripts.run_paper_tracking as rpt
+        from scripts.run_paper_tracking import _print_plan
+
+        pit = _make_pit({f"11000{i}.SH": 5.0 for i in range(6)})
+        monkeypatch.setattr(rpt, "record_run", lambda **kw: None)
+
+        def boom(*a, **k):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(rpt, "export_current_plan", boom)
+        # PICK_PARAMS 是模块常量（生产闸），用 patch 走测试参数
+        monkeypatch.setattr(rpt, "PICK_PARAMS", _PICK_PARAMS)
+        code = _print_plan(pit, 100000.0, quiet=True)
+        assert code == 1
+
+    def test_export_success_returns_zero(self, monkeypatch):
+        import scripts.run_paper_tracking as rpt
+        from scripts.run_paper_tracking import _print_plan
+
+        pit = _make_pit({f"11000{i}.SH": 5.0 for i in range(6)})
+        monkeypatch.setattr(rpt, "record_run", lambda **kw: None)
+        monkeypatch.setattr(rpt, "export_current_plan", lambda *a, **k: None)
+        monkeypatch.setattr(rpt, "PICK_PARAMS", _PICK_PARAMS)
+        assert _print_plan(pit, 100000.0, quiet=True) == 0
