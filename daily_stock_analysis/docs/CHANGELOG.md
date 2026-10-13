@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [新功能] 对比盘影子对照装置 `scripts/compare_deck_shadow.py`（修复计划任务11 的声明产物）：以 runner dry 模式逐交易日运行新内核并归档（各槽 `(dry)` 意图行 / 退出码 / 台账 sha256 前后一致性 / 与上一交易日的意图增删差异），dry 模式不写台账不发通知；连续 3 个交易日无 `FAIL` 才进入"用户确认启用"；装置本身**不启用**任何计划任务（`DSA_Deck_Intraday` 维持 Disabled）。`strategy-compare-deck.md` §15 记录流程与前置（需在真实工作树运行，worktree 缺未跟踪数据会显式失败）。
 - [新功能] 对比盘 cohort 切换工具 `scripts/compare_deck_cohort.py`（修复计划任务03 的声明产物）：**默认 dry-run 零写入**，`--apply` 才落盘；归档=复制旧账 + `cohort-manifest.jsonl` 记录 sha256（封存不删）；开账=18 槽（`deck_registry.SLOTS` 唯一真源）每槽 ¥12,411、冻结配置、明确交易日起步，清空持仓/净值/marks/`_control`/`_actions` 并保留 prereg 与研究证据键；`strategy-compare-deck.md` §6.1 记录切换与回滚步骤。开账交易日起点待用户批准后执行。
 - [文档] 对比盘文档与代码对账（修复计划任务10）：`strategy-compare-deck.md` 修正 E2 阈值（水平门→回撤响应）、F 缓冲带（已移除）、T+1（已由执行内核强制）、runner 测试计数（28→67）、补 K_项目选股（18 槽全覆盖）、"ERP"改名收敛为"PE 分位总闸"；`data-source-matrix.md` 修重复章节号（双"五"）、限频口径收敛为"已验证端点子集/官方值"、原则与纪律一致（单源+保守回落）；`INDEX.md` 注册对比盘专题；`docs/agents/domain.md` 登记 runner↔quant 子进程 stdout JSON 契约与 4 处直读 quant PIT 的受控例外；`DOCUMENTATION-STANDARD.md` "5 行报告"限定为检查员场景。
 - [改进] CI 新增 `quant-tests` job：`quant_research/` 改动时执行其离线测试（此前 `.github/workflows/` 对 quant 零覆盖）；新增共享依赖清单 `.github/requirements-quant-ci.txt`（显式声明 omegaconf/backtrader/pydantic，避免再犯靠传递依赖的 pyarrow 类问题）；AGENTS.md CI 覆盖表与"按改动面执行"同步登记。
