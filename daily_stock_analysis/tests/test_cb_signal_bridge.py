@@ -135,6 +135,13 @@ class TestOrderSheetCommand:
         monkeypatch.setattr(
             "src.services.cb_signal_bridge.DEFAULT_PLAN_PATH", plan_path)
         monkeypatch.setattr(oss, "SHEETS_DIR", tmp_path / "sheets")
+        # 离线确定性：本测试验证决策包渲染语义，不依赖实时价。真实预取在
+        # CI（无境内行情端点访问能力）会走多 fetcher 慢链路，超过 pytest
+        # 120s 强杀线（2026-10-13 CI 实测悬挂）；本地网络快故从未暴露。
+        monkeypatch.setattr(
+            PortfolioService, "_prefetch_realtime_position_prices",
+            lambda self, symbols: {s: (None, None) for s in symbols},
+        )
 
         service = PortfolioService()
         account = get_or_create_default_account(service)
