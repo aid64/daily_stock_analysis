@@ -169,8 +169,13 @@ def build_buy_watchlist(
     exclude_symbols: Optional[List[str]] = None,
     top_n: int = DEFAULT_TOP_N,
     snapshot_date: Optional[date] = None,
+    snapshot: Optional[pd.DataFrame] = None,
 ) -> Dict[str, Any]:
     """组装买入观察池（含数据新鲜度审计）。
+
+    Args:
+        snapshot: 已就绪的候选池快照（调用方预处理后注入，如补列后的行情表）。
+            提供时不再读盘；None 时按 snapshot_date 从 market_scan 存储加载。
 
     Returns:
         {candidates: [...], snapshot_date, stale_days, source_note}
@@ -182,20 +187,26 @@ def build_buy_watchlist(
         "candidates": [], "snapshot_date": "",
         "stale_days": None, "source_note": "",
     }
-    snapshot = load_snapshot(snapshot_date)
-    if snapshot is None or snapshot.empty:
-        # 快照缺失时回溯最近 7 天（管线未跑/节假日容错）
-        for back in range(1, 8):
-            d = date.fromordinal(date.today().toordinal() - back)
-            snapshot = load_snapshot(d)
-            if snapshot is not None and not snapshot.empty:
-                out["snapshot_date"] = d.isoformat()
-                break
-        if snapshot is None or snapshot.empty:
-            out["source_note"] = "候选池快照不可用（market_scan 未运行）"
+    if snapshot is not None:
+        if snapshot.empty:
+            out["source_note"] = "注入的候选池快照为空"
             return out
-    elif snapshot_date is None:
-        out["snapshot_date"] = date.today().isoformat()
+        out["snapshot_date"] = (snapshot_date or date.today()).isoformat()
+    else:
+        snapshot = load_snapshot(snapshot_date)
+        if snapshot is None or snapshot.empty:
+            # 快照缺失时回溯最近 7 天（管线未跑/节假日容错）
+            for back in range(1, 8):
+                d = date.fromordinal(date.today().toordinal() - back)
+                snapshot = load_snapshot(d)
+                if snapshot is not None and not snapshot.empty:
+                    out["snapshot_date"] = d.isoformat()
+                    break
+            if snapshot is None or snapshot.empty:
+                out["source_note"] = "候选池快照不可用（market_scan 未运行）"
+                return out
+        else:
+            out["snapshot_date"] = (snapshot_date or date.today()).isoformat()
 
     try:
         funnel = run_funnel(snapshot)

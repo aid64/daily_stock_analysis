@@ -1,0 +1,114 @@
+# -*- coding: utf-8 -*-
+"""compare_deck_audit 审计判定单测（离线，无网络）。
+
+覆盖任务08审计升级: marks 新鲜度三态 / 执行日志 exit 码 FAIL / verdict 三态 / 退出码传播。
+行情、schtasks、baostock 交叉验证全部 mock，断言只依赖判定逻辑。"""
+
+import contextlib
+import importlib.util
+import io
+import json
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+from types import SimpleNamespace
+
+AUDIT = Path(__file__).resolve().parents[1] / "scripts" / "compare_deck_audit.py"
+spec = importlib.util.spec_from_file_location("compare_deck_audit", AUDIT)
+mod = importlib.util.module_from_spec(spec)
+sys.modules.setdefault("compare_deck_audit", mod)
+spec.loader.exec_module(mod)
+
+
+def _ledger(marks_dates, strategies=None):
+    return {"strategies": strategies or {"F_小市值20": {"cash": 100.0, "holds": [], "equity": 100.0}},
+            "marks": [{"date": d} for d in marks_dates],
+            "_control": {}}
+
+
+def _run_audit(monkeypatch, tmp_path, ledger_dict, log_text, live=None):
+    led = tmp_path / "ledger.json"
+    led.write_text(json.dumps(ledger_dict, ensure_ascii=False), encoding="utf-8")
+    log = tmp_path / "task.log"
+    log.write_text(log_text, encoding="utf-8")
+    monkeypatch.setattr(mod, "LEDGER", led)
+    monkeypatch.setattr(mod, "TASK_LOG", log)
+    monkeypatch.setattr(mod, "tencent_live", lambda codes: dict(live or {}))
+    monkeypatch.setattr(mod, "exchange_stamp", lambda: "")
+    monkeypatch.setattr(mod.subprocess, "run",
+                        lambda *a, **k: SimpleNamespace(stdout="已启用", returncode=0))
+    fake_bs = SimpleNamespace(login=lambda: None, logout=lambda: None,
+                              query_history_k_data_plus=lambda *a, **k:
+                              SimpleNamespace(error_code="1"))
+    monkeypatch.setitem(sys.modules, "baostock", fake_bs)
+    mod.results.clear()
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = mod.main()
+    return rc, buf.getvalue(), [dict(r) for r in mod.results]
+
+
+def _today(days=0):
+    return (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+
+
+def _row(rows, name):
+    return next(r for r in rows if r["check"] == name)
+
+
+def test_audit_fails_marks_stale_over_15_days(monkeypatch, tmp_path):
+    """marks 距今>15天 → FAIL + 退出码1（旧实现仅查非空, 陈旧净值也判 PASS）。"""
+    rc, out, rows = _run_audit(monkeypatch, tmp_path,
+                               _ledger([_today(30)]),
+                               f"{_today()}T09:00:00 intraday start\n{_today()}T09:00:01 intraday exit=0\n")
+    assert _row(rows, "marks 最新")["status"] == "FAIL"
+    assert rc == 1
+    assert "【异常】" in out
+
+
+def test_audit_warns_marks_slightly_stale(monkeypatch, tmp_path):
+    """marks 距今 11~15 天 → WARN（不阻断退出码）。"""
+    rc, _, rows = _run_audit(monkeypatch, tmp_path,
+                             _ledger([_today(12)]),
+                             f"{_today()}T09:00:00 intraday start\n{_today()}T09:00:01 intraday exit=0\n")
+    assert _row(rows, "marks 最新")["status"] == "WARN"
+    assert rc == 0
+
+
+def test_audit_fails_nonzero_exit_code(monkeypatch, tmp_path):
+    """intraday 最近 exit=9 → 执行日志 FAIL（旧实现判 PASS 的缺陷）。"""
+    rc, _, rows = _run_audit(monkeypatch, tmp_path,
+                             _ledger([_today()]),
+                             "2000-01-01T09:00:00 intraday start\n2000-01-01T09:00:01 intraday exit=9\n")
+    assert _row(rows, "执行日志")["status"] == "FAIL"
+    assert rc == 1
+
+
+def test_audit_verdict_insufficient_when_core_not_pass(monkeypatch, tmp_path):
+    """核心证据(抽样净值)WARN 且无 FAIL → 样本不足, 不得宣称正常; WARN 不阻断退出码。"""
+    rc, out, rows = _run_audit(monkeypatch, tmp_path,
+                               _ledger([_today()]),
+                               f"{_today()}T09:00:00 intraday start\n{_today()}T09:00:01 intraday exit=0\n")
+    assert _row(rows, "marks 最新")["status"] == "PASS"
+    assert _row(rows, "执行日志")["status"] == "PASS"
+    assert _row(rows, "抽样净值")["status"] == "WARN"      # 无可抽样持仓
+    assert "样本不足" in out
+    assert "正常" not in out.replace("样本不足", "")
+    assert rc == 0
+
+
+def test_audit_verdict_normal_when_all_core_pass(monkeypatch, tmp_path):
+    """核心证据全 PASS（含可抽样持仓）→ 正常。"""
+    strategies = {"F_小市值20": {"cash": 41.2,
+                                  "holds": [{"symbol": "510300.SH", "qty": 100, "price": 4.5}],
+                                  "equity": 491.2}}
+    led = _ledger([_today()], strategies=strategies)
+    led["_control"] = {"close_done": _today()}
+    rc, out, rows = _run_audit(monkeypatch, tmp_path, led,
+                               f"{_today()}T09:00:00 intraday start\n{_today()}T09:00:01 intraday exit=0\n",
+                               live={"510300": 4.5})
+    assert _row(rows, "marks 最新")["status"] == "PASS"
+    assert _row(rows, "执行日志")["status"] == "PASS"
+    assert _row(rows, "抽样净值")["status"] == "PASS"
+    assert "结论: 正常" in out
+    assert rc == 0

@@ -115,7 +115,9 @@ class TestBuildBuyWatchlist:
             _row("bj920102", name="北交候选"),                               # 北交出局
         ]
         self._seed_snapshot(tmp_path, monkeypatch, rows)
-        out = build_buy_watchlist(exclude_symbols=[])
+        # 显式指定快照日: 不依赖"今天"(避免 7 天回退窗随真实时钟过期, 测试变脆)
+        self._freeze_today(monkeypatch, date(2026, 9, 15))
+        out = build_buy_watchlist(exclude_symbols=[], snapshot_date=date(2026, 9, 15))
         assert out["candidates"], out
         assert out["candidates"][0]["symbol"] == "600100"
         assert out["snapshot_date"] == "2026-09-15"
