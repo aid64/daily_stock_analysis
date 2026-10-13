@@ -30,7 +30,7 @@ import logging
 import sys
 from datetime import date, datetime
 from pathlib import Path
-from typing import Dict, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence
 
 import pandas as pd
 
@@ -502,8 +502,9 @@ def _print_plan(pit_table: pd.DataFrame, capital: float,
 
     try:
         export_current_plan(pit_table, latest_picks, latest_key, capital)
-    except Exception as exc:  # noqa: BLE001 - 导出失败不影响计划展示
-        logger.warning("current_plan.json 导出失败: %r", exc)
+    except Exception as exc:  # noqa: BLE001 - 导出失败必须显式失败: 下游以该文件为唯一契约
+        logger.error("current_plan.json 导出失败: %r", exc)
+        return 1
 
     record_run(
         params={"kind": "paper_tracking", "pit_latest": str(pit_latest.date()),

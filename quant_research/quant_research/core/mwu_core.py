@@ -32,9 +32,12 @@ regret 界是相对保证（追平事后最优专家），融合层不创造 alp
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping, Sequence
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 class MWUCore:
@@ -68,6 +71,9 @@ class MWUCore:
             raise ValueError(f"share_alpha 必须在 [0, 1)，得到 {share_alpha}")
         # 上期各专家建议 {expert_name: {symbol: 选取时价格}}
         self._last_picks: dict[str, dict[str, float]] = {}
+        # 最近一轮更新中"有建议但缺有效价格"的标的 {expert_name: [symbol]}
+        # —— 收益按可定价项计算，缺价项不静默当 0；本字段供数据质量审计
+        self._unpriced: dict[str, list[str]] = {}
 
     @property
     def expert_names(self) -> list[str]:
@@ -81,30 +87,50 @@ class MWUCore:
     def last_picks(self) -> dict[str, dict[str, float]]:
         return {name: dict(picks) for name, picks in self._last_picks.items()}
 
+    @property
+    def unpriced_terms(self) -> dict[str, list[str]]:
+        """最近一轮更新中因缺有效价格未计入收益的建议标的（数据质量审计）。
+
+        H 槽"四专家"声明的可证伪检查点: 若 CB 专家长期出现在本字段,
+        说明其收益不可评分, 不得对外声称该专家在真实参与。"""
+        return {k: list(v) for k, v in self._unpriced.items()}
+
     # ── 权重更新 ─────────────────────────────────
 
     def update_weights(self, prices: Mapping[str, float]) -> None:
         """用当前价格结算上期建议的纸面收益，执行乘性更新 + Fixed Share 回拉
 
         prices = {symbol: 当前价}。非有限/非正价格或缺失标的的收益项
-        跳过；有建议但全部收益项无效、以及无建议（空选）的专家一律按
+        跳过（记入 unpriced_terms 供数据质量审计，不静默当 0 收益）；
+        有建议但全部收益项无效、以及无建议（空选）的专家一律按
         现金收益 r=0（ℓ=0.5 中性）处理——所有专家每期都参与同一
         [0,1] loss 序列，"建议空仓"不构成特权无损失状态（R1b）。
         """
         eta = self._eta
         scale = self._loss_scale
+        self._unpriced = {}
         for name in self._names:
             prev = self._last_picks.get(name)
             rets = []
+            unpriced: list[str] = []
             if prev:
                 for sym, base in prev.items():
                     price = prices.get(sym)
+                    ok = True
                     if price is None or base <= 0:
-                        continue
-                    price = float(price)
-                    if not np.isfinite(price) or price <= 0:
+                        ok = False
+                    else:
+                        price = float(price)
+                        if not np.isfinite(price) or price <= 0:
+                            ok = False
+                    if not ok:
+                        unpriced.append(sym)
                         continue
                     rets.append(price / base - 1.0)
+            if unpriced:
+                self._unpriced[name] = unpriced
+                logger.warning("MWU[%s]: %d 个建议标的缺有效价格, 未计入收益: %s",
+                               name, len(unpriced), unpriced[:5])
             # 无建议（空选）= 现金收益 r=0（R1b：与 ETFMWU 文档历史声明一致，
             # 也消除"建议空仓"成为特权无损失状态的语义漏洞——线性映射下
             # 所有专家每期都面对同一 [0,1] loss 序列，comparator 论证才成立）

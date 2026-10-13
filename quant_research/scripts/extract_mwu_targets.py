@@ -28,7 +28,7 @@ import backtrader as bt  # noqa: E402
 from quant_research.backtest.engine import PandasBarsData  # noqa: E402
 from quant_research.backtest.mwu import ETFMWU, build_experts  # noqa: E402
 from quant_research.backtest.strategies import ETFMomentum  # noqa: E402
-from quant_research.backtest.convertible.snapshot import load_pit_snapshot  # noqa: E402
+from quant_research.backtest.convertible.snapshot import load_pit_snapshot, pit_prices_to_feed  # noqa: E402
 from quant_research.config.loader import load_strategy_config, load_config  # noqa: E402
 from quant_research.data.loader import DataLoader  # noqa: E402
 
@@ -102,6 +102,20 @@ def main() -> int:
     if defensive and defensive not in universe:
         universe.append(defensive)
 
+    # H 槽（etf_mwu_cb）：转债专家的真实输入——从本地 PIT 快照生成 CB price feed。
+    # 无 feed 时 PITConvertibleDoubleLowExpert._snapshot 会把全部候选按"无价格"过滤，
+    # CB 专家退化为永远空选（等同"三专家+现金"），MWU 也拿不到债券收益更新权重。
+    cb_symbols: list[str] = []
+    pit_table = None
+    if args.strategy == "etf_mwu_cb":
+        if not PIT_PATH.exists():
+            raise SystemExit(f"PIT 快照不存在: {PIT_PATH}")
+        pit_table = load_pit_snapshot(PIT_PATH)
+        cb_symbols = sorted({str(s).upper() for s in pit_table["symbol"].dropna().unique()})
+        if not cb_symbols:
+            raise SystemExit("PIT 快照无转债标的, 无法构建 CB feed")
+        print(f"# CB feeds: {len(cb_symbols)} 只(来源: {PIT_PATH.name})", file=sys.stderr)
+
     # 预热窗口照抄 run_backtest：max(顶层 ma_filter/lookback, 各专家窗口)×1.7 历日
     warmup = max(int(params.get("ma_filter", 250)), int(params.get("lookback", 60)))
     for exp_kw in (strat_cfg.experts or {}).values():
@@ -137,6 +151,13 @@ def main() -> int:
             if "openinterest" not in d.columns:
                 d["openinterest"] = 0.0
             prepared[sym] = d
+    # CB feeds 从 PIT 本地生成（单一实现: pit_prices_to_feed; 债券只看收盘价,
+    # amount=0 使其被动量/均值回归过滤天然排除, 只经双低专家进入组合）
+    for sym in cb_symbols:
+        feed = pit_prices_to_feed(pit_table, sym)
+        if feed.empty:
+            continue
+        prepared[sym] = feed
     if missing:
         print(f"# 缺标的(跳过): {missing}", file=sys.stderr)
 
@@ -157,14 +178,11 @@ def main() -> int:
 
     expert_spec = {k: dict(v) for k, v in (strat_cfg.experts or {}).items()}
     if args.strategy == "etf_mwu_cb":
-        if not PIT_PATH.exists():
-            raise SystemExit(f"PIT 快照不存在: {PIT_PATH}")
-        pit_table = load_pit_snapshot(PIT_PATH)
         cb = expert_spec.pop("convertible_double_low", None)
         if cb is None:
             raise SystemExit("etf_mwu_cb 需要 convertible_double_low 专家")
         pit_spec = {k: v for k, v in cb.items() if k != "candidate_pool"}
-        pit_spec["pit_table"] = pit_table
+        pit_spec["pit_table"] = pit_table  # main 开头已加载(用于生成 CB feeds)
         expert_spec["convertible_double_low_pit"] = pit_spec
         print(f"# PIT 转债快照: {pit_table.shape[0]} 行", file=sys.stderr)
 
@@ -214,6 +232,7 @@ def main() -> int:
         "data_window": [data_start, end],
         "as_of": probe.last_date,
         "expert_weights": {k: round(float(v), 4) for k, v in probe._weights.items()},
+        "unpriced_terms": probe._core.unpriced_terms,
         "target": probe.last_target,
     }, ensure_ascii=False, indent=2))
     return 0
