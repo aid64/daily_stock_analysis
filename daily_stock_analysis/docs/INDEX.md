@@ -62,6 +62,9 @@
 | --- | --- |
 | [单机灾难恢复（DR）](disaster-recovery.md) | 账本备份对象（portfolio 8 表+.env+strategies.yaml+快照/操作单）、Windows 计划任务注册命令、三类崩溃场景（账本损坏/配置丢失/整机迁移）还原步骤 |
 | [在线决策层变更留痕](decision-layer-changelog.md) | 结构锚价位/破位分档/组合器三层参数清单、基线回放结论（价位锚 window 才是卖出开关）、变更留痕规范——改这三层参数必附回放 diff |
+| [多策略对比盘（Compare Deck）运维说明](strategy-compare-deck.md) | 18 槽前向纸面跟踪：槽位与资金、调度/撮合窗、三闸（E2 / PE 分位总闸 / 个股熔断）、控制键与审计三态、回归保护网、已知局限（诚实清单） |
+| [数据源矩阵（Data Source Matrix）](data-source-matrix.md) | 实时链优先级、TickFlow 独有接口、tushare 15000 积分 15 接口实测、限频对策略的影响与纪律（当前单源+保守回落） |
+| [真钱执行手册](real-money-playbook.md) | Y 逆回购券商操作、X 全面要约人工复核清单、主动策略晋升流程、风控红线——纸面→真钱通道 |
 
 ## 使用专题
 

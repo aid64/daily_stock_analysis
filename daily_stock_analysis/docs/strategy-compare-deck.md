@@ -1,13 +1,15 @@
 # 多策略对比盘（Compare Deck）运维说明
 
-> 2026-09-30 建立。执行引擎：`scripts/compare_deck_runner.py`（确定性 Python，单测 `tests/test_compare_deck_runner.py`）。
-> 本文档是对比盘的运维真源；策略证据与调研结论见 `.scratch/dsa-strategy-validation/*.md`（本地任务目录，不入库）。
+> 2026-09-30 建立。**2026-10-13 与代码对账更新**：E2 水平门→回撤响应、F 缓冲带已移除、T+1 已由执行内核强制、补 K 槽（18 槽全覆盖）、"ERP"改名收敛为"PE 分位总闸"。
+> 执行引擎：`scripts/compare_deck_runner.py`（确定性 Python，单测 `tests/test_compare_deck_runner.py`）。
+> 本文档是对比盘的运维真源。关联文档：[数据源矩阵](data-source-matrix.md)、[真钱执行手册](real-money-playbook.md)、[决策层变更留痕](decision-layer-changelog.md)。
+> 策略证据与调研结论另存 `.scratch/dsa-strategy-validation/*.md`（本地任务目录，不入库）。
 > **2026-10-07 状态**：L 槽转观察态（上证发〔2024〕106号，持仓冻结不交易）；I/J/M/O/E/K/H 数据契约已按审查反例修正（`tests/test_deck_slot_contracts.py` 固化）。
-> **2026-10-10 状态**：任务08收敛批次已落地——审计三态结论+非零退出码、月度调仓注册表（子任务幂等/失败重试/非撮合窗顺延）、ERP 决策/执行分离且作用域对齐 deck_registry、撮合窗 15:00 截止、独占锁属主探活、E2 恢复整手买回、收盘通知顺序修正、测试全隔离（CI 干净检出可复现）。计划任务 `DSA_Deck_Intraday` 仍为 Disabled，待用户确认后再启用。
+> **2026-10-10 状态**：任务08收敛批次已落地——审计三态结论+非零退出码、月度调仓注册表（子任务幂等/失败重试/非撮合窗顺延）、PE 分位总闸决策/执行分离且作用域对齐 deck_registry、撮合窗 15:00 截止、独占锁属主探活、E2 恢复整手买回、收盘通知顺序修正、测试全隔离（CI 干净检出可复现）。计划任务 `DSA_Deck_Intraday` 仍为 Disabled，待用户确认后再启用。
 
 ## 1. 槽位与资金
 
-每槽起始本金 ¥12,411（Y 槽逆回购名义 ¥12,000+现金 ¥411）（前向纸面跟踪：真实价格/整手/佣金，非券商下单）。etf_mwu_cb（MWU+转债 PIT 专家，月频）因需全池转债日线暂未入槽，待数据成本评估后跟进：
+每槽起始本金 ¥12,411（Y 槽逆回购名义 ¥12,000+现金 ¥411）（前向纸面跟踪：真实价格/整手/佣金，非券商下单）。共 **18 槽**（A/B/C/D/E/F/F2/G/H/I/J/K/L/M/N/O/X/Y；H_MWU_CB 融合槽已激活，CB price feed 由 PIT 生成）：
 
 | 槽位 | 策略 | 调仓 | 备注 |
 |---|---|---|---|
@@ -18,6 +20,7 @@
 | G_MWU融合 | `quant_research/scripts/extract_mwu_targets.py`（backtrader 探针提取，引擎口径） | 周一收盘轮比对目标变化 | MWU 融合动量/均值回归/防御三专家；转债现价走腾讯直连 |
 | I_PEAD业绩预告 | tushare forecast 最近40天预增（`p_change_min≥50%` 且净利下限>0）等权5只 | 月度调仓窗 | 口径澄清：同比预增≠相对预期超预期（PEAD/SUE）；预告季(1/4/7/10)密集 |
 | J_短期反转 | 21个交易日跌幅最深5只（成交额≥3000万，amount 千元换算） | 月度调仓窗 | 与A动量负相关；接飞刀风险已知；TushareClient 统一取数 |
+| K_项目选股 | 项目观察池（`build_buy_watchlist(snapshot=…)`） | 月度调仓窗 | 前向测试（观点非信号）；快照经**参数注入**（不再 monkeypatch 服务模块）；market_scan 未运行时据实报"候选池快照不可用" |
 | L_北向择时 | 北向净买入250日分位（moneyflow_hsgt） | **观察态（不交易）** | 上证发〔2024〕106号后单只证券持股改季度披露，供应商字段语义未证——信号照记、持仓冻结；证据充分前不恢复交易 |
 | M_筹码集中度 | 股东户数降幅≥10%（stk_holdernumber 季度，按 ann_date 取最新版本） | 月度调仓窗 | 口径降级：户数下降≠主力建仓，低获利比≠安全区（cyq 仅作高位剔除） |
 | N_技术形态对照 | Sequoia-X 七形态扫描（命中≥2优先） | 月度调仓窗 | **本机已激活**（回填 231 万行，闸门 200 万+新鲜度）；驱动与数据不入库，干净克隆下条件式跳过（见 §13 已知局限） |
@@ -53,7 +56,7 @@
 ## 5. 状态与审计
 
 - 台账：`.scratch/dsa-strategy-validation/compare_strategies.json`（原子写 + 写前 `.json.bak` 滚动备份）
-- 控制键 `_control`：`close_done`（收盘幂等）/ `event_scan_last`（事件扫描每半天一次）/ `rebalance_done`（月度登记：全部成功 `"all"`，部分成功为已成功标签列表，每日撮合窗续做至齐备；非撮合时段顺延不执行）/ `erp_scaled`（ERP 已缩放槽登记；槽位周度/月度重建成功后清除，同轮 `erp_scale_pass` 重新应用）/ `_actions`（当日动作，盘中+收盘合并）
+- 控制键 `_control`：`close_done`（收盘幂等）/ `event_scan_last`（事件扫描每半天一次）/ `rebalance_done`（月度登记：全部成功 `"all"`，部分成功为已成功标签列表，每日撮合窗续做至齐备；非撮合时段顺延不执行）/ `erp_scaled`（PE 分位总闸已缩放槽登记；槽位周度/月度重建成功后清除，同轮 `erp_scale_pass` 重新应用）/ `_actions`（当日动作，盘中+收盘合并）
 - 执行日志：`logs/compare_deck_task.log`（start/exit + runner 输出）
 - 病历制：槽位停跑/清仓 → `.scratch/dsa-strategy-validation/{槽位}_postmortem.md`
 
@@ -79,8 +82,8 @@
 
 ## 9. 回归保护网
 
-- `tests/test_compare_deck_runner.py` 67 项：纯函数（费用/换算/时段/价差/分位/缓冲带/回撤）+ **10-08 月度大考端到端**（mock 时间/行情/引擎，tmp 台账全链）+ 月度注册表（子任务失败次日重试/非撮合窗顺延）+ ERP 缩放（防御减半/被拒次日补做/重建后同轮重缩放）+ 独占锁四分支 + 撮合窗边界；全部离线可复现（tmp 台账，不依赖生产台账与外部库）
-- `tests/test_compare_deck_audit.py` 5 项 + `tests/test_deck_registry.py` 6 项：审计三态结论/退出码传播 + 注册表 18 槽/ERP 作用域单一真源一致性
+- `tests/test_compare_deck_runner.py` 67 项：纯函数（费用/换算/时段/价差/分位/缓冲带遗留函数/回撤）+ **10-08 月度大考端到端**（mock 时间/行情/引擎，tmp 台账全链）+ 月度注册表（子任务失败次日重试/非撮合窗顺延）+ PE 分位总闸缩放（防御减半/被拒次日补做/重建后同轮重缩放）+ 独占锁四分支 + 撮合窗边界；全部离线可复现（tmp 台账，不依赖生产台账与外部库）
+- `tests/test_paper_execution.py` 21 项（任务 08 执行内核：11 拒绝码/整手/涨跌停/T+1/现金守恒）+ `tests/test_compare_deck_audit.py` 5 项 + `tests/test_deck_registry.py` 6 项：审计三态结论/退出码传播 + 注册表 18 槽/PE 分位总闸作用域单一真源一致性
 - 探针提取脚本 `quant_research/scripts/extract_mwu_targets.py`（ETFMWUProbe/MomentumProbe）曾因多轮 patch 丢 `_target_portfolio`——修改探针后必须跑端到端回归
 
 ## 10. 审计与真钱
@@ -102,18 +105,18 @@
 
 ## 12. 预注册与总闸（三闸）
 
-- E2 转债估值择时：全市场转债中位数（cb_daily 单次调用），≥127 减半 / <118 恢复（锚点插值先验），逐日序列积累中
-- ERP 股票估值：沪深300 PE 10 年分位，>80% 主动槽减半 / <60% 解除（滞回），实测 60.3% 中性。**决策/执行分离**：`erp_gate` 纯决策（只写 `_control.erp_state`），`erp_scale_pass` 执行据实（逐槽减半按 apply_orders 返回判定，被拒标注"待次日补做"，成功写 `erp_scaled[slot]`）；周度/月度重建成功后清该槽标记 → 同轮重缩放
-- ERP 作用域（单一真源 `deck_registry.risk_scope`）：覆盖 `etf_cycle`+`stock_cycle` 共 11 槽（A/B/F/F2/G/I/J/K/M/N/O）；**E/H（cb）不受 PE 分位总闸**（与 E2 只作用 E 槽对称）；L 观察态排除；C/D 基准、X 事件、Y 现金不适用
-- 三闸并列独立判定：E2 管 E 槽；ERP 管 11 槽（registry etf_cycle+stock_cycle 口径）；个股熔断管 F/F2；信用事件流管 E
+- E2 转债估值择时（**2026-10-06 由水平门改为回撤响应**）：全市场转债中位数（cb_daily 单次调用）逐日序列 → 自峰值回撤 ≥5% 进防御（E 槽减半）、回撤收窄至 ≥-2% 恢复满仓（按 `_control.e2_pre_defensive_qty` 登记数量买回，缺登记按现仓×2）；缺数据保持仓位并报 `no_data`（不把 median=0 当作 -100% 回撤）；非交易时段只记录不迁移
+- PE 分位总闸：沪深300 PE 10 年分位，>80% 主动槽减半 / <60% 解除（滞回），实测 60.3% 中性。**决策/执行分离**：`erp_gate` 纯决策（只写 `_control.erp_state`），`erp_scale_pass` 执行据实（逐槽减半按 apply_orders 返回判定，被拒标注"待次日补做"，成功写 `erp_scaled[slot]`）；周度/月度重建成功后清该槽标记 → 同轮重缩放
+- PE 分位总闸作用域（单一真源 `deck_registry.risk_scope`）：覆盖 `etf_cycle`+`stock_cycle` 共 11 槽（A/B/F/F2/G/I/J/K/M/N/O）；**E/H（cb）不受该闸**（与 E2 只作用 E 槽对称）；L 观察态排除；C/D 基准、X 事件、Y 现金不适用
+- 三闸并列独立判定：E2 管 E 槽；PE 分位总闸管 11 槽（registry etf_cycle+stock_cycle 口径）；个股熔断管 F/F2；信用事件流管 E
 
 - `ledger.prereg`：11 槽假设卡（预测/置信/晋级/死亡标准），周五小结展示；改预注册须 tuning 留痕
-- F/F2 缓冲带：持仓排名 ≤2×slots 保留，空位按市值排名补新
+- F/F2 缓冲带：**已移除**（2026-10-06，23 月回测证实月均拖累 0.72pp；F 改为纯小市值排序）——`select_with_buffer` 随之成为**未接线**的纯函数（仍在单测中，勿误以为生效）
 
 ## 13. 已知局限（诚实清单，改进前必读）
 
 - **分红/除息未调整**：D 红利低波（512890）等分红除息日价格跳降会直接体现为净值下跌——净值曲线对高股息标的系统性偏低估。假期后如遇除息，按事件在台账 tuning 记录并手工校正当期 marks。
-- **T+1 未建模**：同日"先卖后买"在真实账户里卖出资金当日可用、当日买入次日才能卖——低频（周/月）调仓下影响可忽略；熔断日清仓的均为旧持仓，无冲突。
+- **T+1 已由执行内核强制**：`src/core/paper_execution.py` 按资产类别施加策略（股票/ETF `t_plus_1=True`、转债/逆回购豁免），超额卖出返回 `T_PLUS_1` 拒绝码（任务 08 内核）；残余差异仅"卖出资金当日可用"这一账户现金流语义，低频（周/月）调仓下影响可忽略。
 - **佣金假设**：万 0.845 + 最低 5 元为 quant_research 研究假设，未与真实券商账户费率核对——晋升真钱前必须核对。
 - **Y 槽打新未自动跟踪**：中签回填依赖人工；转债打新收益未计提。
 - **盘后行情污染**：收盘后六源链个别源返回异常价（实测 tickflow 盘后 512890=1.196 vs 收盘 1.180）——调仓时段闸已隔离，但 risk_round 的异动告警在盘后手动运行时可能基于污染价误报（自动化链路只在交易时段运行，无此问题）。
