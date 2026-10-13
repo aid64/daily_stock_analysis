@@ -154,3 +154,23 @@ py scripts/compare_deck_cohort.py --start YYYY-MM-DD --apply    # 归档 + 开�
 | 机会 10% | X 事件套利专用 | 事件触发逐笔 | 全面要约+正价差 |
 
 未过三关的槽真金为 0。分配比例 12-31 复核时按实际表现微调。
+
+## 15. 影子对照（启用前置，spec Phase3-6）
+
+装置：`scripts/compare_deck_shadow.py`（**只读**；不写台账、不发通知、不动计划任务）。
+
+```bash
+py scripts/compare_deck_shadow.py            # 跑一轮并归档
+py scripts/compare_deck_shadow.py --status   # 只看进度与差异
+```
+
+- 以 `compare_deck_runner.py --mode close --dry-run` 运行新内核；dry 模式按设计
+  「只计算与打印，不写台账、不发通知、不执行调仓」。
+- 每次归档前**校验台账 sha256 必须一致**，不一致即判 `FAIL`（dry 模式不应写盘）；
+  runner 退出码 ≠0 同样判 `FAIL`。
+- 逐日追加 `shadow/shadow_log.jsonl`：日期、退出码、各槽 `(dry)` 意图行、stdout 尾部、
+  台账哈希、与上一交易日的意图增删差异。
+- **门槛**：连续 **3 个交易日**（`REQUIRED_DAYS`）归档且无 `FAIL` → 才进入"用户确认启用"。
+- 启用动作（`/ENABLE` 或恢复计划任务）属红线，须**用户当次确认**；本装置不会自行启用。
+- 前置：需在**真实仓库工作树**（含 `quant_research/output/`、生产台账、`.scratch/`）上运行；
+  worktree/干净克隆缺这些未跟踪数据，E 槽导出会显式失败（属环境差异，非逻辑缺陷）。
