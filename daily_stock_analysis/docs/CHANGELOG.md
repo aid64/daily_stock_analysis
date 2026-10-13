@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [改进] CI 新增 `quant-tests` job：`quant_research/` 改动时执行其离线测试（此前 `.github/workflows/` 对 quant 零覆盖）；新增共享依赖清单 `.github/requirements-quant-ci.txt`（显式声明 omegaconf/backtrader/pydantic，避免再犯靠传递依赖的 pyarrow 类问题）；AGENTS.md CI 覆盖表与"按改动面执行"同步登记。
+- [修复] quant `run_backtest.py` 补 holdout 闸：此前默认终点=今天直达引擎、engine/data/config 全链无守卫（研究纪律唯一裸露入口）；现于解析参数后、配置加载前 fail-fast，并加 3 条回归测试。
+- [文档] quant 旧研究结论更正（消除"声称与实现差距"）：HANDOFF 测试数 252→321、快速恢复命令的 universe 口径改回已入库的 `universe_cb_full.txt`（原引用的 `universe_cb_pit.csv` 已删除、命令不可运行）、`etf_mwu_cb_monthly.yaml` 头注释 +0.18%→V5 实测 -3.45%、ROADMAP.md 补"2026-09-01 快照"生命周期头注、`requirements.lock.txt` 补录影子执行工具所需的 exchange-calendars。
+- [文档] N 槽复现声明 + 防误提交：`.gitignore` 忽略 `quant_research/vendor/`（Sequoia-X，299MB，此前两处 .gitignore 均未覆盖、`git add -A` 会将其卷入历史）；`strategy-compare-deck.md` §13 已知局限与 §1 槽位表明确"N 槽驱动与数据不入库、干净克隆下按 `sequoia_ready` 闸条件式跳过"。
 - [修复] base CI 基线修复：requirements.txt 显式补 pyarrow>=14.0.0（市场扫描/自选股快照 parquet 读写此前依赖未声明的传递依赖，CI 环境缺失即红）、ci-test-durations.json 清理 3 条指向已删测试文件的过期条目、notifications.md 补 decision-signals.md 专题引用。
 - [修复] 对比盘 runner 三处 flake8 关键项残留（10-06 缓冲带移除遗留）：dry-run 消息引用已删除的 `buffer` 变量、cb_rebalance note 引用未定义的 `today`（异常被 except 吞掉致 E 槽月度调仓静默失败，改用 `EX_DATE`）、main() 孤立 `global EX_DATE`；修复文本与 PR #2 保持一致避免 rebase 冲突。
 - [修复] notifications.md 恢复"GitHub Actions 映射"节（U5 飞书化重写时误删，生成脚本与守卫测试被遗留成孤儿）：恢复 managed table 标记并由生成器再生现行映射表，`test_daily_analysis_workflow_notification_env` 转绿。

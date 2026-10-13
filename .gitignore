@@ -86,6 +86,10 @@ quant_research/data/pit/raw/
 !quant_research/quant_research/data/
 # quant_research 配置模板需入库（全局 .env.* 规则的例外）
 !quant_research/.env.example
+# quant_research 第三方 vendored 仓库（Sequoia-X，~299MB）：**不入库**。
+# N 槽驱动依赖它（vendor/Sequoia-X/n_slot_driver.py），故 N 槽在干净克隆下
+# 不可复现，按 sequoia_ready 闸条件式跳过（见 docs/strategy-compare-deck.md 已知局限）。
+quant_research/vendor/
 
 # ── 系统文件 ─────────────────────────────────
 .DS_Store
