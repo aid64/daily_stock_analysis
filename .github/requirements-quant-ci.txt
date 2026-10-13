@@ -1,0 +1,14 @@
+# quant_research offline test dependencies (CI).
+#
+# Reuses the dsa backend requirements (pandas / numpy / pyarrow / requests /
+# exchange-calendars / tushare / akshare / baostock / ... are shared with the
+# backend), then adds the quant-only direct dependencies that are not declared
+# there. pydantic is listed explicitly on purpose: it currently arrives only as
+# a fastapi transitive dependency, and relying on that is exactly the class of
+# bug that made backend CI red before (see the pyarrow fix in PR #3).
+-r ../daily_stock_analysis/requirements.txt
+
+omegaconf>=2.3.0
+backtrader>=1.9.78
+pydantic>=2.0.0
+pytest-timeout>=2.3.0

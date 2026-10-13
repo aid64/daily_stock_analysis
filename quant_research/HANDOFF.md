@@ -41,7 +41,7 @@
 - `output/paper_tracking/current_plan.json` 已是 **schema cb_current_plan_v2**（旧正文"schema v1"过时）。
 - **strategy_intake 桥只有消费端**：dsa `src/services/strategy_intake.py` 期待 `quant_research/output/strategy_intake/`，该目录不存在、quant 侧无任何生成 `strategy_intake_verdict_v1` 的脚本（生产端是冻结期后的第一个工程项，需用户豁免或等 11-08）。
 - **E2 分位"矛盾"已解除（09-27 实证）**：quant 88.8%（09-07）与 dsa 68.3%（09-24）是**同一指标随行情移动**——两侧同为"价格中位数 expanding 分位"（构造逐位一致），转债中位数 09-07→09-24 跌 133.77→122.87（-8.2%），分位 92.4%→68.3% 穿越防守线（历史 95.9~144.3 顶部密集，-8% 绝对跌幅 = 24pp 分位落差，敏感性属已知特性）。无需对齐；E2 门当前为"可配置"态。
-- 旧正文更正：测试数"252 passed"→现 299+2 network；HANDOFF:265-268 快速恢复引用的 universe_cb_pit.csv 为旧口径（现用 universe_cb_full.txt 854 只）；`etf_mwu_cb_monthly.yaml:4` 头注释"+0.18%"已被 V5 证伪（-3.45%），禁止引用。
+- 旧正文更正：测试数"252 passed"→现 **321 passed + 2 network deselected**；快速恢复引用的 `universe_cb_pit.csv` 为已删除的旧口径（现用 `data/universe_cb_full.txt` 854 只，见本节下方命令）；`etf_mwu_cb_monthly.yaml:4` 头注释"+0.18%"已被 V5 证伪（真实 -3.45%），**已更正**（原文禁止引用）。
 
 ### 0.6 跨项目桥执行记录（2026-09-27，冻结豁免范围内）
 1. **快照 v4**（`output/feeds_snapshot_v4.pkl`，sha256 3be84014…）：17 只 ETF，数据至 2026-09-24（9/25 中秋假，边界正确）；akshare 东财源 7 只降级新浪（与 v1/v3 同口径，基线 diff 容差内）。**发现 v3 的 512100.SH 复权因子污染**（close 1.17 vs 自身 amount/volume 隐含 3.12；v1/v4 干净且一致）——v3 从未被消费，作废勿用。
@@ -57,6 +57,7 @@
 1. **追溯登记**：dsa 对比盘修复计划（`.scratch/dsa-deployment-repair-plan-20261007`）任务 05 改动 quant 执行链 4 文件 + 2 测试文件（2026-10-07/09，属上述口径的执行链契约修复，holdout 零触碰）：`convertible/snapshot.py`（+`pit_prices_to_feed`，PIT 价 → CB feed）、`core/mwu_core.py`（+`unpriced_terms` 审计属性，缺价显式可见）、`scripts/extract_mwu_targets.py`（CB feeds 生成 + 输出 `unpriced_terms`）、`scripts/run_paper_tracking.py`（导出失败显式 return 1 + `Any` 导入修复）；`tests/test_convertible.py` +6、`tests/test_mwu_core.py` +3。quant 323 测试全绿。
 2. **授权登记**：dsa 修复计划任务 09（研究治理）在本口径下执行，含：run_backtest 链补 holdout 闸（防护性）、CI 收编 quant 离线测试（基础设施）、旧研究结论状态头注（文档）、vendor 复现二选一（依赖管理）。
 3. **冻结本体不变**：8 周冻结至约 2026-11-08 照旧执行；通知收敛计划 P4 的 quant 工程项（PIT 更新后自动 assemble+export、decision snapshot 等）属新工程，**不在豁免范围**，冻结期满后再议。
+4. **任务 09 执行补录（2026-10-13，本口径下落地）**：①`scripts/run_backtest.py` 补 holdout 闸（此前唯一裸露入口：默认终点=今天直达引擎，全链无守卫；现于 `parse_args` 后、配置加载前 fail-fast，并加 3 条回归测试）；②CI 收编 quant 离线测试（`.github/workflows/ci.yml` 新增 `quant-tests` job + 路径过滤 + `.github/requirements-quant-ci.txt` 依赖清单）；③旧结论更正（本节 §0.5 所列三处：测试数 252→321、快速恢复命令的 universe 口径、`etf_mwu_cb_monthly.yaml` 的 +0.18%）；④vendor 复现二选一**取"文档明确不可在干净克隆复现"**（`quant_research/vendor/` 299MB 不入库，补 `.gitignore` 防误提交；N 槽驱动 `vendor/Sequoia-X/n_slot_driver.py` 缺席时 `compare_deck_runner` 的 N 槽按 `sequoia_ready` 条件式跳过）。holdout 零触碰、无新研究结论、无新数据依赖。
 
 ## 1. 项目定位
 
@@ -311,13 +312,13 @@ ytm_proxy 2021-26 稳健——分年证据见 `output/factor_diagnostics.json`�
 ```bash
 # 1. 环境自检（工作目录必须是 quant_research）
 cd d:\daily_stock_analysis\quant_research
-py -m pytest -q          # 预期 252 passed
+py -m pytest -q          # 预期 321 passed + 2 network deselected
 
 # 2. PIT 覆盖率复核（不发网络请求）
-py scripts/build_pit_snapshot.py --validate-only --pit data/pit/convertible_pit.parquet --universe-file data/universe_cb_pit.csv --start 2018-01-01 --end 2026-08-08
+py scripts/build_pit_snapshot.py --validate-only --pit data/pit/convertible_pit.parquet --universe-file data/universe_cb_full.txt --start 2018-01-01 --end 2026-08-08
 
 # 3. 从 raw 缓存离线重组 PIT（iFinD 不稳定时的重建路径）
-py scripts/build_pit_snapshot.py --assemble-only --universe-file data/universe_cb_pit.csv --pit data/pit/convertible_pit.parquet
+py scripts/build_pit_snapshot.py --assemble-only --universe-file data/universe_cb_full.txt --pit data/pit/convertible_pit.parquet
 
 # 4. 复跑 Walk-Forward（结果应可复现，快照 SHA-256 见上表）
 py scripts/run_walk_forward.py --snapshot output/feeds_snapshot.pkl --start 2020-01-01 --end 2026-08-08 --train-years 3 --test-months 6 --grid lookback=60,90 --grid top_k=2,3 --grid ma_filter=200 --output output/walk_forward_etf_2020_2026.csv
@@ -327,10 +328,11 @@ py scripts/run_walk_forward.py --snapshot output/feeds_snapshot.pkl --start 2020
 
 ```text
 继续 d:\daily_stock_analysis\quant_research 的低门槛量化项目。
-先读 quant_research/HANDOFF.md（4.5 节为最新方向）与 daily_stock_analysis/docs/quant_research_architecture_research.md。
-当前状态：252 tests passed；六层架构重构完成（core 包 / Runner / 实验注册 / 两段式转债回测）；
-双低因子 RankIC 显著但换手 52x 成本吞噬，下一步按 .scratch/project-future-plan-20260831.md
-执行预注册假设 H1（rank-buffer 降换手），2026-08-09 后数据为冻结 holdout。
+先读 quant_research/HANDOFF.md **第 0 节（现状快照，以此为准）**、docs/CB-RESEARCH-PLAN.md（下一周期唯一真源）
+与 daily_stock_analysis/docs/quant_research_architecture_research.md。
+当前状态：321 tests passed；六层架构重构完成（core 包 / Runner / 实验注册 / 两段式转债回测）；
+8 周功能冻结中（至约 2026-11-08），唯一动作 = 双低季频 paper tracking 照常 + 影子执行数据积累 + PIT 尾部增量；
+冻结豁免口径见 HANDOFF §0.7（"修复既有契约的变更 + 纯防护性治理" ≠ 新研究/新工程）。
 禁止实盘：WF 纪律未通过。遵守根目录 AGENTS.md。
 ```
 

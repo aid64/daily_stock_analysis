@@ -101,10 +101,16 @@ def _resolve_etf_symbols(
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    from quant_research.core.holdout import assert_holdout_clean
+
     args = build_parser().parse_args(argv)
+    end = args.end or time.strftime("%Y-%m-%d")
+    # holdout 闸（与 run_cb_backtest/run_grid/run_walk_forward 同层）：默认终点
+    # =今天必然 >= HOLDOUT_START，研究命令必须显式给出早于 holdout 起点的
+    # --end；配置加载与数据读取之前 fail-fast。
+    assert_holdout_clean(end, task="run_backtest")
 
     cfg = load_config(args.config)
-    end = args.end or time.strftime("%Y-%m-%d")
 
     strategy_cls = SMACross
     strategy_params: dict = {}

@@ -1,7 +1,8 @@
 # ETF MWU + 可转债双低专家 组合配置 —— 月频基线副本
 # 与 etf_mwu_cb.yaml 唯一差异：rebalance_freq: M
 # 依据 6.2.6 实证：1 万本金下周频换手 22x、6.6 年累计 -38.5%；
-# 月频换手 12x、长期打平（+0.18%）。小资金月频是基线。
+# 月频换手 12x；完整 universe 复核（V5, 2026-08-18）实测 **-3.45%**（旧 27 只
+# 子集口径的 "+0.18%" 系幸存者偏差幻觉，已作废、禁止引用）。小资金月频是基线。
 # 回测：py scripts/run_backtest.py --strategy etf_mwu_cb \
 #   --strategy-config config/strategy/etf_mwu_cb_monthly.yaml \
 #   --pit-snapshots data/pit/convertible_pit.parquet --start 2020-01-01

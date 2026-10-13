@@ -19,6 +19,9 @@ sqlalchemy==2.0.51
 # backtest (optional dep group in pyproject; pinned here for reproducibility)
 backtrader==1.9.78.123
 
+# runtime added 2026-10 (env): 影子执行工具 scripts/run_etf_paper.py 依赖交易日历
+exchange-calendars>=4.13.0
+
 # dev
 pytest==9.1.1
 pytest-cov==7.1.0
