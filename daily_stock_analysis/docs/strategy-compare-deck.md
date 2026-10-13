@@ -67,6 +67,24 @@
 - 恢复摘要：`.env` `NOTIFICATION_DAILY_DIGEST_ENABLED=true`
 - 台账不受影响（历史净值保留）
 
+### 6.1 cohort 切换（旧账封存 → 新 cohort 开账，spec Phase1-3）
+
+工具：`scripts/compare_deck_cohort.py`（**默认 dry-run，零写入**；`--apply` 才落盘）。
+
+```bash
+py scripts/compare_deck_cohort.py --start YYYY-MM-DD            # 预览计划
+py scripts/compare_deck_cohort.py --start YYYY-MM-DD --apply    # 归档 + 开账
+```
+
+- **封存不删**：归档 = 复制到 `.scratch/dsa-strategy-validation/archive/compare_strategies.cohort1.<day>.json`
+  + 追加 `cohort-manifest.jsonl`（含 sha256，与 `ledger-seal-manifest.json` 互为印证）；原文件字节保留。
+- **新 cohort**：18 槽（`deck_registry.SLOTS` 唯一真源）每槽 ¥12,411、冻结配置、明确交易日起步；
+  清空 holdings/cash/equity/marks/`_control`/`_actions`，**保留** prereg 与各 study 证据键；
+  不倒填历史、不用新规则重算旧结果。
+- **禁止重启旧 writer 写归档账**：`--apply` 后 `compare_strategies.json` 即为新 cohort，误启用也不会污染旧账。
+- **回滚**：归档副本可直接覆盖回 `compare_strategies.json`，并删除本轮 manifest 条目；无其它状态需还原。
+- 前置：旧账已被任务 00 封存（`ledger-seal-manifest.json`，哈希 `09e16aa8…`）；开账交易日起点**须用户批准**。
+
 ## 7. 边界
 
 绝不真实下单；主动策略晋升真钱按三关（滚动60日跑赢沪深300 + 三窗口切片为正 + 扣成本为正）；确定性通道（事件套利/打新/逆回购）真钱优先但单笔≤总资金10%。
