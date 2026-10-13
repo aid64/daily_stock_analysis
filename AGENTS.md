@@ -156,6 +156,7 @@ gh run view <run_id> --log-failed
 | --- | --- | --- | --- |
 | `ai-governance` | `.github/workflows/ci.yml` | 校验 `AGENTS.md` / `CLAUDE.md` / `.github` 指令 / `.claude/skills` 关系 | 是 |
 | `backend-gate` | `.github/workflows/ci.yml` | 执行 `./scripts/ci_gate.sh` | 是 |
+| `quant-tests` | `.github/workflows/ci.yml` | `quant_research/` 改动时执行 `python -m pytest -q -m "not network"` | 是（触发时；需在 branch protection 登记方为强制） |
 | `docker-build` | `.github/workflows/ci.yml` | Docker 构建与关键模块导入 smoke | 是 |
 | `web-gate` | `.github/workflows/ci.yml` | 前端改动时执行 `npm run lint` + `npm run build` | 是（触发时） |
 | `network-smoke` | `.github/workflows/network-smoke.yml` | `pytest -m network` + `scripts/test.sh quick` | 否，观测项 |
@@ -175,6 +176,11 @@ gh run view <run_id> --log-failed
   - 适用范围：`daily_stock_analysis/apps/dsa-web/`
   - 默认执行：`cd daily_stock_analysis/apps/dsa-web && npm ci && npm run lint && npm run build`
   - 若涉及 API 联调、路由、状态管理、Markdown/图表渲染或认证状态，交付说明中要明确说明联动面和未覆盖风险。
+
+- quant_research 改动：
+  - 适用范围：`quant_research/**`（独立子项目，与 dsa 主项目并行；`quant_research/vendor/**` 不入库，干净克隆下 N 槽条件式跳过，见 `daily_stock_analysis/docs/strategy-compare-deck.md` §13）
+  - 默认执行：在 `quant_research/` 下执行 `python -m pytest -q -m "not network"`
+  - 若触及研究入口（`run_backtest` / `run_cb_backtest` / `run_grid` / `run_walk_forward` / `run_overfit_audit` 等），须确认 holdout 闸（`quant_research/core/holdout.py`）仍在生效；quant 冻结纪律见 `quant_research/HANDOFF.md` §0.1/§0.7。
 
 - 桌面端改动：
   - 适用范围：`daily_stock_analysis/apps/dsa-desktop/`、`daily_stock_analysis/scripts/run-desktop.ps1`、`daily_stock_analysis/scripts/build-desktop*.ps1`、`daily_stock_analysis/scripts/build-*.sh`、`daily_stock_analysis/docs/desktop-package.md`
