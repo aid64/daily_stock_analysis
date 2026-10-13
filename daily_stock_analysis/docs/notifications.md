@@ -49,6 +49,37 @@
 
 DecisionSignal 字段、脱敏、迁移与回滚边界见 [DecisionSignal 决策信号专题](decision-signals.md)。
 
+## GitHub Actions 映射
+
+仓库自带 `.github/workflows/00-daily-analysis.yml` 只显式导入固定变量名，P0/P3/P4/P6 的通知 key 已纳入默认 workflow 映射。下面的表格由 `scripts/generate_notification_actions_env_table.py` 从 workflow `env:` 和通知诊断元数据生成，避免手写对照表和真实 Actions 映射继续漂移。
+
+<!-- notification-actions-env-table:start -->
+
+| Key | Tier | Channel / feature | Actions source | Default |
+| --- | --- | --- | --- | --- |
+| `FEISHU_WEBHOOK_URL` | minimal | feishu | Secret | - |
+| `FEISHU_WEBHOOK_SECRET` | advanced | feishu | Secret | - |
+| `FEISHU_WEBHOOK_KEYWORD` | advanced | feishu | Variable or Secret | - |
+| `FEISHU_APP_ID` | minimal | feishu | Secret | - |
+| `FEISHU_APP_SECRET` | minimal | feishu | Secret | - |
+| `FEISHU_CHAT_ID` | minimal | feishu | Variable or Secret | - |
+| `FEISHU_RECEIVE_ID_TYPE` | advanced | feishu | Variable or Secret | - |
+| `FEISHU_DOMAIN` | advanced | feishu | Variable or Secret | - |
+| `FEISHU_SEND_AS_FILE` | advanced | feishu | Variable or Secret | - |
+| `NOTIFICATION_REPORT_CHANNELS` | advanced | routing | Variable or Secret | - |
+| `NOTIFICATION_ALERT_CHANNELS` | advanced | routing | Variable or Secret | - |
+| `NOTIFICATION_SYSTEM_ERROR_CHANNELS` | advanced | routing | Variable or Secret | - |
+| `NOTIFICATION_DEDUP_TTL_SECONDS` | advanced | noise | Variable or Secret | `0` |
+| `NOTIFICATION_COOLDOWN_SECONDS` | advanced | noise | Variable or Secret | `0` |
+| `NOTIFICATION_QUIET_HOURS` | advanced | noise | Variable or Secret | - |
+| `NOTIFICATION_TIMEZONE` | advanced | noise | Variable or Secret | - |
+| `NOTIFICATION_MIN_SEVERITY` | advanced | noise | Variable or Secret | - |
+| `NOTIFICATION_DAILY_DIGEST_ENABLED` | advanced | noise | Variable or Secret | `false` |
+
+<!-- notification-actions-env-table:end -->
+
+默认 workflow 仍不映射 `MARKDOWN_TO_IMAGE_CHANNELS` 与 `MERGE_EMAIL_NOTIFICATION`。它们是发送形态或聚合行为开关，不是渠道凭证；在 Actions 中自动开始读取同名 Secret/Variable 会引入额外行为变化。
+
 ## 通知降噪机制
 
 进程内降噪，只影响静态渠道，不影响机器人会话回执。默认全关。

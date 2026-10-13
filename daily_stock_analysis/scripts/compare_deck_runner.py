@@ -536,7 +536,7 @@ def smallcap_rebalance(led: dict, slot_name: str, slots: int, cap_per: float,
     sells = [{"symbol": h["symbol"], "qty": h["qty"], "price": px.get(h["symbol"], {}).get("price") or h["price"], "is_stock": True}
              for h in slot.get("holds", []) if h["symbol"] not in picks_syms]
     if dry:
-        return [f"{slot_name}(dry) 目标{picks_syms}(缓冲带{buffer})"]
+        return [f"{slot_name}(dry) 目标{picks_syms}"]
     apply_orders(slot, sells, [
         {"symbol": p["symbol"], "name": p["name"], "qty": p["qty"], "price": p["price"], "is_stock": True} for p in picks], px)
     slot["universe_rule"] = slot.get("universe_rule", "") + f" | 最后选股 {month_end}"
@@ -835,7 +835,7 @@ def cb_rebalance(led: dict, px: dict, dry: bool) -> list[dict]:
         buys = [{"symbol": sym, "qty": lots - cur.get(sym, 0), "price": price_of[sym]}
                 for sym, lots in want.items() if lots > cur.get(sym, 0)]
         apply_orders(slot, sells, buys, px)
-        slot["note"] = f"月度调仓 {today} 目标{len(want)}只 executable"
+        slot["note"] = f"月度调仓 {EX_DATE} 目标{len(want)}只 executable"
         return [f"E_可转债双低 月度调仓→{sorted(want)}"]
     except Exception as exc:
         log.error("E 月度调仓失败: %r", exc)
@@ -2005,7 +2005,6 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--force", action="store_true", help="忽略交易时段判断(测试用)")
     args = ap.parse_args()
-    global EX_DATE
     if not acquire_lock():
         print("另一实例运行中, 跳过本轮")
         return 0

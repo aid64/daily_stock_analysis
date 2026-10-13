@@ -208,14 +208,14 @@ def _timing_line() -> str:
         pit_path = (_PROJECT_ROOT.parent / "quant_research" / "data" / "pit"
                     / "convertible_pit.parquet")
         if not pit_path.exists():
-            return ""
+            return "⚠ E2 择时: PIT 数据缺失（quant_research/data/pit/convertible_pit.parquet 不存在），无法计算估值分位"
         pit = pd.read_parquet(pit_path, columns=["as_of", "price"])
         pit_end = plan.get("pit_end")
         if pit_end:
             pit = pit[pit["as_of"] <= pd.Timestamp(pit_end)]
         median = pit.groupby("as_of")["price"].median().sort_index()
         if median.empty:
-            return ""
+            return "⚠ E2 择时: PIT 价格中位数为空，无法计算估值分位"
         pct = float((median <= median.iloc[-1]).mean())
         as_of = str(median.index[-1])[:10]
         if pct > 0.80:

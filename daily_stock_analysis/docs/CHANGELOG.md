@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 - [修复] base CI 基线修复：requirements.txt 显式补 pyarrow>=14.0.0（市场扫描/自选股快照 parquet 读写此前依赖未声明的传递依赖，CI 环境缺失即红）、ci-test-durations.json 清理 3 条指向已删测试文件的过期条目、notifications.md 补 decision-signals.md 专题引用。
+- [修复] 对比盘 runner 三处 flake8 关键项残留（10-06 缓冲带移除遗留）：dry-run 消息引用已删除的 `buffer` 变量、cb_rebalance note 引用未定义的 `today`（异常被 except 吞掉致 E 槽月度调仓静默失败，改用 `EX_DATE`）、main() 孤立 `global EX_DATE`；修复文本与 PR #2 保持一致避免 rebase 冲突。
+- [修复] notifications.md 恢复"GitHub Actions 映射"节（U5 飞书化重写时误删，生成脚本与守卫测试被遗留成孤儿）：恢复 managed table 标记并由生成器再生现行映射表，`test_daily_analysis_workflow_notification_env` 转绿。
+- [改进] /健康 E2 择时行不再静默消失：PIT 数据缺失或价格中位数为空时显式输出 ⚠ 告警行（原整行省略造成健康视图盲区与 CI 数据敏感假红）。
 - [修复] 对比盘两项深层缺陷：①`apply_orders` 卖出按 symbol 整条移除持仓——部分减仓（等权再平衡/MWU 目标微调）会把整条持仓清零，改为扣量语义（成本价保留），实盘复现（A 槽误清仓已恢复）并补 2 单测；②A 动量槽信号由手搓 60 日动量+MA250 简化版切换为引擎口径（`extract_mwu_targets.py --strategy etf_momentum` 探针 `MomentumProbe._compute_momentum`，官方 17 池配置），ranked 结果与影子信号交叉验证同构；③调仓执行增加交易所时段闸（盘后 tickflow 曾返回污染价 1.196 vs 收盘 1.180，非交易时段一律只记录不下单）；引擎 stdout 解析加固（tushare login 噪声容错）。
 - [改进] 风控双维升级：①E 信用监测从单一价格阈值扩为"价格+事件"——每轮扫描 4 只持仓券公告（下调/回售/违约/兑付/评级/质押冻结/逾期），命中即【信用事件】告警并入 credit_flag；②熔断触发新增宏观信号——国证2000（sz399303）跌幅 ≤-3% 与持仓微盘中位数 ≤-4% 并联任一触发（2024-01 式系统性微盘崩盘比持仓中位数更早感知）；③文档新增"已知局限"节（分红除息未调整/T+1 未建模/佣金假设未与真实券商核对/Y 槽打新未自动跟踪/盘后行情污染/熔断阈值未回测校准）。
 - [新功能] 检查员核查工具化 `scripts/compare_deck_audit.py`（只读 8 项：台账自洽/执行日志/计划任务/抽样净值/时间健康，✓⚠✗三态+JSON 输出），检查员 AI 降为"跑脚本+解读"；新增 `docs/real-money-playbook.md` 真钱执行手册（Y 逆回购券商操作/ X 全面要约人工复核清单/主动策略晋升流程/风控红线），纸面→真钱通道闭环。
