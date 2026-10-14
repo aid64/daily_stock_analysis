@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [文档] 对比盘账本契约与存储决策落地（解决任务 02 SQLite 采纳与否的独立待决）：`strategy-compare-deck.md` 新增 §16「账本契约与存储决策（唯一真源）」——正式账本为 JSON 单文件（唯一写入方 runner，只读消费方 audit/cohort/shadow），并记录**不采纳 SQLite** 的四条理由（哈希链与可审计、规模/并发不成立、时序风险、GitHub 生态先例）；`paper_repo.py`/`paper_trading_service.py` docstring 显式标注"未采纳、勿接线、无生产消费者"（原自称"对比盘唯一账本入口"与实态矛盾，已更正）。
 - [修复] cohort 与影子工具的端到端缺陷（真实 dry-run 抓出）：①`compare_deck_cohort.py` 重置新账本时把 `_actions` 清成 list，而 runner `build_close_summary` 契约是按日期键的 **dict**（`led["_actions"].get(today)`）→ 开账后首次 dry-run 即 `AttributeError` 退出码 1；现改回 `{}` 并加容器类型契约回归测试（"重置只清内容、不改类型"）。②`compare_deck_shadow.py` 的进度计数改为**按日取最后一次运行**（证据全留、同日重跑取代先前），避免首次无效尝试永久污染 3 日门槛判定。
 - [新功能] 对比盘影子对照装置 `scripts/compare_deck_shadow.py`（修复计划任务11 的声明产物）：以 runner dry 模式逐交易日运行新内核并归档（各槽 `(dry)` 意图行 / 退出码 / 台账 sha256 前后一致性 / 与上一交易日的意图增删差异），dry 模式不写台账不发通知；连续 3 个交易日无 `FAIL` 才进入"用户确认启用"；装置本身**不启用**任何计划任务（`DSA_Deck_Intraday` 维持 Disabled）。`strategy-compare-deck.md` §15 记录流程与前置（需在真实工作树运行，worktree 缺未跟踪数据会显式失败）。
 - [新功能] 对比盘 cohort 切换工具 `scripts/compare_deck_cohort.py`（修复计划任务03 的声明产物）：**默认 dry-run 零写入**，`--apply` 才落盘；归档=复制旧账 + `cohort-manifest.jsonl` 记录 sha256（封存不删）；开账=18 槽（`deck_registry.SLOTS` 唯一真源）每槽 ¥12,411、冻结配置、明确交易日起步，清空持仓/净值/marks/`_control`/`_actions` 并保留 prereg 与研究证据键；`strategy-compare-deck.md` §6.1 记录切换与回滚步骤。开账交易日起点待用户批准后执行。

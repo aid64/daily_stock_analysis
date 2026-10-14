@@ -1,6 +1,11 @@
 # -*- coding: utf-8 -*-
 """纸面账本独立 SQLite 存储（与真实 Portfolio 数据库零共享）。
 
+**状态（2026-10-14 决定）：未采纳为对比盘正式账本**——正式账本是 JSON 单文件
+`compare_strategies.json`（契约见 `docs/strategy-compare-deck.md` §16）；本模块
+当前无生产消费者，**勿在对比盘路径接线**。如未来出现多进程共库需求，须先评估
+复用 `src/storage.py` 的 `Portfolio*` 表并另开独立任务。
+
 - 独立连接工厂：绝不复用 ``src.storage`` 的进程单例——那个单例在已初始化后
   传不同 db_url 也不会产生隔离库。纸面库路径由调用方显式注入。
 - 事务：BEGIN IMMEDIATE + busy_timeout；写事务短小（行情、信号、网络都在事务外）。

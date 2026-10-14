@@ -176,3 +176,31 @@ py scripts/compare_deck_shadow.py --status   # 只看进度与差异
 - 启用动作（`/ENABLE` 或恢复计划任务）属红线，须**用户当次确认**；本装置不会自行启用。
 - 前置：需在**真实仓库工作树**（含 `quant_research/output/`、生产台账、`.scratch/`）上运行；
   worktree/干净克隆缺这些未跟踪数据，E 槽导出会显式失败（属环境差异，非逻辑缺陷）。
+
+## 16. 账本契约与存储决策（唯一真源）
+
+**正式账本 = 单个 JSON 文件**：`.scratch/dsa-strategy-validation/compare_strategies.json`（schema v3）。
+
+- 唯一写入方：`scripts/compare_deck_runner.py`（整文件重写 + 临时文件原子替换；另有 `.bak` 回退，任务 00）。
+- 只读消费方：`compare_deck_audit.py`（`json.loads` 后跑 8 项检查）、`compare_deck_cohort.py`（归档 + 开账）、
+  `compare_deck_shadow.py`（dry 运行 + **前后 sha256 一致**判定只读性）。
+- **为什么是 JSON**：封存清单（`ledger-seal-manifest.json`）、归档 sha256、影子前后哈希校验都以
+  "同一状态 → 同一字节"为前提——等价于内容寻址的审计链；JSON 可读、可 diff、可哈希。
+
+**为什么不采纳 SQLite 作为正式账本（2026-10-14 决定，含 GitHub 生态调研）**
+
+1. **哈希链与可审计**：SQLite 页级写入每次改字节，WAL 边车文件会破坏"前后哈希一致"与 diff 审计；
+   而影子门槛正是用 sha256 前后一致来证明 dry 只读。
+2. **规模与并发不成立**：18 槽、单进程、日频/月频写入，无需事务/并发；上游那套 SQLite
+   （`src/storage.py` + `src/repositories/portfolio_repo.py`，`SQLITE_WAL_ENABLED`/`BUSY_TIMEOUT`）
+   是为**多进程共库**（Bot / Web / 调度认领）而设——对比盘无此需求。
+3. **时序风险**：改造 runner 存储契约将使进行中的 3 日影子对照与 67 项回归失效。
+4. 外部先例（调研）：小型纸面/组合账本在开源项目里普遍用**文件**（JSON/pickle），
+   选 SQLite 的样本都是"多账户 / 并发写 / 需要表查询"场景。
+
+**`paper_repo.py` / `paper_trading_service.py`（任务 02 产物）状态：未采纳、勿接线**
+
+- 二者是**刻意隔离**的独立 SQLite 实现（与真实 Portfolio 库零共享，内含订单幂等与通知 outbox），
+  但**无任何生产消费者**（仅自身单测引用）。模块 docstring 已标注状态。
+- **不要**在对比盘路径接线；如未来出现多进程共库需求，须先评估复用 `src/storage.py` 的
+  `Portfolio*` 表，并显式接受上述哈希链失效与审计方式变更——另开独立任务，不并入本次修复计划。
