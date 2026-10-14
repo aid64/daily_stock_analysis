@@ -121,16 +121,22 @@ def test_heavy_ci_jobs_are_path_filtered_and_backend_tests_are_sharded() -> None
     backend_tests_job = ci["jobs"]["backend-tests"]
     backend_gate_job = ci["jobs"]["backend-gate"]
     docker_job = ci["jobs"]["docker-build"]
+    quant_job = ci["jobs"]["quant-tests"]
     assert backend_tests_job["needs"] == ["changes", "ai-governance"]
     assert backend_tests_job["if"] == "needs.changes.outputs.backend == 'true'"
     assert backend_tests_job["strategy"]["fail-fast"] == "false"
     assert backend_tests_job["strategy"]["matrix"]["shard"] == ["1", "2", "3"]
+    # quant 门禁复用本聚合检查（App token 无 Administration 写权限，
+    # 无法在仓库保护设置里单独登记 quant-tests，故并入已为必需的 backend-gate）。
     assert backend_gate_job["needs"] == [
         "changes",
         "ai-governance",
         "backend-tests",
+        "quant-tests",
     ]
     assert backend_gate_job["if"] == "always()"
+    assert quant_job["needs"] == ["changes", "ai-governance"]
+    assert quant_job["if"] == "needs.changes.outputs.quant == 'true'"
     assert docker_job["needs"] == ["changes", "ai-governance"]
     assert docker_job["if"] == "needs.changes.outputs.docker == 'true'"
 
@@ -160,6 +166,19 @@ def test_heavy_ci_jobs_are_path_filtered_and_backend_tests_are_sharded() -> None
     assert '--first-shard-overhead "${PYTEST_FIRST_SHARD_OVERHEAD:-0}"' in ci_gate
     assert '.github/ci-test-durations.json' in ci_gate
     assert '--durations=30' in ci_gate
+
+    # 聚合守卫：quant 未被要求时短路，避免"文档类 PR 因 quant 未触发而被卡"。
+    gate_step = next(
+        step
+        for step in backend_gate_job["steps"]
+        if step["name"] == "✅ Summarize backend gate"
+    )
+    assert gate_step["env"]["QUANT_REQUIRED"] == "${{ needs.changes.outputs.quant }}"
+    assert gate_step["env"]["QUANT_TESTS_RESULT"] == "${{ needs.quant-tests.result }}"
+    assert (
+        'if [ "$QUANT_REQUIRED" = "true" ] && [ "$QUANT_TESTS_RESULT" != "success" ]'
+        in gate_step["run"]
+    )
 
 
 def test_backend_filter_covers_mixed_changes_and_shared_web_assets() -> None:

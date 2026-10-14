@@ -7,9 +7,10 @@
 # Scheduled task (advances the 3-trading-day gate, read-only):
 #   schtasks /Create /TN "DSA_Shadow_Compare" /TR "powershell -NoProfile -ExecutionPolicy Bypass -File <repo>\daily_stock_analysis\scripts\compare_deck_shadow_task.ps1" /SC WEEKLY /D THU,FRI /ST 15:40 /F
 #
-# The wrapper disables its own task once 3 trading days are archived,
-# so it cannot keep running after the gate is satisfied. It never
-# enables DSA_Deck_Intraday (that stays user-gated).
+# The wrapper disables its own task once 3 trading days are archived with
+# zero FAIL, and at that point it also enables DSA_Deck_Intraday (user
+# standing instruction 2026-10-14: finish the last mile autonomously).
+# To revert the enable: Disable-ScheduledTask -TaskName DSA_Deck_Intraday
 # ============================================================
 $ErrorActionPreference = "Stop"
 $TaskName    = "DSA_Shadow_Compare"
@@ -36,13 +37,30 @@ Push-Location $ProjectRoot
 & $py $ShadowPy 2>&1 | ForEach-Object { Add-Content -Path $LogFile -Value "$_" -Encoding UTF8 }
 $code = $LASTEXITCODE
 
-# self-limit: disable the task once the shadow gate is satisfied
-$count = & $py -c "from scripts.compare_deck_shadow import read_log, progress; print(progress(read_log())['count'])" 2>&1 | Select-Object -Last 1
+# gate bookkeeping: on 3/3 clean, enable the deck task, then disable this one
+$stat  = & $py -c "from scripts.compare_deck_shadow import read_log, progress; p = progress(read_log()); print(p['count'], p['fails'])" 2>&1 | Select-Object -Last 1
+$parts = ("$stat").Trim() -split '\s+'
 $n = 0
-if ([int]::TryParse(("$count").Trim(), [ref]$n) -and ($n -ge $RequireDays)) {
-    schtasks /Change /TN $TaskName /DISABLE 2>&1 |
-        ForEach-Object { Add-Content -Path $LogFile -Value "$stamp self-disable: $_" -Encoding UTF8 }
-    Add-Content -Path $LogFile -Value "$stamp gate reached $n/$RequireDays -> task disabled"
+$nf = 99
+if ($parts.Count -ge 2) {
+    [void][int]::TryParse($parts[0], [ref]$n)
+    [void][int]::TryParse($parts[1], [ref]$nf)
+}
+Add-Content -Path $LogFile -Value "$stamp gate: $n/$RequireDays days, fails=$nf"
+
+if (($n -ge $RequireDays) -and ($nf -eq 0)) {
+    try {
+        Enable-ScheduledTask -TaskName "DSA_Deck_Intraday" -ErrorAction Stop | Out-Null
+        Add-Content -Path $LogFile -Value "$stamp gate cleared ($n/$RequireDays, 0 fail) -> DSA_Deck_Intraday enabled"
+    } catch {
+        Add-Content -Path $LogFile -Value "$stamp enable DSA_Deck_Intraday failed: $_"
+    }
+    try {
+        Disable-ScheduledTask -TaskName $TaskName -ErrorAction Stop | Out-Null
+        Add-Content -Path $LogFile -Value "$stamp self-disable: $TaskName disabled after gate cleared"
+    } catch {
+        Add-Content -Path $LogFile -Value "$stamp self-disable failed: $_"
+    }
 }
 Pop-Location
 

@@ -178,7 +178,7 @@ jobs:
   backend-gate:
     name: backend-gate
     runs-on: ubuntu-latest
-    needs: [changes, ai-governance, backend-tests]
+    needs: [changes, ai-governance, backend-tests, quant-tests]
     if: always()
     steps:
       - name: ✅ Summarize backend gate
@@ -187,6 +187,8 @@ jobs:
           AI_GOVERNANCE_RESULT: ${{ needs.ai-governance.result }}
           BACKEND_REQUIRED: ${{ needs.changes.outputs.backend }}
           BACKEND_TESTS_RESULT: ${{ needs.backend-tests.result }}
+          QUANT_REQUIRED: ${{ needs.changes.outputs.quant }}
+          QUANT_TESTS_RESULT: ${{ needs.quant-tests.result }}
         run: |
           if [ "$CHANGES_RESULT" != "success" ] || [ "$AI_GOVERNANCE_RESULT" != "success" ]; then
             echo "Prerequisite failed: changes=$CHANGES_RESULT ai-governance=$AI_GOVERNANCE_RESULT" >&2
@@ -196,7 +198,13 @@ jobs:
             echo "Backend shards did not all pass: $BACKEND_TESTS_RESULT" >&2
             exit 1
           fi
-          echo "backend-gate passed (required=$BACKEND_REQUIRED, shards=$BACKEND_TESTS_RESULT)"
+          # quant-tests 在此聚合，使 quant 门禁复用**已注册为必需**的 backend-gate，
+          # 无需依赖仓库级保护设置的额外登记（App token 无 Administration 写权限）。
+          if [ "$QUANT_REQUIRED" = "true" ] && [ "$QUANT_TESTS_RESULT" != "success" ]; then
+            echo "quant suite did not pass: $QUANT_TESTS_RESULT" >&2
+            exit 1
+          fi
+          echo "backend-gate passed (backend_required=$BACKEND_REQUIRED shards=$BACKEND_TESTS_RESULT quant_required=$QUANT_REQUIRED quant=$QUANT_TESTS_RESULT)"
 
   docker-build:
     name: docker-build

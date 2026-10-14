@@ -155,8 +155,8 @@ gh run view <run_id> --log-failed
 | 检查项 | 来源 | 说明 | 是否阻断 |
 | --- | --- | --- | --- |
 | `ai-governance` | `.github/workflows/ci.yml` | 校验 `AGENTS.md` / `CLAUDE.md` / `.github` 指令 / `.claude/skills` 关系 | 是 |
-| `backend-gate` | `.github/workflows/ci.yml` | 执行 `./scripts/ci_gate.sh` | 是 |
-| `quant-tests` | `.github/workflows/ci.yml` | `quant_research/` 改动时执行 `python -m pytest -q -m "not network"` | 是（触发时；需在 branch protection 登记方为强制） |
+| `backend-gate` | `.github/workflows/ci.yml` | 执行 `./scripts/ci_gate.sh`，并聚合 `quant-tests`（quant 门禁复用此必需检查） | 是 |
+| `quant-tests` | `.github/workflows/ci.yml` | `quant_research/` 改动时执行 `python -m pytest -q -m "not network"`；结果由 `backend-gate` 聚合阻断 | 是（经 `backend-gate`） |
 | `docker-build` | `.github/workflows/ci.yml` | Docker 构建与关键模块导入 smoke | 是 |
 | `web-gate` | `.github/workflows/ci.yml` | 前端改动时执行 `npm run lint` + `npm run build` | 是（触发时） |
 | `network-smoke` | `.github/workflows/network-smoke.yml` | `pytest -m network` + `scripts/test.sh quick` | 否，观测项 |

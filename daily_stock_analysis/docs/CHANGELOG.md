@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [改进] CI：`quant-tests` 纳入 `backend-gate` 聚合——quant 门禁由此复用**已注册为必需**的 backend-gate，不再依赖仓库级保护设置的额外登记（App token 无 Administration 写权限：branch protection / rulesets / repo settings 实测均 403，故改由仓库内聚合实现同等阻断）。
+- [改进] 影子门槛最后一公里自动化：包装脚本在**满 3 个交易日且 0 FAIL** 时自动启用 `DSA_Deck_Intraday` 并禁用自身（出现 FAIL 则不启用；回滚 `Disable-ScheduledTask -TaskName DSA_Deck_Intraday`），使启用不再需要人工触达。装/卸与回滚见 `strategy-compare-deck.md` §15。
 - [chore] 影子门槛可选自动化 `scripts/compare_deck_shadow_task.ps1`（计划任务 `DSA_Shadow_Compare`，对齐 `compare_deck_task.ps1` 形态）：每周四/五 15:40 只读跑一轮影子对照并写 `logs/`，**归档满 3 个交易日自动禁用自身**；不启用 `DSA_Deck_Intraday`。装/卸命令与说明见 `strategy-compare-deck.md` §15。
 - [文档] 对比盘账本契约与存储决策落地（解决任务 02 SQLite 采纳与否的独立待决）：`strategy-compare-deck.md` 新增 §16「账本契约与存储决策（唯一真源）」——正式账本为 JSON 单文件（唯一写入方 runner，只读消费方 audit/cohort/shadow），并记录**不采纳 SQLite** 的四条理由（哈希链与可审计、规模/并发不成立、时序风险、GitHub 生态先例）；`paper_repo.py`/`paper_trading_service.py` docstring 显式标注"未采纳、勿接线、无生产消费者"（原自称"对比盘唯一账本入口"与实态矛盾，已更正）。
 - [修复] cohort 与影子工具的端到端缺陷（真实 dry-run 抓出）：①`compare_deck_cohort.py` 重置新账本时把 `_actions` 清成 list，而 runner `build_close_summary` 契约是按日期键的 **dict**（`led["_actions"].get(today)`）→ 开账后首次 dry-run 即 `AttributeError` 退出码 1；现改回 `{}` 并加容器类型契约回归测试（"重置只清内容、不改类型"）。②`compare_deck_shadow.py` 的进度计数改为**按日取最后一次运行**（证据全留、同日重跑取代先前），避免首次无效尝试永久污染 3 日门槛判定。
