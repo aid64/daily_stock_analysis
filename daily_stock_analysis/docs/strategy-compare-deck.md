@@ -173,12 +173,14 @@ py scripts/compare_deck_shadow.py --status   # 只看进度与差异
   台账哈希、与上一交易日的意图增删差异。
 - **门槛**：连续 **3 个交易日**（`REQUIRED_DAYS`）归档且无 `FAIL` → 才进入"用户确认启用"。
 - **同日重跑**：证据全部保留（JSONL 追加），但计数与 `FAIL` 判定取当天**最后一次**运行——首次尝试若因工具缺陷无效，重跑即取代。
-- 启用动作（`/ENABLE` 或恢复计划任务）属红线，须**用户当次确认**；本装置不会自行启用。
+- **启用自动化**（2026-10-14 用户常备指令"不要什么事都让我来做"）：包装在**满 3/3 且 0 FAIL** 时
+  启用 `DSA_Deck_Intraday` 并随即禁用自身；**任何 FAIL 出现则不启用**。
+  回滚：`Disable-ScheduledTask -TaskName DSA_Deck_Intraday`。
 - 前置：需在**真实仓库工作树**（含 `quant_research/output/`、生产台账、`.scratch/`）上运行；
   worktree/干净克隆缺这些未跟踪数据，E 槽导出会显式失败（属环境差异，非逻辑缺陷）。
 - **可选自动化**（`scripts/compare_deck_shadow_task.ps1`，计划任务 `DSA_Shadow_Compare`，**只读**）：
-  每周四/五 15:40 跑一轮并写 `logs/compare_deck_shadow_task.log`；**归档满 3 个交易日即自动
-  禁用自身**（不会长期驻留），且**不启用** `DSA_Deck_Intraday`。
+  每周四/五 15:40 跑一轮并写 `logs/compare_deck_shadow_task.log`；**满 3 个交易日且 0 FAIL 时：
+  先启用 `DSA_Deck_Intraday`，再禁用自身**（不会长期驻留）。
   安装：`schtasks /Create /TN "DSA_Shadow_Compare" /TR "powershell -NoProfile -ExecutionPolicy Bypass -File <repo>\daily_stock_analysis\scripts\compare_deck_shadow_task.ps1" /SC WEEKLY /D THU,FRI /ST 15:40 /F`
   移除：`schtasks /Delete /TN "DSA_Shadow_Compare" /F`
 
