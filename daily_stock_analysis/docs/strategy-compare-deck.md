@@ -176,6 +176,11 @@ py scripts/compare_deck_shadow.py --status   # 只看进度与差异
 - 启用动作（`/ENABLE` 或恢复计划任务）属红线，须**用户当次确认**；本装置不会自行启用。
 - 前置：需在**真实仓库工作树**（含 `quant_research/output/`、生产台账、`.scratch/`）上运行；
   worktree/干净克隆缺这些未跟踪数据，E 槽导出会显式失败（属环境差异，非逻辑缺陷）。
+- **可选自动化**（`scripts/compare_deck_shadow_task.ps1`，计划任务 `DSA_Shadow_Compare`，**只读**）：
+  每周四/五 15:40 跑一轮并写 `logs/compare_deck_shadow_task.log`；**归档满 3 个交易日即自动
+  禁用自身**（不会长期驻留），且**不启用** `DSA_Deck_Intraday`。
+  安装：`schtasks /Create /TN "DSA_Shadow_Compare" /TR "powershell -NoProfile -ExecutionPolicy Bypass -File <repo>\daily_stock_analysis\scripts\compare_deck_shadow_task.ps1" /SC WEEKLY /D THU,FRI /ST 15:40 /F`
+  移除：`schtasks /Delete /TN "DSA_Shadow_Compare" /F`
 
 ## 16. 账本契约与存储决策（唯一真源）
 
