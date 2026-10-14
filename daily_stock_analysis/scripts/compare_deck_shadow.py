@@ -97,9 +97,18 @@ def record_entry(shadow_log: Path, *, day: str, exit_code: int, stdout: str,
     return entry
 
 
+def latest_per_day(entries: list[dict]) -> dict[str, dict]:
+    """按日取**最后一次**运行：同日重跑取代先前（前次可能因工具缺陷而无效）。"""
+    out: dict[str, dict] = {}
+    for e in entries:
+        out[e["day"]] = e
+    return out
+
+
 def progress(entries: list[dict]) -> dict:
-    days = sorted({e["day"] for e in entries})
-    fails = [e for e in entries if e.get("verdict", "").startswith("FAIL")]
+    latest = latest_per_day(entries)
+    days = sorted(latest)
+    fails = [e for e in latest.values() if e.get("verdict", "").startswith("FAIL")]
     return {"days": days, "count": len(days), "required": REQUIRED_DAYS,
             "remaining": max(0, REQUIRED_DAYS - len(days)), "fails": len(fails)}
 
