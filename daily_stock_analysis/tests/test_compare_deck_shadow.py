@@ -73,6 +73,22 @@ def test_progress_counts_distinct_days_and_fails(tmp_path):
     assert "3/3" in shadow.render_status(shadow.read_log(log))
 
 
+def test_rerun_same_day_supersedes_previous_for_counting(tmp_path):
+    """同日重跑：证据全部保留，但计数与 FAIL 判定取当天最后一次。"""
+    log = tmp_path / "shadow_log.jsonl"
+    shadow.record_entry(log, day="2026-10-14", exit_code=1, stdout="",
+                        ledger_sha_before="a", ledger_sha_after="a")          # 首次 FAIL
+    shadow.record_entry(log, day="2026-10-14", exit_code=0,
+                        stdout="A_动量(dry) x\n", ledger_sha_before="a",
+                        ledger_sha_after="a")                                # 重跑 ok
+    entries = shadow.read_log(log)
+    assert len(entries) == 2                       # 证据不删
+    pr = shadow.progress(entries)
+    assert pr["count"] == 1 and pr["fails"] == 0   # 计数取代先前
+    assert "1/3" in shadow.render_status(entries)
+    assert shadow.latest_per_day(entries)["2026-10-14"]["verdict"] == "ok"
+
+
 def test_status_on_missing_log_is_empty(tmp_path):
     assert shadow.read_log(tmp_path / "nope.jsonl") == []
     assert "0/3" in shadow.render_status([])

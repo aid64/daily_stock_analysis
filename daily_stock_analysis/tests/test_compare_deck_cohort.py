@@ -54,12 +54,28 @@ def test_build_plan_resets_positions_and_keeps_evidence(tmp_path):
         assert st["holds"] == []
         assert st["desc"].startswith("desc-")          # 策略描述保留
         assert "signal" not in st and "fees_paid" not in st
-    assert fresh["marks"] == [] and fresh["_actions"] == [] and fresh["_control"] == {}
+    assert fresh["marks"] == [] and fresh["_actions"] == {} and fresh["_control"] == {}
     # 研究证据类顶层键保留（不倒填、不重算）
     assert fresh["prereg"]["A_动量"]["prediction"] == "x"
     assert fresh["crash_study"] == {"note": "证据保留"}
     assert fresh["comparison"] == "4策略并行前向测试"
     assert plan["old_sha256"] and len(plan["old_sha256"]) == 64
+
+
+def test_reset_preserves_container_types(tmp_path):
+    """重置只清内容、不改容器类型——runner 契约：`_actions` 是按日期键的 dict。
+
+    这是 e2e dry-run 抓到的真实缺陷：把 `_actions` 清成 list 会让
+    `build_close_summary` 的 `led["_actions"].get(today)` 抛 AttributeError。
+    """
+    ledger = _old_ledger(tmp_path / "compare_strategies.json", cohort._slot_names())
+    fresh = cohort.build_plan(ledger, "2026-10-15", tmp_path / "archive")["fresh"]
+    assert isinstance(fresh["strategies"], dict)
+    assert isinstance(fresh["_actions"], dict)
+    assert isinstance(fresh["marks"], list)
+    assert isinstance(fresh["_control"], dict)
+    assert isinstance(fresh["week0"], dict)
+    assert isinstance(fresh["_meta"], dict)
 
 
 def test_dry_run_writes_nothing(tmp_path):

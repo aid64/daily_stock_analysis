@@ -88,7 +88,9 @@ def build_plan(ledger_path: Path = LEDGER, start: str | None = None,
     fresh["capital_each"] = CAPITAL_EACH
     fresh["strategies"] = fresh_slots
     fresh["marks"] = []
-    fresh["_actions"] = []
+    # runner 契约（build_close_summary）：`_actions` 是**按日期键的 dict**
+    # （`led["_actions"].get(today)`）；清空内容只清键，不得改成 list。
+    fresh["_actions"] = {}
     fresh["_control"] = {}
     fresh["week0"] = {"date": start, "actions": ["新 cohort 开账（旧账封存，spec Phase1-3）"]}
 

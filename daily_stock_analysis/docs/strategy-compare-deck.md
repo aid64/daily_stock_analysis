@@ -83,6 +83,7 @@ py scripts/compare_deck_cohort.py --start YYYY-MM-DD --apply    # 归档 + 开�
   不倒填历史、不用新规则重算旧结果。
 - **禁止重启旧 writer 写归档账**：`--apply` 后 `compare_strategies.json` 即为新 cohort，误启用也不会污染旧账。
 - **回滚**：归档副本可直接覆盖回 `compare_strategies.json`，并删除本轮 manifest 条目；无其它状态需还原。
+- **容器类型契约（勿改）**：`_actions` 是**按日期键的 dict**（runner `build_close_summary` 用 `led["_actions"].get(today)`）；重置只清键、不得换成 list；`marks` 是 list、`_control`/`week0`/`strategies` 是 dict。
 - 前置：旧账已被任务 00 封存（`ledger-seal-manifest.json`，哈希 `09e16aa8…`）；开账交易日起点**须用户批准**。
 
 ## 7. 边界
@@ -171,6 +172,7 @@ py scripts/compare_deck_shadow.py --status   # 只看进度与差异
 - 逐日追加 `shadow/shadow_log.jsonl`：日期、退出码、各槽 `(dry)` 意图行、stdout 尾部、
   台账哈希、与上一交易日的意图增删差异。
 - **门槛**：连续 **3 个交易日**（`REQUIRED_DAYS`）归档且无 `FAIL` → 才进入"用户确认启用"。
+- **同日重跑**：证据全部保留（JSONL 追加），但计数与 `FAIL` 判定取当天**最后一次**运行——首次尝试若因工具缺陷无效，重跑即取代。
 - 启用动作（`/ENABLE` 或恢复计划任务）属红线，须**用户当次确认**；本装置不会自行启用。
 - 前置：需在**真实仓库工作树**（含 `quant_research/output/`、生产台账、`.scratch/`）上运行；
   worktree/干净克隆缺这些未跟踪数据，E 槽导出会显式失败（属环境差异，非逻辑缺陷）。
