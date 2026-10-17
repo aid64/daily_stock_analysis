@@ -5,7 +5,11 @@
 # ProjectRoot is derived from $PSScriptRoot (no hard-coded path).
 #
 # Scheduled task (advances the 3-trading-day gate, read-only):
-#   schtasks /Create /TN "DSA_Shadow_Compare" /TR "powershell -NoProfile -ExecutionPolicy Bypass -File <repo>\daily_stock_analysis\scripts\compare_deck_shadow_task.ps1" /SC WEEKLY /D THU,FRI /ST 15:40 /F
+#   schtasks /Create /TN "DSA_Shadow_Compare" /TR "powershell -NoProfile -ExecutionPolicy Bypass -File <repo>\daily_stock_analysis\scripts\compare_deck_shadow_task.ps1" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 15:40 /F
+# (Every trading weekday, not only THU/FRI: the 10-15 run was missed because
+# the machine was off at the single weekly slot; a daily slot means any
+# weekday boot can advance the gate. Missed starts catch up via
+# StartWhenAvailable, still recorded under the same calendar day.)
 #
 # The wrapper disables its own task once 3 trading days are archived with
 # zero FAIL, and at that point it also enables DSA_Deck_Intraday (user

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [改进] 影子对照计划任务 `DSA_Shadow_Compare` 频率由每周四/五改为**每个交易日（周一至周五）15:40**：10-15 触发时刻机器未运行致当日缺失、门槛仅剩 1 日待补——频率提高后任一工作日开机即可推进；文档 §15 与脚本头部安装命令同步。
 - [修复] 影子对照在计划任务环境丢失 runner 输出（2026-10-16 实测 dry 意图 0 条、stdout 全丢）：包装设 `PYTHONIOENCODING=utf-8` 后 runner 写 UTF-8，而 `run_shadow` 的 `text=True` 按 Windows 本地 GBK 解码 → 读取线程 `UnicodeDecodeError`；手动运行（runner 恰也写 GBK）碰巧不炸，属调用环境依赖的隐性契约。现子进程管道两侧显式钉 UTF-8（`encoding="utf-8", errors="replace"` + 子进程 env 强制 `PYTHONIOENCODING=utf-8`），与调用环境无关；补两条回归测试（复刻包装环境的真实子进程复现 + CI 侧参数契约断言）。
 - [改进] CI：`quant-tests` 纳入 `backend-gate` 聚合——quant 门禁由此复用**已注册为必需**的 backend-gate，不再依赖仓库级保护设置的额外登记（App token 无 Administration 写权限：branch protection / rulesets / repo settings 实测均 403，故改由仓库内聚合实现同等阻断）。
 - [改进] 影子门槛最后一公里自动化：包装脚本在**满 3 个交易日且 0 FAIL** 时自动启用 `DSA_Deck_Intraday` 并禁用自身（出现 FAIL 则不启用；回滚 `Disable-ScheduledTask -TaskName DSA_Deck_Intraday`），使启用不再需要人工触达。装/卸与回滚见 `strategy-compare-deck.md` §15。
