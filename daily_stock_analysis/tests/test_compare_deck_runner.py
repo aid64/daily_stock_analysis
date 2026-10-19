@@ -1012,6 +1012,31 @@ def test_session_gate_catchup_enters_with_fills_closed(monkeypatch):
     assert reason == "" and ok is False and ex == date(2026, 10, 8)
 
 
+def test_session_gate_rejects_overnight_run_against_prev_day_post_close_stamp(monkeypatch):
+    """反例(2026-10-20 实测): 凌晨 00:22 腾讯仍返回**前一日盘后**旧戳(10-19 16:14,
+    hm=1614>1510) → 原判据 after_close=True，配"运行日=10-20 是交易日"即放行整轮盘中，
+    并把 `event_scan_last` 写成 "20261020_AM"，令当日上午(09:30-11:30)的事件/观察池扫描
+    被节流跳过。跨越日历日的旧戳不得作为"当日已收盘(可补结算)"的依据。"""
+    monkeypatch.setattr(mod, "is_exchange_trading_day", lambda d: True)
+    # ① 跨日旧戳 → 必须拒绝（即使运行日是交易日）
+    _, _, ok, reason = mod._session_gate(
+        datetime(2026, 10, 19, 16, 14), datetime(2026, 10, 20, 0, 22), force=False)
+    assert reason != "" and ok is False
+    # ② 同日盘后 catch-up 仍必须放行（原行为不回归）
+    assert mod._session_gate(datetime(2026, 10, 19, 16, 14),
+                             datetime(2026, 10, 19, 22, 0), force=False)[3] == ""
+    # ③ 无戳（网络故障）回退墙钟：同日盘后仍放行
+    assert mod._session_gate(None, datetime(2026, 10, 19, 22, 0), force=False)[3] == ""
+    # ④ 无戳 + 凌晨 → 拒绝
+    assert mod._session_gate(None, datetime(2026, 10, 20, 0, 22), force=False)[3] != ""
+    # ⑤ 同日盘中不受影响
+    assert mod._session_gate(datetime(2026, 10, 19, 10, 30),
+                             datetime(2026, 10, 19, 10, 30), force=False)[3] == ""
+    # ⑥ 跨日旧戳但时分落在盘中窗（如前一交易日 10:30）→ 拒绝
+    assert mod._session_gate(datetime(2026, 10, 19, 10, 30),
+                             datetime(2026, 10, 20, 0, 22), force=False)[3] != ""
+
+
 # --------------------------------------------------- 评审修复回归 (B/C/D/F)
 def test_e2_pre_defensive_qty_persists_across_calls(tmp_path, monkeypatch):
     """修复 B 反例: 减半前数量登记若存 ew['e2'] 每轮重建即丢 → 买回恒走 cur*2。
