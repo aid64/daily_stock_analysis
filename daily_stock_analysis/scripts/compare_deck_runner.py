@@ -2537,7 +2537,12 @@ def _session_gate(stamp: datetime | None, wall: datetime, force: bool):
     reason = ""
     if not force:
         stale_intraday = (stamp is not None and stamp.date() != ex_date and hm <= 1510)
-        after_close = hm > 1510  # 15:10 后放行收盘补结算（撮合窗已关, 内核拒绝新成交）
+        # 盘后 catch-up 必须**同属一个日历日**：旧戳的时分不得套用到新的一天。
+        # 反例（2026-10-20 实测）：凌晨 00:22 腾讯仍返回**前一日**盘后戳（10-19 16:14，
+        # hm=1614>1510）→ 原判据 after_close=True，配"运行日=10-20 是交易日"即放行整轮
+        # 盘中（并把 event_scan_last 写成 "20261020_AM"，令当日上午扫描被节流跳过）。
+        # 无戳时回退墙钟（其日期即 ex_date），故 stamp is None 仍然放行同日盘后 catch-up。
+        after_close = hm > 1510 and (stamp is None or stamp.date() == ex_date)
         if after_close and not is_exchange_trading_day(ex_date):
             # 15:10 后 catch-up 只对交易日放行: 周末/节假日不得补结算写 marks
             reason = f"非交易日(交易所日历 {ex_date})，跳过"
