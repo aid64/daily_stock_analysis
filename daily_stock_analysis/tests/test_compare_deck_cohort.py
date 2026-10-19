@@ -54,12 +54,29 @@ def test_build_plan_resets_positions_and_keeps_evidence(tmp_path):
         assert st["holds"] == []
         assert st["desc"].startswith("desc-")          # 策略描述保留
         assert "signal" not in st and "fees_paid" not in st
-    assert fresh["marks"] == [] and fresh["_actions"] == {} and fresh["_control"] == {}
+    assert fresh["marks"] == [] and fresh["_actions"] == {}
+    # `_control` 不再全空：开账即把**当月**登记为待做（列表 = 已部分完成 → 开月频续做门），
+    # 否则月中开账时月频门（月首交易日）本月内不再成立、十个槽整月不建仓。
+    assert fresh["_control"] == {"rebalance_done": {"2026-10": []}}
+    assert isinstance(fresh["_control"]["rebalance_done"]["2026-10"], list)
     # 研究证据类顶层键保留（不倒填、不重算）
     assert fresh["prereg"]["A_动量"]["prediction"] == "x"
     assert fresh["crash_study"] == {"note": "证据保留"}
     assert fresh["comparison"] == "4策略并行前向测试"
     assert plan["old_sha256"] and len(plan["old_sha256"]) == 64
+
+
+def test_cohort_open_seeds_current_month_for_monthly_registry(tmp_path):
+    """月中开账必须把**当月**登记为待做：月频注册表的门是"本月首个交易日"，
+    若开账日晚于该日，则本月内门永不再成立 → F/F2/E/H/I/J/K/M/N/O 十个槽整月不建仓。
+    列表值 = "已部分完成" → 开续做门 → 月频槽在开账后首个收盘轮初始化。"""
+    ledger = _old_ledger(tmp_path / "compare_strategies.json", cohort._slot_names())
+
+    fresh_oct = cohort.build_plan(ledger, "2026-10-15", tmp_path / "archive")["fresh"]
+    assert fresh_oct["_control"]["rebalance_done"] == {"2026-10": []}
+
+    fresh_nov = cohort.build_plan(ledger, "2026-11-02", tmp_path / "archive")["fresh"]
+    assert fresh_nov["_control"]["rebalance_done"] == {"2026-11": []}
 
 
 def test_reset_preserves_container_types(tmp_path):

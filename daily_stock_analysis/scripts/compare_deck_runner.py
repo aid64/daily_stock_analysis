@@ -2436,6 +2436,44 @@ def _subtask_registry_pass(led: dict, ctrl: dict, registry_key: str, key: str,
     return msgs
 
 
+# ---------------------------------------------------------------- 基准一次性建仓
+# 买入持有基准 C/D 的标的一经开账即**永久持有**，其余槽都由周/月/事件/日历注册表
+# 负责建仓，**唯独 C/D 无人负责** → 新 cohort 清空持仓后它们恒为现金，C 长期 0%，
+# 令"主动槽跑输 C 即降级"这条核心评价纪律失效。故补一次性建仓（幂等，走同一注册表）。
+BENCHMARK_BUILD = (("C_沪深300持有", "510300.SH"), ("D_红利低波持有", "512890.SH"))
+
+
+def benchmark_build_one(led: dict, slot_name: str, symbol: str, px: dict, dry: bool) -> list[str]:
+    """基准槽一次性建仓：以槽内全部现金买满整手目标 ETF（预留 2% 缓冲，与其它槽同口径）。
+
+    幂等双保险：已有持仓直接跳过；一次性门由 `_control.bootstrap_done` 承担。
+    无报价 / 不足一手 → 自报【异常】（不登记），由注册表在后续撮合窗续做。
+    """
+    slot = led["strategies"][slot_name]
+    if slot.get("holds"):
+        return [f"{slot_name} 已有持仓, 跳过建仓"]
+    price = float((px.get(symbol) or {}).get("price") or 0.0)
+    if price <= 0:
+        return [f"【异常】{slot_name} 无 {symbol} 有效报价, 建仓待续做"]
+    qty = int(float(slot.get("cash", 0.0)) * 0.98 // (price * 100)) * 100
+    if qty <= 0:
+        return [f"【异常】{slot_name} 现金不足一手 {symbol}"]
+    if dry:
+        return [f"{slot_name}(dry) 建仓→{symbol} x{qty}"]
+    rejects = apply_orders(slot, [], [{"symbol": symbol, "qty": qty, "price": price,
+                                       "is_stock": False}], px, slot_name)
+    if rejects:
+        return [f"【异常】{slot_name} 建仓被拒: {'; '.join(rejects)[:100]}"] + rejects
+    slot["note"] = f"基准建仓 {symbol} x{qty} @{price}（买入持有）"
+    return [f"{slot_name} 建仓→{symbol} x{qty}"]
+
+
+def _bootstrap_tasks(led: dict, px: dict, dry: bool) -> list:
+    """一次性建仓注册表（买入持有基准 C/D），与周/月度同构并复用 `_subtask_registry_pass`。"""
+    return [(name, (name,), (lambda n=name, s=sym: benchmark_build_one(led, n, s, px, dry)))
+            for name, sym in BENCHMARK_BUILD]
+
+
 def run_close(dry: bool) -> str:
     # 交易日守卫: run_intraday 内部 catch-up 会直调本函数, 15:10 后 CLI close 模式也无盘中守卫,
     # 非交易日（周末/节假日）不得补结算写 marks；接口失败时 is_exchange_trading_day 保守 True（幂等兜底）。
@@ -2471,6 +2509,12 @@ def run_close(dry: bool) -> str:
         if rep:
             notify(rep, dedup_key=f"deck_monthly_{EX_DATE:%Y-%m}")
     ctrl = led.setdefault("_control", {})
+    # 基准一次性建仓: 买入持有槽 C/D 无周/月/事件/日历注册表覆盖，开账清空后必须补建，
+    # 否则 C 恒为现金 → "跑输 C 即降级"的评价纪律失效。非撮合窗顺延、后续撮合窗续做。
+    if not dry and ctrl.setdefault("bootstrap_done", {}).get("once") != "all":
+        msgs.extend(_subtask_registry_pass(
+            led, ctrl, "bootstrap_done", "once",
+            _bootstrap_tasks(led, px, dry), tag="建仓"))
     # 周度注册表: 与月度同构（同一语义单一实现 `_subtask_registry_pass`）。
     # 门: 周首交易日启动; 非撮合窗顺延; 部分完成(列表记录)则**同周后续交易日**续做至齐备
     #     （周频窗口只有"周首交易日"这一个，此前裸调用错过即整周丢失，且消息仍报"调仓→"）。
