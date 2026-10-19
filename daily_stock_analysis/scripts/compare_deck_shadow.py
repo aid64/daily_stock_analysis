@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from datetime import date
@@ -131,9 +132,16 @@ def render_status(entries: list[dict]) -> str:
 def run_shadow(ledger: Path = LEDGER, shadow_log: Path = SHADOW_LOG,
                mode: str = "close", timeout: int = 900) -> dict:
     before = _sha256(ledger)
+    # 子进程管道两侧显式钉 UTF-8：计划任务包装设 PYTHONIOENCODING=utf-8 后
+    # runner 输出 UTF-8，而 text=True 默认按 Windows 本地 GBK 解码 → 读取线程
+    # UnicodeDecodeError → stdout 整体丢失（2026-10-16 计划任务运行实测
+    # dry 意图 0 条）。手动运行（无该环境变量）时 runner 写 GBK，两侧一致
+    # 才碰巧不炸——契约必须与调用环境无关。
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
     proc = subprocess.run(
         [sys.executable, str(RUNNER), "--mode", mode, "--dry-run", "--force"],
-        cwd=str(_PROJECT_DIR), capture_output=True, text=True, timeout=timeout)
+        cwd=str(_PROJECT_DIR), capture_output=True, encoding="utf-8",
+        errors="replace", timeout=timeout, env=env)
     stdout = (proc.stdout or "") + (("\n[stderr]\n" + proc.stderr) if proc.stderr else "")
     return record_entry(shadow_log, day=date.today().isoformat(), exit_code=proc.returncode,
                         stdout=stdout, ledger_sha_before=before, ledger_sha_after=_sha256(ledger))

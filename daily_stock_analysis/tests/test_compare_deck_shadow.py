@@ -92,3 +92,54 @@ def test_rerun_same_day_supersedes_previous_for_counting(tmp_path):
 def test_status_on_missing_log_is_empty(tmp_path):
     assert shadow.read_log(tmp_path / "nope.jsonl") == []
     assert "0/3" in shadow.render_status([])
+
+
+def test_run_shadow_survives_codec_invalid_bytes_in_runner_output(tmp_path, monkeypatch):
+    """回归（2026-10-16 计划任务实测）：包装设 PYTHONIOENCODING=utf-8 后 runner
+    写 UTF-8，父进程 text=True 按本地编码（计划任务环境为 GBK）解码 → 读取线程
+    UnicodeDecodeError **静默死亡**（不抛出，stdout 变 None）→ dry 意图证据全丢
+    （0 条）而 verdict 仍为 ok。注入一个任何本地编码都无法解码的 0xFF 字节，
+    在任意 locale（CI 的 UTF-8 / 生产 GBK）下确定性复现同一丢失机制；修复后
+    errors="replace" 必须保住全部意图行。"""
+    fake = tmp_path / "fake_runner.py"
+    fake.write_text(
+        "import sys\n"
+        "w = sys.stdout.buffer.write\n"
+        "w('A_动量(dry) 引擎信号提取\\n'.encode('utf-8'))\n"
+        "w(b'\\xff')  # 任何本地编码均无效的字节\n"
+        "w('L_北向(dry) 观察态: 信号计算, 不交易\\n'.encode('utf-8'))\n",
+        encoding="utf-8")
+    monkeypatch.setattr(shadow, "RUNNER", fake)
+    monkeypatch.setenv("PYTHONIOENCODING", "utf-8")   # 复刻计划任务包装环境
+    ledger = tmp_path / "ledger.json"
+    ledger.write_text("{}", encoding="utf-8")
+    entry = shadow.run_shadow(ledger, tmp_path / "shadow_log.jsonl")
+    assert entry["verdict"] == "ok"
+    assert entry["ledger_unchanged"] is True
+    assert len(entry["dry_lines"]) == 2               # 中文意图行完整捕获
+    assert any("引擎信号提取" in ln for ln in entry["dry_lines"])
+
+
+def test_run_shadow_pins_utf8_subprocess_contract(tmp_path, monkeypatch):
+    """与上一测试互补：上一测试钉"输出必须保住"（行为），本测试钉"不得回到
+    依赖本地编码的裸 text=True"（契约）——encoding/errors 显式 UTF-8、子进程
+    env 强制 PYTHONIOENCODING=utf-8，与调用环境（手动/计划任务）无关。"""
+    seen = {}
+
+    class _Proc:
+        returncode = 0
+        stdout = "A_动量(dry) x\n"
+        stderr = ""
+
+    def _fake_run(*args, **kwargs):
+        seen.update(kwargs)
+        return _Proc()
+
+    monkeypatch.setattr(shadow.subprocess, "run", _fake_run)
+    ledger = tmp_path / "ledger.json"
+    ledger.write_text("{}", encoding="utf-8")
+    entry = shadow.run_shadow(ledger, tmp_path / "shadow_log.jsonl")
+    assert seen["encoding"] == "utf-8"
+    assert seen["errors"] == "replace"
+    assert seen["env"]["PYTHONIOENCODING"] == "utf-8"
+    assert entry["dry_lines"] == ["A_动量(dry) x"]     # 管道链路仍完整

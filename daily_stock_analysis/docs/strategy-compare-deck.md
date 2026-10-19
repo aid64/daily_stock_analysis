@@ -179,9 +179,12 @@ py scripts/compare_deck_shadow.py --status   # 只看进度与差异
 - 前置：需在**真实仓库工作树**（含 `quant_research/output/`、生产台账、`.scratch/`）上运行；
   worktree/干净克隆缺这些未跟踪数据，E 槽导出会显式失败（属环境差异，非逻辑缺陷）。
 - **可选自动化**（`scripts/compare_deck_shadow_task.ps1`，计划任务 `DSA_Shadow_Compare`，**只读**）：
-  每周四/五 15:40 跑一轮并写 `logs/compare_deck_shadow_task.log`；**满 3 个交易日且 0 FAIL 时：
+  **每个交易日（周一至周五）15:40** 跑一轮并写 `logs/compare_deck_shadow_task.log`；**满 3 个交易日且 0 FAIL 时：
   先启用 `DSA_Deck_Intraday`，再禁用自身**（不会长期驻留）。
-  安装：`schtasks /Create /TN "DSA_Shadow_Compare" /TR "powershell -NoProfile -ExecutionPolicy Bypass -File <repo>\daily_stock_analysis\scripts\compare_deck_shadow_task.ps1" /SC WEEKLY /D THU,FRI /ST 15:40 /F`
+  频率说明：10-15（周四）触发时刻机器未运行致当日缺失，且补跑时机不可控——
+  改为每个交易日一槽后，任一工作日开机即可推进门槛（错过的启动经
+  StartWhenAvailable 在当日补跑，仍记为同一日历日）。
+  安装：`schtasks /Create /TN "DSA_Shadow_Compare" /TR "powershell -NoProfile -ExecutionPolicy Bypass -File <repo>\daily_stock_analysis\scripts\compare_deck_shadow_task.ps1" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 15:40 /F`
   移除：`schtasks /Delete /TN "DSA_Shadow_Compare" /F`
 
 ## 16. 账本契约与存储决策（唯一真源）
