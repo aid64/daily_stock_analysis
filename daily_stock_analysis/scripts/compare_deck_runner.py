@@ -583,14 +583,23 @@ def momentum_signal(led: dict, px: dict, dry: bool) -> list[dict]:
         changed = bool(sells or buys)
         now = exchange_now()
         tradable = bool(now) and _fills_open(now)
+        rejects: list[str] = []
         if changed and not tradable:
             log.warning("非交易时段(交易所 %s), A 槽调仓抑制为只记录", now)
         if changed and tradable:
-            apply_orders(slot, sells, buys, px)
+            rejects = apply_orders(slot, sells, buys, px)
         slot["signal"] = {"as_of": data.get("as_of"), "ranked": data.get("ranked"),
                           "defensive_mode": data.get("defensive_mode"), "target": target}
         slot["note"] = f"引擎信号 {data.get('as_of')} defensive={data.get('defensive_mode')}"
-        tag = f"调仓→{sorted(target)}" if changed else f"目标未变(as_of {data.get('as_of')})"
+        # 消息据实: 未实际成交不得声称"调仓→"（仓库硬约束）。
+        if not changed:
+            tag = f"目标未变(as_of {data.get('as_of')})"
+        elif not tradable:
+            tag = f"目标→{sorted(target)} (非撮合时段, 未成交, 待续做)"
+        elif rejects:
+            tag = f"调仓→{sorted(target)} (部分未成交: {len(rejects)} 笔被拒)"
+        else:
+            tag = f"调仓→{sorted(target)}"
         return [f"A_动量 {tag}"]
     except Exception as exc:
         log.error("A 动量引擎信号失败: %r", exc)
@@ -624,8 +633,20 @@ def rotation_signal(led: dict, px: dict, dry: bool) -> list[dict]:
             buys.append({"symbol": target[0], "qty": qty, "price": price})
     if dry:
         return [f"B_轮动(dry) 25日收益{ {k: f'{v:+.1%}' for k, v in scores.items()} }→{target or '空仓'}"]
-    apply_orders(slot, sells, buys, px)
+    now = exchange_now()
+    tradable = bool(now) and _fills_open(now)
+    rejects: list[str] = []
+    if tradable:
+        rejects = apply_orders(slot, sells, buys, px)
+    else:
+        # 此前无撮合窗判定: 内核会整体 SESSION_CLOSED 拒单，而消息仍报"调仓→"
+        # → 状态未变却声称已调仓（违仓库硬约束）。
+        log.warning("非交易时段(交易所 %s), B 槽调仓抑制为只记录", now)
     slot["note"] = f"信号 {datetime.now():%m-%d %H:%M} 25日{scores[best]:+.2%}→{target or '空仓'}"
+    if not tradable:
+        return [f"B_轮动 目标→{target or '空仓'} (非撮合时段, 未成交, 待续做)"]
+    if rejects:
+        return [f"B_轮动 调仓→{target or '空仓'} (部分未成交: {len(rejects)} 笔被拒)"]
     return [f"B_轮动 调仓→{target or '空仓'}"]
 
 
@@ -914,13 +935,22 @@ def mwu_rebalance(led: dict, px: dict, dry: bool, slot_name: str = "G_MWU融合"
             o["is_stock"] = False
         now = exchange_now()
         tradable = bool(now) and _fills_open(now)
+        rejects: list[str] = []
         if (sells or buys) and not tradable:
             log.warning("非交易时段(交易所 %s), %s 调仓抑制为只记录", now, slot_name)
         if (sells or buys) and tradable:
-            apply_orders(slot, sells, buys, px)
+            rejects = apply_orders(slot, sells, buys, px)
         slot["signal"] = {"as_of": data.get("as_of"), "expert_weights": data.get("expert_weights"),
                           "target": target}
-        tag = f"调仓→{sorted(target)}" if (sells or buys) else f"目标未变(as_of {data.get('as_of')})"
+        # 消息据实: 未实际成交不得声称"调仓→"（仓库硬约束）。
+        if not (sells or buys):
+            tag = f"目标未变(as_of {data.get('as_of')})"
+        elif not tradable:
+            tag = f"目标→{sorted(target)} (非撮合时段, 未成交, 待续做)"
+        elif rejects:
+            tag = f"调仓→{sorted(target)} (部分未成交: {len(rejects)} 笔被拒)"
+        else:
+            tag = f"调仓→{sorted(target)}"
         return [f"{slot_name} {tag}"]
     except Exception as exc:
         log.error("%s 调仓失败: %r", slot_name, exc)
@@ -2351,6 +2381,61 @@ def _monthly_tasks(led: dict, px: dict, dry: bool) -> list:
     ]
 
 
+def _weekly_tasks(led: dict, px: dict, dry: bool) -> list:
+    """周度调仓注册表: (标签, 槽位元组, 调用) 列表。
+
+    与月度同构——周频槽此前是裸调用（非撮合时段只记 log、被拒不重试、消息照报
+    "调仓→"），与月频/总闸语义不一致；改由注册表统一承载
+    「子任务幂等 + 失败重试 + 非撮合窗顺延」。
+    """
+    return [
+        ("momentum", ("A_动量",), lambda: momentum_signal(led, px, dry)),
+        ("rotation", ("B_轮动",), lambda: rotation_signal(led, px, dry)),
+        ("mwu", ("G_MWU融合",), lambda: mwu_rebalance(led, px, dry)),
+    ]
+
+
+def _subtask_registry_pass(led: dict, ctrl: dict, registry_key: str, key: str,
+                           tasks: list, *, tag: str) -> list[str]:
+    """子任务注册表的**唯一实现**（月频与周频共用，避免同一语义两套代码）。
+
+    语义：
+    - 非撮合时段 → 只顺延不执行；用空列表占位（已有部分完成记录不被覆盖）。
+    - 撮合时段 → 逐个执行未完成子任务；子任务自报【异常】则不登记（次日续做）。
+    - 全部成功登记 "all"，部分成功登记已完成标签列表 → 后续同窗（月内每日 /
+      同周后续交易日）经列表门续做至齐备。
+    - 子任务成功即清除该槽 `erp_scaled` 标记（重建后待总闸重新缩放）。
+    """
+    msgs: list[str] = []
+    done = ctrl.setdefault(registry_key, {})
+    if not _fills_open(exchange_now() or datetime.now()):
+        # 非撮合时段(如 15:0x 补结算轮 / 补跑轮): 只顺延不执行。
+        if not isinstance(done.get(key), list):
+            done[key] = []
+        msgs.append(f"【{tag}调仓】非撮合时段, {tag}调仓顺延 (待撮合窗续做)")
+        return msgs
+    ok = list(done.get(key)) if isinstance(done.get(key), list) else []
+    for label, slots, call in tasks:
+        if label in ok:
+            continue  # 幂等: 已完成子任务不重跑
+        try:
+            sub = list(call() or [])
+        except Exception as exc:                      # noqa: BLE001
+            log.error("%s子任务 %s 失败(不影响净值落账): %r", tag, label, exc)
+            msgs.append(f"【异常】{tag}子任务 {label} 失败: {exc!r:.120}")
+            continue
+        msgs.extend(sub)
+        if any(isinstance(m, str) and m.startswith("【异常】") for m in sub):
+            continue  # 子策略自报失败: 不登记, 后续同窗续做
+        ok.append(label)
+        scaled = ctrl.get("erp_scaled")
+        if scaled:
+            for s in slots:
+                scaled.pop(s, None)
+    done[key] = "all" if len(ok) == len(tasks) else ok
+    return msgs
+
+
 def run_close(dry: bool) -> str:
     # 交易日守卫: run_intraday 内部 catch-up 会直调本函数, 15:10 后 CLI close 模式也无盘中守卫,
     # 非交易日（周末/节假日）不得补结算写 marks；接口失败时 is_exchange_trading_day 保守 True（幂等兜底）。
@@ -2386,49 +2471,26 @@ def run_close(dry: bool) -> str:
         if rep:
             notify(rep, dedup_key=f"deck_monthly_{EX_DATE:%Y-%m}")
     ctrl = led.setdefault("_control", {})
-    if _is_week_first_trading_day():
-        wk = (momentum_signal(led, px, dry) + rotation_signal(led, px, dry)
-              + mwu_rebalance(led, px, dry))
-        msgs.extend(wk)
-        # 重建后重缩放(D2): 周度重建(A/B/G)无异常 → 清缩放标记, 待 erp_scale_pass 重新应用
-        if not dry and not any(isinstance(m, str) and m.startswith("【异常】") for m in wk):
-            scaled = ctrl.get("erp_scaled")
-            if scaled:
-                for s in ("A_动量", "B_轮动", "G_MWU融合"):   # momentum→A / rotation→B / mwu→G
-                    scaled.pop(s, None)
+    # 周度注册表: 与月度同构（同一语义单一实现 `_subtask_registry_pass`）。
+    # 门: 周首交易日启动; 非撮合窗顺延; 部分完成(列表记录)则**同周后续交易日**续做至齐备
+    #     （周频窗口只有"周首交易日"这一个，此前裸调用错过即整周丢失，且消息仍报"调仓→"）。
+    iso = EX_DATE.isocalendar()
+    week_key = f"{iso[0]}-W{int(iso[1]):02d}"
+    wdone = ctrl.setdefault("week_rebalance_done", {})
+    if (not dry and wdone.get(week_key) != "all"
+            and (_is_week_first_trading_day() or isinstance(wdone.get(week_key), list))):
+        msgs.extend(_subtask_registry_pass(
+            led, ctrl, "week_rebalance_done", week_key,
+            _weekly_tasks(led, px, dry), tag="周度"))
     month_key = today[:7]
     done = ctrl.setdefault("rebalance_done", {})
     # 月度注册表: 子策略粒度幂等 + 失败重试 + 非撮合窗顺延。
     # 门: 月首交易日启动; 部分完成(列表记录)则每日 close 续做至齐备。
     if (not dry and done.get(month_key) != "all"
             and (_is_month_first_trading_day() or isinstance(done.get(month_key), list))):
-        if not _fills_open(exchange_now() or datetime.now()):
-            # 非撮合时段(如 15:0x 补结算轮): 只顺延不执行; 已有部分完成记录不被覆盖。
-            if not isinstance(done.get(month_key), list):
-                done[month_key] = []
-            msgs.append("【月度调仓】非撮合时段, 月度调仓顺延")
-        else:
-            tasks = _monthly_tasks(led, px, dry)
-            ok = list(done.get(month_key)) if isinstance(done.get(month_key), list) else []
-            for label, slots, call in tasks:
-                if label in ok:
-                    continue  # 幂等: 已完成子任务不重跑
-                try:
-                    sub = list(call() or [])
-                except Exception as exc:
-                    log.error("月度子任务 %s 失败(不影响净值落账): %r", label, exc)
-                    msgs.append(f"【异常】月度子任务 {label} 失败: {exc!r:.120}")
-                    continue
-                msgs.extend(sub)
-                if any(isinstance(m, str) and m.startswith("【异常】") for m in sub):
-                    continue  # 子策略自报失败: 不登记, 次日重试
-                ok.append(label)
-                # 重建后重缩放(D2): 子任务槽位已重建, 清除缩放标记, 待总闸缩放/erp_scale_pass 重应用
-                scaled = ctrl.get("erp_scaled")
-                if scaled:
-                    for s in slots:
-                        scaled.pop(s, None)
-            done[month_key] = "all" if len(ok) == len(tasks) else ok
+        msgs.extend(_subtask_registry_pass(
+            led, ctrl, "rebalance_done", month_key,
+            _monthly_tasks(led, px, dry), tag="月度"))
     # ERP 缩放执行侧: 周度/月度重建之后调用(重建清标记 → 此处重新应用 ×0.5; 据实 + 被拒次日补做)
     msgs.extend(erp_scale_pass(led, px, dry))
     # 本轮操作先并入 _actions 再出 summary: 收盘通知的"今日操作"必须含当轮成交,
