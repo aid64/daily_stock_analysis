@@ -92,6 +92,12 @@ def build_plan(ledger_path: Path = LEDGER, start: str | None = None,
     # （`led["_actions"].get(today)`）；清空内容只清键，不得改成 list。
     fresh["_actions"] = {}
     fresh["_control"] = {}
+    # 月中开账（开账日晚于本月首个交易日）时，月频注册表的门（`_is_month_first_trading_day`）
+    # 在本月内**永不再成立** → F/F2/E/H/I/J/K/M/N/O 十个月频槽整月不建仓（2026-10 实测：
+    # 月首 10-08 早于开账日 10-14，`rebalance_done={}` 使门恒为假）。开账即把**当月登记为
+    # 待做**（列表即"已部分完成"→ 开续做门），使月频槽在开账后**首个收盘轮**初始化；
+    # 若开账日恰为月首，语义与自然路径等价（均为该轮执行）。
+    fresh["_control"]["rebalance_done"] = {start[:7]: []}
     fresh["week0"] = {"date": start, "actions": ["新 cohort 开账（旧账封存，spec Phase1-3）"]}
 
     archive_path = archive_dir / f"compare_strategies.cohort1.{start}.json"

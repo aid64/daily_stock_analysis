@@ -667,6 +667,72 @@ def test_weekly_slot_message_is_honest_about_non_fill(monkeypatch):
     assert "调仓→" in msg and "未成交" not in msg
 
 
+# ------------------------------------------------- 基准一次性建仓(买入持有 C/D)
+def _boot_env(tmp_path, monkeypatch, fills_time):
+    """基准建仓聚焦环境: fake 台账(清空 C/D) + 全链 mock, 返回台账路径。"""
+    import json as _json
+    from datetime import date as _date
+
+    led = _fake_ledger()
+    for n in ("C_沪深300持有", "D_红利低波持有"):
+        led["strategies"][n] = {"holds": [], "cash": 12411.0, "equity": 12411.0}
+    led["_control"].pop("bootstrap_done", None)
+    p = tmp_path / "boot.json"
+    p.write_text(_json.dumps(led, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(mod, "LEDGER", p)
+    monkeypatch.setattr(mod, "EX_DATE", _date(2026, 10, 20))
+    monkeypatch.setattr(mod, "exchange_now", lambda: fills_time)
+    monkeypatch.setattr(mod, "is_exchange_trading_day", lambda d: True)
+    monkeypatch.setattr(mod, "_is_month_last_trading_day", lambda: False)
+    monkeypatch.setattr(mod, "_is_month_first_trading_day", lambda: False)
+    monkeypatch.setattr(mod, "_is_week_first_trading_day", lambda: False)
+    monkeypatch.setattr(mod, "maybe_refresh_snapshot", lambda *a, **k: "")
+    monkeypatch.setattr(mod, "slot_prices",
+                        lambda led: {"510300.SH": {"price": 4.4}, "512890.SH": {"price": 1.18}})
+    monkeypatch.setattr(mod, "notify", lambda *a, **k: False)
+    monkeypatch.setattr(mod, "monthly_report", lambda *a, **k: None)
+    for fn in ("repo_maturity_pass", "daily_dividend_pass", "erp_gate", "e2_gate",
+               "e_take_profit_pass", "north_rebalance", "erp_scale_pass"):
+        monkeypatch.setattr(mod, fn, lambda *a, **k: [])
+    return p
+
+
+def test_benchmark_bootstrap_builds_c_and_d_once(tmp_path, monkeypatch):
+    """买入持有基准 C/D 必须被建仓（无周/月/事件注册表覆盖），且仅一次（幂等）。
+
+    新 cohort 开账清空持仓后，C 恒为现金 → "主动槽跑输 C 即降级"的评价纪律失效。
+    """
+    import json as _json
+
+    p = _boot_env(tmp_path, monkeypatch, datetime(2026, 10, 20, 10, 0))   # 撮合窗内
+    mod.run_close(False)
+    saved = _json.loads(p.read_text(encoding="utf-8"))
+    assert saved["_control"]["bootstrap_done"]["once"] == "all"
+    c, d = saved["strategies"]["C_沪深300持有"], saved["strategies"]["D_红利低波持有"]
+    assert c["holds"] and c["holds"][0]["symbol"] == "510300.SH"
+    assert d["holds"] and d["holds"][0]["symbol"] == "512890.SH"
+    assert c["cash"] < 12411.0 and d["cash"] < 12411.0          # 现金已投入
+    qty_c = c["holds"][0]["qty"]
+
+    # 幂等: 再跑一轮不重复建仓
+    mod.run_close(False)
+    saved2 = _json.loads(p.read_text(encoding="utf-8"))
+    assert saved2["strategies"]["C_沪深300持有"]["holds"][0]["qty"] == qty_c
+    assert saved2["strategies"]["C_沪深300持有"]["cash"] == c["cash"]
+
+
+def test_benchmark_bootstrap_defers_outside_fills_window(tmp_path, monkeypatch):
+    """非撮合时段（如机器补跑轮 22:00）只顺延不建仓，后续撮合窗续做。"""
+    import json as _json
+
+    p = _boot_env(tmp_path, monkeypatch, datetime(2026, 10, 20, 22, 0))
+    out = mod.run_close(False)
+    saved = _json.loads(p.read_text(encoding="utf-8"))
+    assert saved["_control"]["bootstrap_done"]["once"] == []      # 顺延占位
+    assert saved["strategies"]["C_沪深300持有"]["holds"] == []
+    assert "顺延" in out
+
+
 # ---------------------------------------------------------------- ERP 缩放执行侧
 def test_erp_scale_pass_defensive_halves_and_marks():
     """防御态首日: 主动槽 qty//2 卖出并标记; cb 槽不在作用域; 二次调用幂等。"""

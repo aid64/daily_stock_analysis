@@ -120,6 +120,8 @@ py scripts/compare_deck_cohort.py --start YYYY-MM-DD --apply    # 归档 + 开�
   清空 holdings/cash/equity/marks/`_control`/`_actions`，**保留** prereg 与各 study 证据键；
   不倒填历史、不用新规则重算旧结果。
 - **禁止重启旧 writer 写归档账**：`--apply` 后 `compare_strategies.json` 即为新 cohort，误启用也不会污染旧账。
+- **开账即登记当月为待做**（`_control.rebalance_done = {开账月份: []}`）：月频注册表的门是"本月首个交易日"，**月中开账**时该日已过、本月内门永不再成立 → 十个月频槽整月不建仓；列表值即"已部分完成"，开续做门后月频槽在**开账后首个收盘轮**初始化（开账日恰为月首时与自然路径等价）。
+- **基准槽一次性建仓**：买入持有槽 `C_沪深300持有`/`D_红利低波持有` **无周/月/事件/日历注册表覆盖**，清空后必须由 runner 的 `_bootstrap_tasks` 补建（`C→510300.SH`、`D→512890.SH`，按槽内现金买满整手；`_control.bootstrap_done` 门 + 已有持仓即跳过，非撮合窗顺延后续做）。否则 C 恒为现金 → "跑输 C 即降级"的评价纪律失效。
 - **回滚**：归档副本可直接覆盖回 `compare_strategies.json`，并删除本轮 manifest 条目；无其它状态需还原。
 - **容器类型契约（勿改）**：`_actions` 是**按日期键的 dict**（runner `build_close_summary` 用 `led["_actions"].get(today)`）；重置只清键、不得换成 list；`marks` 是 list、`_control`/`week0`/`strategies` 是 dict。
 - 前置：旧账已被任务 00 封存（`ledger-seal-manifest.json`，哈希 `09e16aa8…`）；开账交易日起点**须用户批准**。
