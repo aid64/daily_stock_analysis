@@ -535,6 +535,138 @@ def test_monthly_registry_deferred_outside_fills_window(tmp_path, monkeypatch):
     assert sum(calls.values()) == 0
 
 
+# ------------------------------------------------- 周度注册表(与月度同构/消息据实)
+def _weekly_env(tmp_path, monkeypatch, fills_time, fail=()):
+    """周度块聚焦环境: fake 台账 + 周频三槽 mock, 返回 (台账路径, 各策略调用计数)。"""
+    import json as _json
+    from datetime import date as _date
+
+    led = _fake_ledger()
+    led["_control"].pop("week_rebalance_done", None)
+    p = tmp_path / "weekly.json"
+    p.write_text(_json.dumps(led, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(mod, "LEDGER", p)
+    monkeypatch.setattr(mod, "EX_DATE", _date(2026, 10, 19))   # 周一 = 周首交易日
+    monkeypatch.setattr(mod, "exchange_now", lambda: fills_time)
+    monkeypatch.setattr(mod, "is_exchange_trading_day", lambda d: True)
+    monkeypatch.setattr(mod, "_is_month_last_trading_day", lambda: False)
+    monkeypatch.setattr(mod, "_is_month_first_trading_day", lambda: False)
+    monkeypatch.setattr(mod, "_is_week_first_trading_day", lambda: True)
+    monkeypatch.setattr(mod, "maybe_refresh_snapshot", lambda *a, **k: "")
+    monkeypatch.setattr(mod, "slot_prices", lambda led: {})
+    monkeypatch.setattr(mod, "notify", lambda *a, **k: False)
+    monkeypatch.setattr(mod, "monthly_report", lambda *a, **k: None)
+    for fn in ("repo_maturity_pass", "daily_dividend_pass", "erp_gate", "e2_gate",
+               "e_take_profit_pass", "north_rebalance", "erp_scale_pass"):
+        monkeypatch.setattr(mod, fn, lambda *a, **k: [])
+    calls = {"momentum": 0, "rotation": 0, "mwu": 0}
+
+    def _seam(name):
+        def f(*a, **k):
+            calls[name] += 1
+            return ["【异常】fixture engine failed"] if name in fail else [f"{name} 调仓→fixture"]
+        return f
+
+    monkeypatch.setattr(mod, "momentum_signal", _seam("momentum"))
+    monkeypatch.setattr(mod, "rotation_signal", _seam("rotation"))
+    monkeypatch.setattr(mod, "mwu_rebalance", _seam("mwu"))
+    return p, calls
+
+
+def test_weekly_registry_defers_outside_fills_window_then_completes(tmp_path, monkeypatch):
+    """周频窗口只有"周首交易日"一个: 非撮合时段须登记待续做, 并在**同周后续交易日**补齐。
+
+    旧实现为裸调用 + 只记 log: 错过 15:00 整点(如机器补跑轮)即整周丢失且无重试,
+    与月频注册表/总闸的"次日续做"语义不一致。
+    """
+    import json as _json
+    from datetime import date as _date
+
+    p, calls = _weekly_env(tmp_path, monkeypatch, datetime(2026, 10, 19, 22, 5))  # 补跑轮: 撮合窗已关
+    out = mod.run_close(False)
+    saved = _json.loads(p.read_text(encoding="utf-8"))
+    assert saved["_control"]["week_rebalance_done"]["2026-W43"] == []   # 顺延占位, 未执行
+    assert sum(calls.values()) == 0
+    assert "顺延" in out
+
+    # 同周次日: 撮合窗内 → 三个子任务各执行一次并登记 "all"
+    monkeypatch.setattr(mod, "EX_DATE", _date(2026, 10, 20))
+    monkeypatch.setattr(mod, "_is_week_first_trading_day", lambda: False)
+    monkeypatch.setattr(mod, "exchange_now", lambda: datetime(2026, 10, 20, 14, 40))
+    mod.run_close(False)
+    saved = _json.loads(p.read_text(encoding="utf-8"))
+    assert saved["_control"]["week_rebalance_done"]["2026-W43"] == "all"
+    assert calls == {"momentum": 1, "rotation": 1, "mwu": 1}
+
+    # 幂等: 同周再跑一轮不重跑已成功子任务
+    mod.run_close(False)
+    assert calls == {"momentum": 1, "rotation": 1, "mwu": 1}
+
+
+def test_weekly_registry_failure_not_all_and_retried_same_week(tmp_path, monkeypatch):
+    """失败子任务不得登记 "all"; 同周续做只补失败项。"""
+    import json as _json
+    from datetime import date as _date
+
+    p, calls = _weekly_env(tmp_path, monkeypatch, datetime(2026, 10, 19, 14, 40),
+                           fail=("rotation",))
+    mod.run_close(False)
+    saved = _json.loads(p.read_text(encoding="utf-8"))
+    done = saved["_control"]["week_rebalance_done"]["2026-W43"]
+    assert done != "all" and done == ["momentum", "mwu"]
+
+    monkeypatch.setattr(mod, "EX_DATE", _date(2026, 10, 21))
+    monkeypatch.setattr(mod, "_is_week_first_trading_day", lambda: False)
+    monkeypatch.setattr(mod, "exchange_now", lambda: datetime(2026, 10, 21, 10, 0))
+
+    def _ok_rotation(*a, **k):        # 补做轮: 失败项恢复可用
+        calls["rotation"] += 1
+        return []
+    monkeypatch.setattr(mod, "rotation_signal", _ok_rotation)
+    mod.run_close(False)
+    saved = _json.loads(p.read_text(encoding="utf-8"))
+    assert saved["_control"]["week_rebalance_done"]["2026-W43"] == "all"
+    assert calls == {"momentum": 1, "rotation": 2, "mwu": 1}   # 只补 rotation
+
+
+def test_weekly_slot_message_is_honest_about_non_fill(monkeypatch):
+    """未实际成交不得声称"调仓→"（仓库硬约束）。以 B_轮动 三种路径为例。"""
+    import pandas as pd
+
+    def _feeds(n=30):
+        out = {}
+        for sym in ("518880.SH", "159915.SZ", "510300.SH"):
+            rows = [{"date": pd.Timestamp("2026-09-01") + pd.Timedelta(days=i),
+                     "close": 4.0, "open": 4.0, "high": 4.0, "low": 4.0,
+                     "volume": 1e6, "amount": 2e8} for i in range(n)]
+            rows[-1]["close"] = 4.0
+            out[sym] = pd.DataFrame(rows)
+        out["510300.SH"].loc[n - 1, "close"] = 4.8      # 唯一正动量 → 必选 510300
+        return out
+
+    monkeypatch.setattr(mod, "_load_snapshot", _feeds)
+    px = {"510300.SH": {"price": 4.8}}
+
+    # 1) 撮合窗已关: 不成交, 不得说"调仓→"
+    monkeypatch.setattr(mod, "exchange_now", lambda: datetime(2026, 10, 19, 22, 5))
+    monkeypatch.setattr(mod, "apply_orders", lambda *a, **k: [])
+    msg = mod.rotation_signal(_fake_ledger(), px, dry=False)[0]
+    assert "调仓→" not in msg and "未成交" in msg
+    assert "待续做" in msg
+
+    # 2) 撮合窗内但被拒: 标注部分未成交
+    monkeypatch.setattr(mod, "exchange_now", lambda: datetime(2026, 10, 19, 14, 40))
+    monkeypatch.setattr(mod, "apply_orders",
+                        lambda *a, **k: ["BUY 510300.SH x2500 拒绝[SESSION_CLOSED] x"])
+    msg = mod.rotation_signal(_fake_ledger(), px, dry=False)[0]
+    assert "调仓→" in msg and "部分未成交" in msg
+
+    # 3) 撮合窗内且全成交: 维持原有"调仓→"表述
+    monkeypatch.setattr(mod, "apply_orders", lambda *a, **k: [])
+    msg = mod.rotation_signal(_fake_ledger(), px, dry=False)[0]
+    assert "调仓→" in msg and "未成交" not in msg
+
+
 # ---------------------------------------------------------------- ERP 缩放执行侧
 def test_erp_scale_pass_defensive_halves_and_marks():
     """防御态首日: 主动槽 qty//2 卖出并标记; cb 槽不在作用域; 二次调用幂等。"""
