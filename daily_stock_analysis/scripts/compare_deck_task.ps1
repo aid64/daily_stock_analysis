@@ -26,9 +26,23 @@ $ErrorActionPreference = "Continue"
 $env:PYTHONIOENCODING = "utf-8"
 $py = "C:\WINDOWS\py.exe"
 if (-not (Test-Path $py)) { $py = "py" }
-& $py $RunnerPy --mode $Mode 2>&1 |
-    ForEach-Object { Add-Content -Path $LogFile -Value "$_" -Encoding UTF8 }
-$code = $LASTEXITCODE
+
+# WakeToRun only starts the hidden child (run_hidden.vbs returns immediately),
+# so hold an execution-state request for the whole run to keep the machine awake.
+Add-Type -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint esFlags);' `
+    -Name DeckPower -Namespace Win32 | Out-Null
+$ES_CONTINUOUS = [uint32]2147483648
+$ES_SYSTEM_REQUIRED = [uint32]1
+[void][Win32.DeckPower]::SetThreadExecutionState([uint32]($ES_CONTINUOUS -bor $ES_SYSTEM_REQUIRED))
+$code = 1
+try {
+    & $py $RunnerPy --mode $Mode 2>&1 |
+        ForEach-Object { Add-Content -Path $LogFile -Value "$_" -Encoding UTF8 }
+    $code = $LASTEXITCODE
+}
+finally {
+    [void][Win32.DeckPower]::SetThreadExecutionState($ES_CONTINUOUS)
+}
 $ErrorActionPreference = "Stop"
 
 Add-Content -Path $LogFile -Value "$stamp $Mode exit=$code"
