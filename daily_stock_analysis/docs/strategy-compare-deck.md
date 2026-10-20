@@ -34,7 +34,8 @@
 ## 2. 调度与时间
 
 - Windows 计划任务 `DSA_Deck_Intraday`：每 20 分钟 → `compare_deck_task.ps1 -Mode intraday`
-- 收盘轮不挂绝对时刻：盘中轮在**交易所时间 ≥15:00** 且当日未跑过（`_control.close_done` 幂等键）时自动触发——本机时钟不可信也无影响
+- Windows 计划任务 `DSA_Deck_Close`：**工作日 15:00:30**，`WakeToRun=True` + `StartWhenAvailable=True` → 同一 `-Mode intraday`；用于机器休眠时唤醒并在收盘集合竞价后触发收盘轮。与 `DSA_Deck_Intraday` 通过 runner 独占锁 + `close_done` 幂等：谁先拿到锁谁执行，另一轮打印"另一实例运行中"或"收盘轮当日已执行"后退出。
+- 收盘轮本身不挂绝对时刻：盘中轮在**交易所时间 ≥15:00** 且当日未跑过（`_control.close_done` 幂等键）时自动触发——本机时钟不可信也无影响；`DSA_Deck_Close` 只是唤醒/提前触发，不改变 15:00 撮合闸。
 - **运行窗 vs 撮合窗**：运行窗（何时进入 intraday/close 轮）= 9:30-11:30 / 13:00-15:10，15:10 后为 catch-up 补结算窗；撮合窗（何时允许新成交，`_fills_open`）= 9:30-11:30 / 13:00-**15:00**（15:00 整点含收盘集合竞价价，合法）。15:00-15:10 只结算不成交，风控动作抑制为只记录
 - 交易日历：周末前置判定（确定性、零 API 调用）；工作日接口失败保守视为交易日（marks 幂等兜底）
 - 时段/日期判断：**交易所行情时间戳**（腾讯字段[30]）+ tushare `trade_cal` 交易日历（进程内缓存）；本机时钟仅兜底
@@ -143,6 +144,40 @@ py scripts/compare_deck_cohort.py --start YYYY-MM-DD --apply    # 归档 + 开�
 - **电池策略已解除**：`DisallowStartIfOnBatteries/StopIfGoingOnBatteries = False`——交易时段盘中风控（分级熔断/E2/信用）不因用电池停摆；代价是电池续航，回滚=改回 True
 - **补跑突刺**：插电瞬间错过的高频任务会立即补跑（run_hidden 已消除弹窗； runner 有单实例锁+时段闸，补跑无害）
 
+### 8.1 唤醒收盘任务 `DSA_Deck_Close`（2026-10-21）
+
+**目的**：`DSA_Deck_Intraday` 每 20 分钟但 `WakeToRun=False`；机器休眠时会整体错过 15:00 撮合窗（10-20 实测 14:42-21:02 空档，首次建仓顺延）。新增独立任务，只在工作日 15:00:30 唤醒一次，避免给 20 分钟任务开 `WakeToRun` 导致整夜每 20 分钟唤醒。
+
+**形态**：动作与 `DSA_Deck_Intraday` 相同（`wscript.exe //B //Nologo run_hidden.vbs "powershell ... compare_deck_task.ps1 -Mode intraday"`），不会弹窗；`-Mode intraday` 在交易所时间 ≥15:00 时触发 `run_close` 并设置 `close_done`。设置：`WakeToRun=True`、`StartWhenAvailable=True`、`DisallowStartIfOnBatteries=False`、`StopIfGoingOnBatteries=False`、`MultipleInstances=IgnoreNew`、`ExecutionTimeLimit=PT2H`，principal 与既有任务一致（Interactive/Limited）。
+
+**注册**（PowerShell 原生 cmdlets；实际注册 2026-10-21）：
+
+```powershell
+$action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument '//B //Nologo "D:\daily_stock_analysis\daily_stock_analysis\scripts\run_hidden.vbs" "powershell.exe -NoProfile -ExecutionPolicy Bypass -File D:\daily_stock_analysis\daily_stock_analysis\scripts\compare_deck_task.ps1 -Mode intraday"'
+$trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At ([datetime]'15:00:30')
+$settings = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 2)
+$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+Register-ScheduledTask -TaskName 'DSA_Deck_Close' -Action $action -Trigger $trigger -Settings $settings -Principal $principal
+```
+
+**电源唤醒定时器**（必要；否则 `WakeToRun` 可能被电源策略拦截）：本机原值 AC=2（仅重要唤醒定时器）/DC=0（禁用），2026-10-21 改为 AC=1/DC=1：
+
+```powershell
+powercfg -setacvalueindex SCHEME_CURRENT SUB_SLEEP RTCWAKE 1
+powercfg -setdcvalueindex SCHEME_CURRENT SUB_SLEEP RTCWAKE 1
+powercfg -setactive SCHEME_CURRENT
+```
+
+回滚：AC=2、DC=0。
+
+**运行期保持唤醒**：`run_hidden.vbs` 的 `sh.Run cmd,0,False` 立即返回，任务调度器不再跟踪子进程；唤醒后若机器再次入睡，收盘可能被中断。`compare_deck_task.ps1` 现于 runner 运行期间持有 `SetThreadExecutionState(ES_CONTINUOUS|ES_SYSTEM_REQUIRED)`，`finally` 清除；不保持显示器常亮。该包装同时被 20 分钟任务复用。
+
+**验证（2026-10-21 01:12 冒烟）**：手动 `Start-ScheduledTask` → 隐藏链正常、日志 `intraday start/exit=0`、会话闸拒绝（交易所戳 10-20 16:14）、台账 sha256 前后一致；`NextRunTime=2026-10-21 15:00`（触发器 StartBoundary 为 15:00:30）。`powercfg -waketimers` 需管理员权限，未在非提权会话验证；任务设置项与电源值已核对。
+
+**边界**：只能从**睡眠**唤醒；整机**关机**仍无法唤醒；15:00:30 触发时若交易所戳尚未到 15:00，`run_intraday` 不触发 close，15:02 常规轮会在机器已醒的情况下补触发；若两者都没拿到撮合窗，注册表按既有语义顺延到下一交易日收盘，不补当日成交。
+
+**移除/回滚**：`Unregister-ScheduledTask -TaskName 'DSA_Deck_Close' -Confirm:$false`；电源值恢复 AC=2/DC=0；包装脚本 revert 对应提交。
+
 ## 9. 回归保护网
 
 - `tests/test_compare_deck_runner.py` 84 项：纯函数（费用/换算/时段/价差/分位/缓冲带遗留函数/回撤）+ **10-08 月度大考端到端**（mock 时间/行情/引擎，tmp 台账全链）+ 月度/周度注册表（子任务失败/顺延次日重试）+ 空槽首建仓行情预取与按当前 equity 定仓 + 子进程 UTF-8 解码 + PE 分位总闸缩放 + 独占锁四分支 + 撮合窗边界；全部离线可复现（tmp 台账，不依赖生产台账与外部库）
@@ -185,7 +220,7 @@ py scripts/compare_deck_cohort.py --start YYYY-MM-DD --apply    # 归档 + 开�
 - **盘后行情污染**：收盘后六源链个别源返回异常价（实测 tickflow 盘后 512890=1.196 vs 收盘 1.180）——调仓时段闸已隔离，但 risk_round 的异动告警在盘后手动运行时可能基于污染价误报（自动化链路只在交易时段运行，无此问题）。
 - **熔断指标**：国证2000（sz399303）为代理指标，非真正的微盘股指数（万得微盘股指数无免费实时源）；-3% 阈值为先验值，未回测校准。
 - **N 槽不可在干净克隆复现**：驱动 `quant_research/vendor/Sequoia-X/n_slot_driver.py`（vendored 第三方仓库，~299MB）与其回填行情数据均**不入库**（`.gitignore` 已忽略 `quant_research/vendor/`）。上表 N 行的"已激活"仅对本机工作区成立；干净克隆下 `sequoia_ready` 闸为假、N 槽**条件式跳过**（不报错、不参与调仓）。复现需自行 vendored Sequoia-X 并回填行情数据。
-- **运行在线依赖**：收盘轮/撮合窗要求交易日本机在 15:00-16:13 保持运行；休眠/关机错过即不补当日成交（注册表顺延至下一交易日收盘），不得用历史价回填。
+- **运行在线依赖**：收盘轮/撮合窗要求交易日本机在 15:00-16:13 保持运行；休眠时由 `DSA_Deck_Close`（WakeToRun）唤醒，整机关机仍无法唤醒；错过即不补当日成交（注册表顺延至下一交易日收盘），不得用历史价回填。
 - **A/B 数据 as-of 差异**：B 走 `feeds_snapshot_v*.pkl`（末端可能滞后，按文件 mtime 刷新、不校验末端日期）；A/G/H 走 tushare loader。解读 A/B 排名时需知悉该差异。
 
 
