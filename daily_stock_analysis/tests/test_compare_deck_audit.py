@@ -112,3 +112,40 @@ def test_audit_verdict_normal_when_all_core_pass(monkeypatch, tmp_path):
     assert _row(rows, "抽样净值")["status"] == "PASS"
     assert "结论: 正常" in out
     assert rc == 0
+
+
+# ------------------------------------------------- 时间健康/多源同日比较（A4/A5）
+def test_time_health_previous_day_stamp_is_not_clock_skew():
+    """跨日旧戳不得被当成 8h 时钟偏差（A4 实测：10-20 16:14 vs 10-21 00:30）。"""
+    status, detail = mod.time_health("20261020161400", datetime(2026, 10, 21, 0, 30))
+    assert status == "WARN"
+    assert "非当日" in detail and "本机偏差约" not in detail
+
+
+def test_time_health_same_day_pass():
+    status, _ = mod.time_health("20261021093000", datetime(2026, 10, 21, 9, 35))
+    assert status == "PASS"
+
+
+def test_source_consistency_same_date_pass():
+    """baostock 必须与腾讯**同一行情日**比较；10-20 收盘与 10-20 价一致 → PASS。"""
+    status, detail = mod.source_consistency(
+        [["2026-10-20", "4.2200"]], 4.22, "20261020161400",
+        datetime(2026, 10, 21, 0, 30))
+    assert status == "PASS" and "2026-10-20" in detail
+
+
+def test_source_consistency_intraday_skips():
+    """盘中腾讯是实时价、baostock 是上一收盘：跳过而不是误报背离。"""
+    status, detail = mod.source_consistency(
+        [["2026-10-21", "4.20"]], 4.22, "20261021100000",
+        datetime(2026, 10, 21, 10, 0))
+    assert status == "WARN" and "盘中" in detail
+
+
+def test_source_consistency_flags_divergence_on_same_date():
+    """同一行情日偏差>0.5% 仍必须 WARN（A5 的真异常路径不能丢）。"""
+    status, detail = mod.source_consistency(
+        [["2026-10-20", "4.4320"]], 4.22, "20261020161400",
+        datetime(2026, 10, 21, 0, 30))
+    assert status == "WARN" and "偏差" in detail

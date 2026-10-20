@@ -60,6 +60,51 @@ def exchange_stamp() -> str:
         return ""
 
 
+def time_health(stamp: str, now: datetime | None = None) -> tuple[str, str]:
+    """交易所时间戳 vs 本机时钟；跨日旧戳只标注，绝不做跨日相减。"""
+    now = now or datetime.now()
+    if not stamp:
+        return "WARN", "交易所时间戳缺失"
+    try:
+        ex = datetime.strptime(stamp[:14], "%Y%m%d%H%M%S")
+    except ValueError:
+        return "WARN", f"交易所时间戳格式异常: {stamp[:16]}"
+    if ex.date() != now.date():
+        return "WARN", f"交易所时间戳 {ex:%m-%d %H:%M} 非当日（市场已收盘），不计算本机偏差"
+    skew_min = abs((now - ex).total_seconds()) / 60
+    status = "WARN" if skew_min > 12 * 60 else "PASS"
+    return status, (f"交易所时间戳 {ex:%m-%d %H:%M} | 本机偏差约 {skew_min/60:.1f}h"
+                    "（时钟不可信已知, 执行器已用交易所时间校准）")
+
+
+def source_consistency(bs_rows: list, tencent_price, stamp: str,
+                       now: datetime | None = None) -> tuple[str, str]:
+    """baostock 与腾讯按**同一行情日**比较；盘中不比较实时价与上一收盘。"""
+    now = now or datetime.now()
+    if not stamp:
+        return "WARN", "交易所时间戳缺失, 无法同日比较"
+    try:
+        qdt = datetime.strptime(stamp[:14], "%Y%m%d%H%M%S")
+    except ValueError:
+        return "WARN", f"交易所时间戳格式异常: {stamp[:16]}"
+    if qdt.date() == now.date() and qdt.hour * 100 + qdt.minute < 1500:
+        return "WARN", "盘中不校验(腾讯为实时价, baostock 为上一收盘)"
+    qdate = qdt.strftime("%Y-%m-%d")
+    row = next((r for r in bs_rows if str(r[0]) == qdate), None)
+    if row is None:
+        return "WARN", f"baostock 缺 {qdate} 收盘"
+    try:
+        bs_close = float(row[1])
+    except (TypeError, ValueError):
+        return "WARN", f"baostock {qdate} 收盘无效"
+    if not tencent_price:
+        return "WARN", f"腾讯缺 {qdate} 价格"
+    tt = float(tencent_price)
+    if abs(bs_close - tt) / tt > 0.005:
+        return "WARN", f"baostock {bs_close} vs 腾讯 {tt} 偏差>0.5% ({qdate})"
+    return "PASS", f"baostock {bs_close} ≈ 腾讯 {tt} ({qdate})"
+
+
 def main() -> int:
     # 1. 台账
     led = {}
@@ -165,33 +210,29 @@ def main() -> int:
         check("抽样净值", "WARN", "无可抽样持仓(行情缺失)")
     elif not any(r["check"] == "抽样净值" and r["status"] == "FAIL" for r in results):
         check("抽样净值", "PASS", "; ".join(drifts))
-    # 4b. 多源交叉验证: baostock vs 腾讯 同标的收盘价偏差
+    # 4b. 多源交叉验证: baostock vs 腾讯 同一行情日收盘价
+    stamp = exchange_stamp()
     try:
         import baostock as bs
-        lg = bs.login()
-        rs = bs.query_history_k_data_plus("sh.510300", "date,close",
-                                          start_date="2026-09-30", end_date="2026-09-30")
+        bs.login()
+        today = datetime.now().date()
+        rs = bs.query_history_k_data_plus(
+            "sh.510300", "date,close",
+            start_date=(today - timedelta(days=10)).isoformat(),
+            end_date=today.isoformat())
         bs_rows = []
         while rs.error_code == "0" and rs.next():
             bs_rows.append(rs.get_row_data())
         bs.logout()
-        if bs_rows:
-            bs_close = float(bs_rows[-1][1])
-            tt = tencent_live(["sh510300"]).get("510300")
-            if tt and abs(bs_close - tt) / tt > 0.005:
-                check("多源一致性", "WARN", f"baostock {bs_close} vs 腾讯 {tt} 偏差>0.5%")
-            else:
-                check("多源一致性", "PASS", f"baostock {bs_close} ≈ 腾讯 {tt}")
+        tt = tencent_live(["sh510300"]).get("510300")
+        status, detail = source_consistency(bs_rows, tt, stamp, datetime.now())
+        check("多源一致性", status, detail)
     except Exception as exc:
         check("多源一致性", "WARN", f"交叉验证不可用: {exc!r:.60}")
 
-    # 5. 时间健康
-    stamp = exchange_stamp()
-    if stamp:
-        ex = datetime.strptime(stamp[:14], "%Y%m%d%H%M%S")
-        skew_min = abs((datetime.now() - ex).total_seconds()) / 60
-        check("时间健康", "WARN" if skew_min > 12 * 60 else "PASS",
-              f"交易所时间戳 {ex:%m-%d %H:%M} | 本机偏差约 {skew_min/60:.1f}h (时钟不可信已知, 执行器已用交易所时间校准)")
+    # 5. 时间健康（跨日旧戳只标注，不把日期边界误报成时钟偏差）
+    status, detail = time_health(stamp, datetime.now())
+    check("时间健康", status, detail)
 
     _emit()
     n_fail = sum(1 for r in results if r["status"] == "FAIL")

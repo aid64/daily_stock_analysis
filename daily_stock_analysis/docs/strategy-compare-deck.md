@@ -140,7 +140,7 @@ py scripts/compare_deck_cohort.py --start YYYY-MM-DD --apply    # 归档 + 开�
 - **事件发现双通道（职责不同非重复）**：server 常驻进程的 EventArbitrageMonitor（每 60 分钟，推送告警）+ runner 的 event_round（每半天，价差核验→X 建仓）。同一公告可能两通道各推一次（dedup 键不同），属预期行为
 - **N 槽已激活**：Sequoia-X 回填完成（231 万行 = 其配置全量 2024-01 起），闸门修正为 200 万行+最新 bar 10 天内
 
-- **弹窗修复**：所有 `DSA_*` 计划任务动作经 `scripts/run_hidden.vbs`（SW_HIDE 在 CreateProcess 阶段生效，绕过 Windows Terminal 默认终端接管）——审计确认执行链完好
+- **弹窗修复**：所有 `DSA_*` 计划任务动作经 `scripts/run_hidden.vbs`（SW_HIDE 在 CreateProcess 阶段生效，绕过 Windows Terminal 默认终端接管）；收盘任务用 `scripts/run_hidden_sync.vbs`（同样隐藏，但**等待子进程**并回传退出码，避免任务调度器在 launcher 退出后清理子进程）——审计确认执行链完好
 - **电池策略已解除**：`DisallowStartIfOnBatteries/StopIfGoingOnBatteries = False`——交易时段盘中风控（分级熔断/E2/信用）不因用电池停摆；代价是电池续航，回滚=改回 True
 - **补跑突刺**：插电瞬间错过的高频任务会立即补跑（run_hidden 已消除弹窗； runner 有单实例锁+时段闸，补跑无害）
 
@@ -148,12 +148,12 @@ py scripts/compare_deck_cohort.py --start YYYY-MM-DD --apply    # 归档 + 开�
 
 **目的**：`DSA_Deck_Intraday` 每 20 分钟但 `WakeToRun=False`；机器休眠时会整体错过 15:00 撮合窗（10-20 实测 14:42-21:02 空档，首次建仓顺延）。新增独立任务，只在工作日 15:00:30 唤醒一次，避免给 20 分钟任务开 `WakeToRun` 导致整夜每 20 分钟唤醒。
 
-**形态**：动作与 `DSA_Deck_Intraday` 相同（`wscript.exe //B //Nologo run_hidden.vbs "powershell ... compare_deck_task.ps1 -Mode intraday"`），不会弹窗；`-Mode intraday` 在交易所时间 ≥15:00 时触发 `run_close` 并设置 `close_done`。设置：`WakeToRun=True`、`StartWhenAvailable=True`、`DisallowStartIfOnBatteries=False`、`StopIfGoingOnBatteries=False`、`MultipleInstances=IgnoreNew`、`ExecutionTimeLimit=PT2H`，principal 与既有任务一致（Interactive/Limited）。
+**形态**：动作使用 `scripts/run_hidden_sync.vbs`（`wscript.exe //B //Nologo run_hidden_sync.vbs "powershell ... compare_deck_task.ps1 -Mode intraday"`）：同样隐藏窗口，但 **`sh.Run(cmd,0,True)` 等待子进程并回传退出码**——任务调度器全程跟踪，`LastTaskResult` 有意义，避免 `run_hidden.vbs` 非等待导致 launcher 退出后子进程被清理（实测曾丢 exit 行）。`-Mode intraday` 在交易所时间 ≥15:00 时触发 `run_close` 并设置 `close_done`。设置：`WakeToRun=True`、`StartWhenAvailable=True`、`DisallowStartIfOnBatteries=False`、`StopIfGoingOnBatteries=False`、`MultipleInstances=IgnoreNew`、`ExecutionTimeLimit=PT2H`，principal 与既有任务一致（Interactive/Limited）。
 
 **注册**（PowerShell 原生 cmdlets；实际注册 2026-10-21）：
 
 ```powershell
-$action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument '//B //Nologo "D:\daily_stock_analysis\daily_stock_analysis\scripts\run_hidden.vbs" "powershell.exe -NoProfile -ExecutionPolicy Bypass -File D:\daily_stock_analysis\daily_stock_analysis\scripts\compare_deck_task.ps1 -Mode intraday"'
+$action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument '//B //Nologo "D:\daily_stock_analysis\daily_stock_analysis\scripts\run_hidden_sync.vbs" "powershell.exe -NoProfile -ExecutionPolicy Bypass -File D:\daily_stock_analysis\daily_stock_analysis\scripts\compare_deck_task.ps1 -Mode intraday"'
 $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At ([datetime]'15:00:30')
 $settings = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 2)
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
@@ -170,9 +170,9 @@ powercfg -setactive SCHEME_CURRENT
 
 回滚：AC=2、DC=0。
 
-**运行期保持唤醒**：`run_hidden.vbs` 的 `sh.Run cmd,0,False` 立即返回，任务调度器不再跟踪子进程；唤醒后若机器再次入睡，收盘可能被中断。`compare_deck_task.ps1` 现于 runner 运行期间持有 `SetThreadExecutionState(ES_CONTINUOUS|ES_SYSTEM_REQUIRED)`，`finally` 清除；不保持显示器常亮。该包装同时被 20 分钟任务复用。
+**运行期保持唤醒**：任务被 sync launcher 跟踪并不等于系统不会休眠；`compare_deck_task.ps1` 于 runner 运行期间持有 `SetThreadExecutionState(ES_CONTINUOUS|ES_SYSTEM_REQUIRED)`，`finally` 清除；不保持显示器常亮。该包装同时被 20 分钟任务复用（常规任务仍用非等待的 `run_hidden.vbs`）。
 
-**验证（2026-10-21 01:12 冒烟）**：手动 `Start-ScheduledTask` → 隐藏链正常、日志 `intraday start/exit=0`、会话闸拒绝（交易所戳 10-20 16:14）、台账 sha256 前后一致；`NextRunTime=2026-10-21 15:00`（触发器 StartBoundary 为 15:00:30）。`powercfg -waketimers` 需管理员权限，未在非提权会话验证；任务设置项与电源值已核对。
+**验证（2026-10-21）**：01:12 注册后首次冒烟；01:33 切换 sync launcher 后复测——隐藏链正常、日志 `intraday start` /「非交易时段(交易所时间 10-20 16:14)，跳过 intraday 轮」/ `exit=0`（中文为可读 UTF-8，exit 行使用结束时间戳）、会话闸拒绝、台账 sha256 前后一致；任务 `LastTaskResult=0`、`NextRunTime=2026-10-21 15:00`（触发器 StartBoundary 为 15:00:30）。`powercfg -waketimers` 需管理员权限，未在非提权会话验证；任务设置项与电源值已核对。
 
 **边界**：只能从**睡眠**唤醒；整机**关机**仍无法唤醒；15:00:30 触发时若交易所戳尚未到 15:00，`run_intraday` 不触发 close，15:02 常规轮会在机器已醒的情况下补触发；若两者都没拿到撮合窗，注册表按既有语义顺延到下一交易日收盘，不补当日成交。
 
@@ -181,7 +181,7 @@ powercfg -setactive SCHEME_CURRENT
 ## 9. 回归保护网
 
 - `tests/test_compare_deck_runner.py` 84 项：纯函数（费用/换算/时段/价差/分位/缓冲带遗留函数/回撤）+ **10-08 月度大考端到端**（mock 时间/行情/引擎，tmp 台账全链）+ 月度/周度注册表（子任务失败/顺延次日重试）+ 空槽首建仓行情预取与按当前 equity 定仓 + 子进程 UTF-8 解码 + PE 分位总闸缩放 + 独占锁四分支 + 撮合窗边界；全部离线可复现（tmp 台账，不依赖生产台账与外部库）
-- `tests/test_paper_execution.py` 21 项（任务 08 执行内核：11 拒绝码/整手/涨跌停/T+1/现金守恒）+ `tests/test_compare_deck_cohort.py` 8 项（开账/种子/容器契约）+ `tests/test_compare_deck_audit.py` 5 项 + `tests/test_deck_registry.py` 6 项 + `tests/test_deck_slot_contracts.py` 17 项 + `tests/test_compare_deck_shadow.py` 10 项：审计三态结论/退出码传播 + 注册表 18 槽/PE 分位总闸作用域单一真源一致性 + 槽位数据契约 + 影子只读校验
+- `tests/test_paper_execution.py` 21 项（任务 08 执行内核：11 拒绝码/整手/涨跌停/T+1/现金守恒）+ `tests/test_compare_deck_cohort.py` 8 项（开账/种子/容器契约）+ `tests/test_compare_deck_audit.py` 10 项（含时间健康跨日戳/多源同日比较）+ `tests/test_deck_registry.py` 6 项 + `tests/test_deck_slot_contracts.py` 17 项 + `tests/test_compare_deck_shadow.py` 10 项：审计三态结论/退出码传播 + 注册表 18 槽/PE 分位总闸作用域单一真源一致性 + 槽位数据契约 + 影子只读校验
 - 探针提取脚本 `quant_research/scripts/extract_mwu_targets.py`（ETFMWUProbe/MomentumProbe）曾因多轮 patch 丢 `_target_portfolio`——修改探针后必须跑端到端回归
 
 ## 10. 审计与真钱
@@ -193,6 +193,7 @@ powercfg -setactive SCHEME_CURRENT
   - 核心证据全 ✓ → 结论 `正常`，退出码 0
   - 台账不可读 → 退出码 2
 - 关键 FAIL 判据：marks 断供 >15 天 FAIL / >10 天 WARN；最近 intraday 执行日志 exit≠0 → FAIL；抽样净值偏差超阈 → FAIL
+- 时间健康 / 多源一致性（2026-10-21 修）：时间戳非当日只标注「市场已收盘」，不再把跨日旧戳误报为 7.8h 时钟偏差；多源一致性按**同一行情日**比较 baostock 与腾讯（盘中跳过），不再拿硬编码 2026-09-30 与实时价比较
 - 真钱手册：`docs/real-money-playbook.md`（Y 逆回购券商操作 / X 事件套利人工复核清单 / 晋升流程）
 
 ## 11. 三项数据增强（2026-10-03 落地）

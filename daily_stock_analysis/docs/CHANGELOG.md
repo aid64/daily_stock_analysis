@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
-- [改进] 对比盘新增工作日 15:00:30 的 `DSA_Deck_Close` 唤醒收盘任务（`WakeToRun` + `StartWhenAvailable`，复用 `run_hidden.vbs` 隐藏启动链），并在 `compare_deck_task.ps1` 运行期持有 `SetThreadExecutionState(ES_SYSTEM_REQUIRED|ES_CONTINUOUS)`，避免唤醒后机器再次休眠中断收盘；电源策略唤醒定时器由 AC=2（仅重要）/DC=0（禁用）改为 AC=1/DC=1。10-20 的 15:02 首次撮合窗因机器休眠错过，此任务用于后续交易日兜底；未改 runner/台账。移除：`Unregister-ScheduledTask -TaskName 'DSA_Deck_Close' -Confirm:$false`。
+- [改进] 对比盘新增工作日 15:00:30 的 `DSA_Deck_Close` 唤醒收盘任务（`WakeToRun` + `StartWhenAvailable`；收盘任务用等待子进程并回传退出码的 `run_hidden_sync.vbs`，常规 20 分钟任务仍用非等待的 `run_hidden.vbs`），并在 `compare_deck_task.ps1` 运行期持有 `SetThreadExecutionState(ES_SYSTEM_REQUIRED|ES_CONTINUOUS)`，避免唤醒后机器再次休眠中断收盘；日志按 UTF-8 读写（中文不再 mojibake），exit 行改用结束时间戳；电源策略唤醒定时器由 AC=2（仅重要）/DC=0（禁用）改为 AC=1/DC=1。10-20 的 15:02 首次撮合窗因机器休眠错过，此任务用于后续交易日兜底；未改 runner/台账。移除：`Unregister-ScheduledTask -TaskName 'DSA_Deck_Close' -Confirm:$false`。
+- [修复] 对比盘审计 A4/A5：时间健康对跨日旧戳不再跨日相减（只标注"非当日/市场已收盘"），多源一致性不再硬编码 2026-09-30，改为按腾讯时间戳的**同一行情日**比较（盘中跳过）；实测 baostock 10-20 收盘 4.2200 vs 腾讯 4.22 → PASS，A5 假警报关闭。补 5 条审计回归。
 - [修复] 对比盘**首次建仓空槽行情预取**（首建仓阻断）：`slot_prices` 只预热已持仓代码，A/B/G/H/C/D/E 的目标标的在空槽首建仓时不在 `px` → A/G/H 静默"目标未变"、B 缺价 TypeError、C/D 无报价、E 转债六源链不覆盖；现 A/B/G/H/C/D 目标显式 `ensure_prices`，E/H 转债走腾讯直连补价（`_fill_cb_prices`），H 槽转债按 10 张/手、F/F2 候选也预取；任一目标缺价返回【异常】不登记，次日续做。补空槽/转债/小市值/基准回归。
 - [修复] 对比盘注册表**静默顺延**与 E 异常：A/B/G/H 二次撮合闸失败返回"待续做"但注册表只识别【异常】→ 被误登记成功（周/月整批可能 `"all"` 却未成交）；E `cb_rebalance` 异常返回 `[]` 同样被登记成功。现 A/B/G/H 以【顺延】前缀上报、注册表对【异常】/【顺延】均不登记；E 异常显式返回【异常】。补周度顺延重试与 E 异常回归。
 - [改进] 对比盘 A/B/G/H/E 定仓统一按调仓时**当前 equity**（与引擎 `broker.getvalue()` 同口径；此前 A/B/G/H 用初始 CAPITAL，主动槽不复利、对 C 比较系统性偏低）；5 处 quant 子进程统一 UTF-8 解码（任务环境 `PYTHONIOENCODING=utf-8` + 父进程 cp936 会在读取线程静默丢 stderr），补真实子进程回归；运维真源同步 §2.1/§3/§5/§9/§13。

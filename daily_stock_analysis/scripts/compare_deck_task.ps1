@@ -24,6 +24,7 @@ Add-Content -Path $LogFile -Value "$stamp $Mode start"
 
 $ErrorActionPreference = "Continue"
 $env:PYTHONIOENCODING = "utf-8"
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
 $py = "C:\WINDOWS\py.exe"
 if (-not (Test-Path $py)) { $py = "py" }
 
@@ -44,6 +45,7 @@ finally {
     [void][Win32.DeckPower]::SetThreadExecutionState($ES_CONTINUOUS)
 }
 $ErrorActionPreference = "Stop"
+$endStamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ss"
 
-Add-Content -Path $LogFile -Value "$stamp $Mode exit=$code"
+Add-Content -Path $LogFile -Value "$endStamp $Mode exit=$code"
 exit $code
