@@ -278,6 +278,14 @@ def test_mwu_target_orders_skips_missing_price():
     assert sells == [] and buys == []
 
 
+def test_mwu_target_orders_cb_lot_is_ten():
+    """H 槽目标可含转债：必须按 10 张/手，不能按 ETF 的 100 股/手。"""
+    sells, buys = mod.mwu_target_orders({"113631.SH": 0.5}, {}, {"113631.SH": 100.0},
+                                        capital=10000.0)
+    assert sells == []
+    assert {"symbol": "113631.SH", "qty": 50, "price": 100.0} in buys
+
+
 # ---------------------------------------------------------------- momentum_target_from_engine
 def test_momentum_engine_defensive_mode_full_defensive():
     data = {"defensive_mode": True, "ranked": [], "top_k": 3}
@@ -536,7 +544,7 @@ def test_monthly_registry_deferred_outside_fills_window(tmp_path, monkeypatch):
 
 
 # ------------------------------------------------- 周度注册表(与月度同构/消息据实)
-def _weekly_env(tmp_path, monkeypatch, fills_time, fail=()):
+def _weekly_env(tmp_path, monkeypatch, fills_time, fail=(), defer=()):
     """周度块聚焦环境: fake 台账 + 周频三槽 mock, 返回 (台账路径, 各策略调用计数)。"""
     import json as _json
     from datetime import date as _date
@@ -564,7 +572,11 @@ def _weekly_env(tmp_path, monkeypatch, fills_time, fail=()):
     def _seam(name):
         def f(*a, **k):
             calls[name] += 1
-            return ["【异常】fixture engine failed"] if name in fail else [f"{name} 调仓→fixture"]
+            if name in fail:
+                return ["【异常】fixture engine failed"]
+            if name in defer:
+                return ["【顺延】fixture deferred"]
+            return [f"{name} 调仓→fixture"]
         return f
 
     monkeypatch.setattr(mod, "momentum_signal", _seam("momentum"))
@@ -629,6 +641,32 @@ def test_weekly_registry_failure_not_all_and_retried_same_week(tmp_path, monkeyp
     assert calls == {"momentum": 1, "rotation": 2, "mwu": 1}   # 只补 rotation
 
 
+def test_weekly_registry_defers_when_subtask_reports_deferral(tmp_path, monkeypatch):
+    """子任务自报【顺延】不得登记为成功；同周后续交易日必须重试。"""
+    import json as _json
+    from datetime import date as _date
+
+    p, calls = _weekly_env(tmp_path, monkeypatch, datetime(2026, 10, 19, 14, 40),
+                           defer=("rotation",))
+    mod.run_close(False)
+    saved = _json.loads(p.read_text(encoding="utf-8"))
+    done = saved["_control"]["week_rebalance_done"]["2026-W43"]
+    assert done != "all" and done == ["momentum", "mwu"]
+    assert calls == {"momentum": 1, "rotation": 1, "mwu": 1}
+
+    monkeypatch.setattr(mod, "EX_DATE", _date(2026, 10, 20))
+    monkeypatch.setattr(mod, "_is_week_first_trading_day", lambda: False)
+    monkeypatch.setattr(mod, "exchange_now", lambda: datetime(2026, 10, 20, 14, 40))
+    def _retry_rotation(*a, **k):
+        calls["rotation"] += 1
+        return ["rotation 调仓→fixture"]
+    monkeypatch.setattr(mod, "rotation_signal", _retry_rotation)
+    mod.run_close(False)
+    saved = _json.loads(p.read_text(encoding="utf-8"))
+    assert saved["_control"]["week_rebalance_done"]["2026-W43"] == "all"
+    assert calls == {"momentum": 1, "rotation": 2, "mwu": 1}
+
+
 def test_weekly_slot_message_is_honest_about_non_fill(monkeypatch):
     """未实际成交不得声称"调仓→"（仓库硬约束）。以 B_轮动 三种路径为例。"""
     import pandas as pd
@@ -651,6 +689,7 @@ def test_weekly_slot_message_is_honest_about_non_fill(monkeypatch):
     monkeypatch.setattr(mod, "exchange_now", lambda: datetime(2026, 10, 19, 22, 5))
     monkeypatch.setattr(mod, "apply_orders", lambda *a, **k: [])
     msg = mod.rotation_signal(_fake_ledger(), px, dry=False)[0]
+    assert msg.startswith("【顺延】")            # 注册表据此前缀判定"未完成"
     assert "调仓→" not in msg and "未成交" in msg
     assert "待续做" in msg
 
@@ -1314,3 +1353,155 @@ def test_e2_exit_buy_rejected_keeps_defensive_state(tmp_path, monkeypatch):
     assert any("无持仓可恢复" in m for m in msgs2)
     assert led1["_control"]["e2_state"] == "normal"
     assert "e2_pre_defensive_qty" not in led1["_control"]
+
+
+# ------------------------------------------------- 首建仓 P0: 行情预取/定仓/编码
+def test_run_cmd_decodes_utf8_child_output(tmp_path, monkeypatch):
+    """任务包装强制子进程输出 UTF-8；父进程必须按 UTF-8 解码，不得静默丢 stdout/stderr。"""
+    child = tmp_path / "child_utf8.py"
+    child.write_text("import sys\nprint('中文stdout')\nprint('中文stderr', file=sys.stderr)\n",
+                     encoding="utf-8")
+    monkeypatch.setenv("PYTHONIOENCODING", "utf-8")
+    r = mod._run_cmd([sys.executable, str(child)], tmp_path, 30)
+    assert r.returncode == 0
+    assert "中文stdout" in (r.stdout or "")
+    assert "中文stderr" in (r.stderr or "")
+
+
+def test_ensure_prices_uses_tencent_for_cb(monkeypatch):
+    """六源链覆盖不到转债：ensure_prices 必须走腾讯直连，否则 E 首建仓 NO_QUOTE。"""
+    monkeypatch.setattr(mod, "realtime_quotes",
+                        lambda codes: {c: {"price": 0.0, "pct": 0.0} for c in codes})
+    monkeypatch.setattr(mod, "tencent_quotes",
+                        lambda codes: {"113631": {"price": 128.5, "pct": 0.1, "name": "测试转债"}})
+    px = mod.ensure_prices({}, ["113631.SH"])
+    assert px["113631.SH"]["price"] == 128.5
+    assert px["113631.SH"]["source"] == "tencent_cb"
+
+
+def test_slot_prices_fills_cb_holdings_via_tencent(monkeypatch):
+    led = {"strategies": {"E_可转债双低": {
+        "holds": [{"symbol": "113062.SH", "qty": 20, "price": 120.0}], "cash": 0.0}}}
+    monkeypatch.setattr(mod, "realtime_quotes",
+                        lambda codes: {c: {"price": 0.0, "pct": 0.0} for c in codes})
+    monkeypatch.setattr(mod, "tencent_quotes",
+                        lambda codes: {"113062": {"price": 126.0, "pct": 0.2, "name": "常银转债"}})
+    px = mod.slot_prices(led)
+    assert px["113062.SH"]["price"] == 126.0
+
+
+def test_momentum_signal_prefetches_target_quotes_and_sizes_on_equity(monkeypatch):
+    """空槽首建仓：目标 ETF 必须预取报价；定仓基数为当前权益而非初始本金。"""
+    import json as _json
+    from types import SimpleNamespace
+
+    slot = {"holds": [], "cash": 21000.0, "equity": 21000.0}
+    led = {"strategies": {"A_动量": slot}}
+    engine = _json.dumps({"as_of": "2026-10-21",
+                          "ranked": [{"symbol": "510300.SH"}, {"symbol": "510880.SH"}],
+                          "top_k": 2, "defensive_mode": False})
+    monkeypatch.setattr(mod, "_run_cmd",
+                        lambda cmd, cwd, timeout: SimpleNamespace(
+                            stdout=engine, stderr="", returncode=0))
+    monkeypatch.setattr(mod, "realtime_quotes",
+                        lambda codes: {c: {"price": 10.0, "pct": 0.0} for c in codes})
+    monkeypatch.setattr(mod, "exchange_now", lambda: datetime(2026, 10, 21, 14, 40))
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 21))
+    monkeypatch.setattr(mod, "_TRADING_OK", True)
+
+    msgs = mod.momentum_signal(led, {}, dry=False)
+    got = {h["symbol"]: h["qty"] for h in slot["holds"]}
+    assert got == {"510300.SH": 1000, "510880.SH": 1000}       # 21000×0.5/10，不是 12411×0.5/10
+    assert "调仓→" in msgs[0]
+
+
+def test_rotation_signal_prefetches_target_quotes_and_sizes_on_equity(monkeypatch):
+    import pandas as pd
+
+    def _feeds(n=30):
+        out = {}
+        for sym in ("518880.SH", "159915.SZ", "510300.SH"):
+            rows = [{"date": pd.Timestamp("2026-09-01") + pd.Timedelta(days=i),
+                     "close": 4.0, "open": 4.0, "high": 4.0, "low": 4.0,
+                     "volume": 1e6, "amount": 2e8} for i in range(n)]
+            out[sym] = pd.DataFrame(rows)
+        out["510300.SH"].loc[n - 1, "close"] = 4.8
+        return out
+
+    monkeypatch.setattr(mod, "_load_snapshot", _feeds)
+    monkeypatch.setattr(mod, "realtime_quotes",
+                        lambda codes: {c: {"price": 4.8 if c == "510300.SH" else 4.0,
+                                           "pct": 0.0} for c in codes})
+    monkeypatch.setattr(mod, "exchange_now", lambda: datetime(2026, 10, 21, 14, 40))
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 21))
+    monkeypatch.setattr(mod, "_TRADING_OK", True)
+    slot = {"holds": [], "cash": 21000.0, "equity": 21000.0}
+    led = {"strategies": {"B_轮动": slot}}
+
+    msgs = mod.rotation_signal(led, {}, dry=False)
+    assert slot["holds"] and slot["holds"][0]["symbol"] == "510300.SH"
+    assert slot["holds"][0]["qty"] == 4200                      # 21000×0.98/4.8
+    assert "调仓→" in msgs[0]
+
+
+def test_mwu_rebalance_prefetches_target_quotes_and_sizes_on_equity(monkeypatch):
+    import json as _json
+    from types import SimpleNamespace
+
+    slot = {"holds": [], "cash": 21000.0, "equity": 21000.0}
+    led = {"strategies": {"G_MWU融合": slot}}
+    engine = _json.dumps({"as_of": "2026-10-21", "target": {"510300.SH": 0.9},
+                          "expert_weights": {}})
+    monkeypatch.setattr(mod, "_run_cmd",
+                        lambda cmd, cwd, timeout: SimpleNamespace(
+                            stdout=engine, stderr="", returncode=0))
+    monkeypatch.setattr(mod, "realtime_quotes",
+                        lambda codes: {c: {"price": 10.0, "pct": 0.0} for c in codes})
+    monkeypatch.setattr(mod, "exchange_now", lambda: datetime(2026, 10, 21, 14, 40))
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 21))
+    monkeypatch.setattr(mod, "_TRADING_OK", True)
+
+    msgs = mod.mwu_rebalance(led, {}, dry=False)
+    assert slot["holds"] and slot["holds"][0]["qty"] == 1800   # 21000×0.9/10，不是 12411×0.9/10
+    assert "调仓→" in msgs[0]
+
+
+def test_benchmark_build_prefetches_quote_when_slot_empty(monkeypatch):
+    slot = {"holds": [], "cash": 12411.0, "equity": 12411.0}
+    led = {"strategies": {"C_沪深300持有": slot}}
+    monkeypatch.setattr(mod, "realtime_quotes",
+                        lambda codes: {c: {"price": 4.4, "pct": 0.0} for c in codes})
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 21))
+    monkeypatch.setattr(mod, "_TRADING_OK", True)
+
+    msgs = mod.benchmark_build_one(led, "C_沪深300持有", "510300.SH", {}, dry=False)
+    assert slot["holds"] and slot["holds"][0]["symbol"] == "510300.SH"
+    assert "建仓→" in msgs[0]
+
+
+def test_cb_rebalance_exception_is_reported_as_abnormal(monkeypatch):
+    """E 异常必须上报【异常】；返回 [] 会被注册表误登记为成功。"""
+    def _boom(*a, **k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(mod, "_run_cmd", _boom)
+    msgs = mod.cb_rebalance(_fake_ledger(), {}, dry=False)
+    assert msgs and msgs[0].startswith("【异常】")
+
+
+def test_smallcap_rebalance_prefetches_quotes_for_empty_slot(monkeypatch):
+    """F/F2 首建仓同样不能只依赖已持仓预热列表。"""
+    slot = {"holds": [], "cash": 12411.0, "equity": 12411.0}
+    led = {"strategies": {"F_小市值20": slot}}
+    monkeypatch.setattr(mod, "smallcap_universe",
+                        lambda *a, **k: [{"ts_code": "301578.SZ", "name": "辰奕智能",
+                                          "circ_mv": 100, "close": 23.0}])
+    monkeypatch.setattr(mod, "realtime_quotes",
+                        lambda codes: {c: {"price": 23.0, "pct": 0.0} for c in codes})
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 21))
+    monkeypatch.setattr(mod, "_TRADING_OK", True)
+
+    msgs = mod.smallcap_rebalance(led, "F_小市值20", 20, 2500, True, {}, False)
+    assert slot["holds"] and slot["holds"][0]["symbol"] == "SZ301578"
+    assert slot["holds"][0]["qty"] == 100
+    assert "月度再平衡" in msgs[0]
