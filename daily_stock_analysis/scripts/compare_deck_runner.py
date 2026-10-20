@@ -182,15 +182,71 @@ def notify(content: str, dedup_key: str, dry: bool = False) -> bool:
         return False
 
 
+def _is_cb_symbol(symbol: str) -> bool:
+    """转债走腾讯直连；六源实时链对带后缀转债代码覆盖不到（文档 §3 数据源）。"""
+    try:
+        from src.core.paper_execution import AssetClass
+        from src.services import deck_registry
+        return deck_registry.classify_symbol(symbol) == AssetClass.CB
+    except Exception:
+        return False
+
+
+def _fill_cb_prices(px: dict, symbols: list[str]) -> dict:
+    missing = [s for s in symbols
+               if not px.get(s, {}).get("price") and _is_cb_symbol(s)]
+    if not missing:
+        return px
+    codes6 = []
+    for s in missing:
+        code = str(s).split(".")[0]
+        prefix = "sh" if (str(s).upper().endswith(".SH")
+                          or code.startswith(("110", "111", "113", "118"))) else "sz"
+        codes6.append(prefix + code)
+    quotes = tencent_quotes(codes6)
+    for s in missing:
+        info = quotes.get(str(s).split(".")[0])
+        if info and info.get("price"):
+            px[s] = {**info, "source": "tencent_cb"}
+    return px
+
+
 def ensure_prices(px: dict, symbols: list[str]) -> dict:
-    """补齐候选标的缺失报价(新槽首建仓时 symbol 不在已持仓预热列表)——就地更新 px。"""
+    """补齐候选标的缺失报价(新槽首建仓时 symbol 不在已持仓预热列表)——就地更新 px。
+
+    转债（E/H）不在六源实时链覆盖范围，走腾讯直连；其余走项目实时链。
+    """
     missing = [s for s in symbols if not px.get(s, {}).get("price")]
     if not missing:
         return px
-    for code, info in realtime_quotes(missing).items():
-        if info.get("price"):
-            px[code] = info
+    cb = [s for s in missing if _is_cb_symbol(s)]
+    other = [s for s in missing if s not in cb]
+    if other:
+        for code, info in realtime_quotes(other).items():
+            if info.get("price"):
+                px[code] = info
+    if cb:
+        _fill_cb_prices(px, cb)
     return px
+
+
+def slot_equity(slot: dict, px: dict) -> float:
+    """调仓时点的当前权益（现金+持仓市值，缺价回退成本价）——定仓基数统一口径。"""
+    eq = float(slot.get("cash", 0.0))
+    for h in slot.get("holds", []):
+        if h.get("fixed_value"):
+            eq += float(h.get("notional", 0.0))
+            continue
+        price = (px.get(h["symbol"]) or {}).get("price") or h.get("price", 0)
+        eq += float(h.get("qty", 0)) * float(price or 0)
+    return eq
+
+
+def _run_cmd(cmd: list[str], cwd: Path, timeout: int):
+    """跨项目子进程统一 UTF-8 解码：任务环境设置 PYTHONIOENCODING=utf-8，
+    父进程默认按 cp936 解码会在读取线程静默抛 UnicodeDecodeError（PR #14 同类）。"""
+    return subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", timeout=timeout)
 
 
 def _chunks(lst: list, n: int):
@@ -266,7 +322,7 @@ def slot_prices(led: dict, extra: list[str] | None = None) -> dict[str, dict]:
         for h in s.get("holds", []):
             codes.append(h["symbol"])
     codes += list(extra or [])
-    return realtime_quotes(list(dict.fromkeys(codes)))
+    return _fill_cb_prices(realtime_quotes(list(dict.fromkeys(codes))), codes)
 
 
 # ---------------------------------------------------------------- 交易原语
@@ -460,9 +516,9 @@ def maybe_refresh_snapshot(dry: bool) -> str:
         return f"[dry] 快照已过期, 将重建→{target.name}"
     try:
         start = (EX_DATE - __import__("datetime").timedelta(days=450)).isoformat()
-        subprocess.run([sys.executable, str(PROJECT_DIR.parent / "quant_research" / "scripts" / "build_feeds_snapshot.py"),
-                        "--start", start, "--output", str(target)],
-                       cwd=str(PROJECT_DIR.parent / "quant_research"), capture_output=True, text=True, timeout=900)
+        _run_cmd([sys.executable, str(PROJECT_DIR.parent / "quant_research" / "scripts" / "build_feeds_snapshot.py"),
+                  "--start", start, "--output", str(target)],
+                 PROJECT_DIR.parent / "quant_research", 900)
         if target.exists():
             log.info("快照已刷新: %s", target.name)
             return f"快照已刷新({target.name})"
@@ -565,18 +621,22 @@ def momentum_signal(led: dict, px: dict, dry: bool) -> list[dict]:
     if dry:
         return ["A_动量(dry) 引擎信号提取"]
     try:
-        r = subprocess.run(
+        r = _run_cmd(
             [sys.executable, str(PROJECT_DIR.parent / "quant_research" / "scripts" / "extract_mwu_targets.py"),
              "--strategy", "etf_momentum", "--strategy-config", "config/strategy/etf_momentum.yaml",
              "--config", "config/default.yaml"],
-            cwd=str(PROJECT_DIR.parent / "quant_research"), capture_output=True, text=True, timeout=600)
+            PROJECT_DIR.parent / "quant_research", 600)
         data = _parse_engine_stdout(r.stdout)
         target = momentum_target_from_engine(data)
         if not target:
             return ["【异常】A_动量 引擎输出为空, 持仓不变"]
         cur = {h["symbol"]: h["qty"] for h in slot.get("holds", [])}
+        ensure_prices(px, sorted(set(target) | set(cur)))
         prices = {sym: (px.get(sym, {}).get("price") or 0) for sym in set(target) | set(cur)}
-        sells, buys = mwu_target_orders(target, cur, prices)
+        missing = [s for s in target if not prices.get(s)]
+        if missing:
+            return [f"【异常】A_动量 目标缺价 {missing}, 持仓不变"]
+        sells, buys = mwu_target_orders(target, cur, prices, capital=slot_equity(slot, px))
         buys = [b for b in buys if b["symbol"] != "511880.SH"]  # 货币腿以现金持有(微调)
         for o in sells + buys:
             o["is_stock"] = False
@@ -593,14 +653,12 @@ def momentum_signal(led: dict, px: dict, dry: bool) -> list[dict]:
         slot["note"] = f"引擎信号 {data.get('as_of')} defensive={data.get('defensive_mode')}"
         # 消息据实: 未实际成交不得声称"调仓→"（仓库硬约束）。
         if not changed:
-            tag = f"目标未变(as_of {data.get('as_of')})"
-        elif not tradable:
-            tag = f"目标→{sorted(target)} (非撮合时段, 未成交, 待续做)"
-        elif rejects:
-            tag = f"调仓→{sorted(target)} (部分未成交: {len(rejects)} 笔被拒)"
-        else:
-            tag = f"调仓→{sorted(target)}"
-        return [f"A_动量 {tag}"]
+            return [f"A_动量 目标未变(as_of {data.get('as_of')})"]
+        if not tradable:
+            return [f"【顺延】A_动量 目标→{sorted(target)} (非撮合时段, 未成交, 待续做)"]
+        if rejects:
+            return [f"A_动量 调仓→{sorted(target)} (部分未成交: {len(rejects)} 笔被拒)"]
+        return [f"A_动量 调仓→{sorted(target)}"]
     except Exception as exc:
         log.error("A 动量引擎信号失败: %r", exc)
         return ["【异常】A_动量 引擎信号提取失败, 持仓不变"]
@@ -623,16 +681,19 @@ def rotation_signal(led: dict, px: dict, dry: bool) -> list[dict]:
     current = {h["symbol"] for h in slot.get("holds", [])}
     if set(target) == current:
         return []
+    if dry:
+        return [f"B_轮动(dry) 25日收益{ {k: f'{v:+.1%}' for k, v in scores.items()} }→{target or '空仓'}"]
+    ensure_prices(px, sorted(set(target) | current))
+    if target and not (px.get(target[0]) or {}).get("price"):
+        return [f"【异常】B_轮动 目标 {target[0]} 无有效报价, 持仓不变"]
     sells = [{"symbol": h["symbol"], "qty": h["qty"], "price": px.get(h["symbol"], {}).get("price") or h["price"]}
              for h in slot.get("holds", []) if h["symbol"] not in target]
     buys = []
     if target:
         price = px.get(target[0], {}).get("price")
-        qty = int(CAPITAL * 0.98 // (price * 100)) * 100
+        qty = int(slot_equity(slot, px) * 0.98 // (price * 100)) * 100
         if qty:
             buys.append({"symbol": target[0], "qty": qty, "price": price})
-    if dry:
-        return [f"B_轮动(dry) 25日收益{ {k: f'{v:+.1%}' for k, v in scores.items()} }→{target or '空仓'}"]
     now = exchange_now()
     tradable = bool(now) and _fills_open(now)
     rejects: list[str] = []
@@ -644,7 +705,7 @@ def rotation_signal(led: dict, px: dict, dry: bool) -> list[dict]:
         log.warning("非交易时段(交易所 %s), B 槽调仓抑制为只记录", now)
     slot["note"] = f"信号 {datetime.now():%m-%d %H:%M} 25日{scores[best]:+.2%}→{target or '空仓'}"
     if not tradable:
-        return [f"B_轮动 目标→{target or '空仓'} (非撮合时段, 未成交, 待续做)"]
+        return [f"【顺延】B_轮动 目标→{target or '空仓'} (非撮合时段, 未成交, 待续做)"]
     if rejects:
         return [f"B_轮动 调仓→{target or '空仓'} (部分未成交: {len(rejects)} 笔被拒)"]
     return [f"B_轮动 调仓→{target or '空仓'}"]
@@ -678,6 +739,7 @@ def smallcap_rebalance(led: dict, slot_name: str, slots: int, cap_per: float,
         c, m = ts_code.split(".")
         return ("SH" if m == "SH" else "SZ") + c
     # 纯小市值排序(23月回测: 缓冲带月均拖累0.72pp——去缓冲)
+    ensure_prices(px, [tcode(r["ts_code"]) for r in recs])
     picks_syms = []
     picks = []
     for r in recs:
@@ -695,10 +757,13 @@ def smallcap_rebalance(led: dict, slot_name: str, slots: int, cap_per: float,
              for h in slot.get("holds", []) if h["symbol"] not in picks_syms]
     if dry:
         return [f"{slot_name}(dry) 目标{picks_syms}"]
-    apply_orders(slot, sells, [
+    rejects = apply_orders(slot, sells, [
         {"symbol": p["symbol"], "name": p["name"], "qty": p["qty"], "price": p["price"], "is_stock": True} for p in picks], px)
     slot["universe_rule"] = slot.get("universe_rule", "") + f" | 最后选股 {month_end}"
-    return [f"{slot_name} 月度再平衡→{[p['symbol'] for p in picks] or '空仓'}"]
+    msg = f"{slot_name} 月度再平衡→{[p['symbol'] for p in picks] or '空仓'}"
+    if rejects:
+        msg += f" (部分未成交: {len(rejects)} 笔被拒)"
+    return [msg]
 
 
 def pead_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
@@ -889,13 +954,27 @@ def _is_month_first_trading_day() -> bool:
     return result
 
 
+def _lot_size(symbol: str) -> int:
+    """ETF/股票 100 股/手；转债与 511010 防御腿 10 张/手。"""
+    if symbol == "511010.SH":
+        return 10
+    try:
+        from src.core.paper_execution import AssetClass
+        from src.services import deck_registry
+        if deck_registry.classify_symbol(symbol) == AssetClass.CB:
+            return 10
+    except Exception:
+        pass
+    return 100
+
+
 def mwu_target_orders(target: dict[str, float], cur: dict[str, int], prices: dict[str, float],
                       capital: float = CAPITAL) -> tuple[list[dict], list[dict]]:
-    """纯函数：MWU 权重目标 → 整手 sells/buys（511010 防御腿 10张/手，其余 100股）。可测。"""
+    """纯函数：MWU 权重目标 → 整手 sells/buys（转债/511010 10张/手，其余 100股）。可测。"""
     sells: list[dict] = []
     buys: list[dict] = []
     for sym, w in target.items():
-        lot = 10 if sym == "511010.SH" else 100
+        lot = _lot_size(sym)
         p = prices.get(sym) or 0
         if not p:
             continue
@@ -922,15 +1001,19 @@ def mwu_rebalance(led: dict, px: dict, dry: bool, slot_name: str = "G_MWU融合"
     if dry:
         return [f"{slot_name}(dry) 引擎目标提取"]
     try:
-        r = subprocess.run(
+        r = _run_cmd(
             [sys.executable, str(PROJECT_DIR.parent / "quant_research" / "scripts" / "extract_mwu_targets.py"),
              "--strategy", strategy, "--strategy-config", strategy_config, "--config", "config/default.yaml"],
-            cwd=str(PROJECT_DIR.parent / "quant_research"), capture_output=True, text=True, timeout=600)
+            PROJECT_DIR.parent / "quant_research", 600)
         data = _parse_engine_stdout(r.stdout)
         target = {k: float(v) for k, v in (data.get("target") or {}).items()}
         cur = {h["symbol"]: h["qty"] for h in slot.get("holds", [])}
+        ensure_prices(px, sorted(set(target) | set(cur)))
         prices = {sym: (px.get(sym, {}).get("price") or 0) for sym in set(target) | set(cur)}
-        sells, buys = mwu_target_orders(target, cur, prices)
+        missing = [s for s in target if not prices.get(s)]
+        if missing:
+            return [f"【异常】{slot_name} 目标缺价 {missing}, 持仓不变"]
+        sells, buys = mwu_target_orders(target, cur, prices, capital=slot_equity(slot, px))
         for o in sells + buys:
             o["is_stock"] = False
         now = exchange_now()
@@ -944,14 +1027,12 @@ def mwu_rebalance(led: dict, px: dict, dry: bool, slot_name: str = "G_MWU融合"
                           "target": target}
         # 消息据实: 未实际成交不得声称"调仓→"（仓库硬约束）。
         if not (sells or buys):
-            tag = f"目标未变(as_of {data.get('as_of')})"
-        elif not tradable:
-            tag = f"目标→{sorted(target)} (非撮合时段, 未成交, 待续做)"
-        elif rejects:
-            tag = f"调仓→{sorted(target)} (部分未成交: {len(rejects)} 笔被拒)"
-        else:
-            tag = f"调仓→{sorted(target)}"
-        return [f"{slot_name} {tag}"]
+            return [f"{slot_name} 目标未变(as_of {data.get('as_of')})"]
+        if not tradable:
+            return [f"【顺延】{slot_name} 目标→{sorted(target)} (非撮合时段, 未成交, 待续做)"]
+        if rejects:
+            return [f"{slot_name} 调仓→{sorted(target)} (部分未成交: {len(rejects)} 笔被拒)"]
+        return [f"{slot_name} 调仓→{sorted(target)}"]
     except Exception as exc:
         log.error("%s 调仓失败: %r", slot_name, exc)
         return [f"【异常】{slot_name} 引擎目标提取失败, 持仓保持不变"]
@@ -977,9 +1058,9 @@ def cb_rebalance(led: dict, px: dict, dry: bool) -> list[dict]:
     if dry:
         return ["E_可转债双低(dry) 月度重取目标"]
     try:
-        r = subprocess.run([sys.executable, str(PROJECT_DIR.parent / "quant_research" / "scripts" / "run_paper_tracking.py"),
-                            "--export-plan", "--once", "--capital", str(int(CAPITAL))],
-                           cwd=str(PROJECT_DIR.parent / "quant_research"), capture_output=True, text=True, timeout=300)
+        r = _run_cmd([sys.executable, str(PROJECT_DIR.parent / "quant_research" / "scripts" / "run_paper_tracking.py"),
+                      "--export-plan", "--once", "--capital", str(int(CAPITAL))],
+                     PROJECT_DIR.parent / "quant_research", 300)
         if r.returncode != 0:
             # 导出失败必须显式失败: 继续读旧 current_plan.json 会执行过期目标
             log.error("E 月度调仓: quant 导出失败(exit=%s) %s", r.returncode, (r.stderr or "")[-300:])
@@ -989,14 +1070,14 @@ def cb_rebalance(led: dict, px: dict, dry: bool) -> list[dict]:
                    if isinstance(v, dict) and v.get("signal_state") == "executable"}
         slot = led["strategies"]["E_可转债双低"]
         cur = {h["symbol"]: h["qty"] for h in slot.get("holds", [])}
+        ensure_prices(px, sorted(targets))
+        missing = [s for s in targets if not (px.get(s) or {}).get("price")]
+        if missing:
+            return [f"【异常】E 月度调仓: 目标缺价 {missing}, 持仓不变"]
         # 目标资金按当前 equity(现金+持仓市值), 不再用常数 CAPITAL——
         # 盈亏后仍按初始本金配比会系统性偏离目标权重
-        equity = float(slot.get("cash", 0.0))
-        for h in slot.get("holds", []):
-            equity += h["qty"] * (px.get(h["symbol"], {}).get("price") or h.get("price", 0))
-        ensure_prices(px, sorted(targets))
         want = cb_target_lots(targets, px, e2_defensive=(ctrl.get("e2_state") == "defensive"),
-                              capital=max(equity, 1.0))
+                              capital=max(slot_equity(slot, px), 1.0))
         price_of = {sym: px.get(sym, {}).get("price") for sym in want}
         sells = [{"symbol": h["symbol"], "qty": h["qty"] - want.get(h["symbol"], 0),
                   "price": px.get(h["symbol"], {}).get("price") or h.get("price", 0)}
@@ -1012,7 +1093,7 @@ def cb_rebalance(led: dict, px: dict, dry: bool) -> list[dict]:
         return msgs
     except Exception as exc:
         log.error("E 月度调仓失败: %r", exc)
-        return []
+        return [f"【异常】E 月度调仓失败: {exc!r:.120}"]
 
 
 # ---------------------------------------------------------------- 事件套利
@@ -2122,8 +2203,7 @@ def sequoia_scan(led: dict, px: dict, dry: bool) -> list[str]:
         return []
     driver = PROJECT_DIR.parent / "quant_research" / "vendor" / "Sequoia-X" / "n_slot_driver.py"
     try:
-        r = subprocess.run([sys.executable, str(driver)], cwd=str(driver.parent),
-                           capture_output=True, text=True, timeout=1200)
+        r = _run_cmd([sys.executable, str(driver)], driver.parent, 1200)
         data = json.loads(r.stdout.strip().splitlines()[-1])
         hits: dict[str, int] = {}
         for strat, codes in data.items():
@@ -2401,7 +2481,7 @@ def _subtask_registry_pass(led: dict, ctrl: dict, registry_key: str, key: str,
 
     语义：
     - 非撮合时段 → 只顺延不执行；用空列表占位（已有部分完成记录不被覆盖）。
-    - 撮合时段 → 逐个执行未完成子任务；子任务自报【异常】则不登记（次日续做）。
+    - 撮合时段 → 逐个执行未完成子任务；子任务自报【异常】/【顺延】则不登记（后续同窗续做）。
     - 全部成功登记 "all"，部分成功登记已完成标签列表 → 后续同窗（月内每日 /
       同周后续交易日）经列表门续做至齐备。
     - 子任务成功即清除该槽 `erp_scaled` 标记（重建后待总闸重新缩放）。
@@ -2425,8 +2505,8 @@ def _subtask_registry_pass(led: dict, ctrl: dict, registry_key: str, key: str,
             msgs.append(f"【异常】{tag}子任务 {label} 失败: {exc!r:.120}")
             continue
         msgs.extend(sub)
-        if any(isinstance(m, str) and m.startswith("【异常】") for m in sub):
-            continue  # 子策略自报失败: 不登记, 后续同窗续做
+        if any(isinstance(m, str) and m.startswith(("【异常】", "【顺延】")) for m in sub):
+            continue  # 子策略自报失败/顺延: 不登记, 后续同窗续做
         ok.append(label)
         scaled = ctrl.get("erp_scaled")
         if scaled:
@@ -2452,6 +2532,8 @@ def benchmark_build_one(led: dict, slot_name: str, symbol: str, px: dict, dry: b
     slot = led["strategies"][slot_name]
     if slot.get("holds"):
         return [f"{slot_name} 已有持仓, 跳过建仓"]
+    if not dry:
+        ensure_prices(px, [symbol])
     price = float((px.get(symbol) or {}).get("price") or 0.0)
     if price <= 0:
         return [f"【异常】{slot_name} 无 {symbol} 有效报价, 建仓待续做"]

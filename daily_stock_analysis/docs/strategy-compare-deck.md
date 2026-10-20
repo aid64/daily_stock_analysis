@@ -48,14 +48,16 @@
 
 - 成交价 = `realtime_quotes()` 实时价（腾讯），无价/零价直接 `NO_QUOTE` 拒绝，不按意图价成交。
 - 成交时点 = `_fills_open`（运行时段内且 ≤15:00）。**15:00 整点含收盘集合竞价价**，15:01-15:10 只结算不成交。
+- **定仓基数**：A/B/G/H/E 使用调仓时的**当前 equity**（与引擎回测 `broker.getvalue()` 同口径）；F/F2 用固定单票上限；C/D 用槽内现金 98% 买入。
 - 因此**收盘轮的成交价 ≈ 当日收盘价**；台账 `track_rule` 自述为"每交易日收盘实时价重估各策略 equity；周频策略调仓日再平衡"。
 
 **各槽信号的数据截止（as-of）**：
 
 | 槽族 | 信号来源 | 数据截止 |
 |---|---|---|
-| A / B | 引擎探针 + `feeds_snapshot_v*.pkl` | 探针/快照 `as_of`（快照超 7 天自动重建） |
-| G / H | `extract_mwu_targets.py`（backtrader 探针，引擎口径） | 探针 `as_of` |
+| A | 引擎探针（`extract_mwu_targets.py` → tushare loader） | 探针 `as_of` |
+| B | `_load_snapshot()` 最新 `feeds_snapshot_v*.pkl` | 快照末端数据日（文件 mtime 超 7 天自动重建；**不校验末端日期**） |
+| G / H | `extract_mwu_targets.py`（tushare loader / 转债 PIT） | 探针 `as_of` |
 | E | quant 引擎导出目标（季频选债，月度窗重导出） | 引擎 `as_of`；目标资金按当前 equity |
 | F / F2 | tushare `daily_basic`，`trade_date=上月末` | **上月末**（早于调仓日，无当日回看） |
 | I / J / M / N / O | tushare 各域接口 | 各槽自述窗口（详见 §1 槽位表与数据源矩阵） |
@@ -65,10 +67,12 @@
 
 **已声明的口径边界（如实记录，非缺陷）**：
 
-1. **引擎派生槽（A/B/G）与各自引擎回测存在成交时点差**：引擎回测口径为"调仓日收盘算信号 → **次日开盘**成交"，本盘为"调仓日收盘算信号 → **当日收盘**成交"。**已实测其量级**（`.scratch/dsa-deck-convention-study/`，样本 2024-10-31~2026-08-03 共 92 周）：按**对称腿**（只计实际换手）测得买入腿 −0.1136%（n=68）、卖出腿 +0.0615%（n=66），**净效应 −0.1751%（SE 0.1453%，t=−1.20）——方向为本盘略吃亏（偏保守），但统计上与零不可区分**（95% CI [−0.46%, +0.11%]）。经济解释：A股**隔夜反转**使动量换仓在隔夜端不利，引擎的"次日开盘成交"恰好躲开这段反转。故该差**不影响槽间排名、也不构成"虚高"风险**（实测偏保守，对晋升门槛是安全侧），维持现口径不改内核。**功效局限**：n=68 时最小可检出效应约 0.41%/次换仓，"真值=0"与"真值=−0.18%"均在样本可解释范围内；要定案需按权重加权 + 实际换手名义的更高功效设计。
+1. **A/B 数据源不同**：A/G/H 走 tushare loader，B 走 `feeds_snapshot_v*.pkl`；B 的信号日可能比 A 旧（例如 2026-10-16 快照用于 10-21 调仓）。该差异不影响各自策略内部逻辑，但解读 A/B 排名时需知悉。
+
+2. **引擎派生槽（A/B/G）与各自引擎回测存在成交时点差**：引擎回测口径为"调仓日收盘算信号 → **次日开盘**成交"，本盘为"调仓日收盘算信号 → **当日收盘**成交"。**已实测其量级**（`.scratch/dsa-deck-convention-study/`，样本 2024-10-31~2026-08-03 共 92 周）：按**对称腿**（只计实际换手）测得买入腿 −0.1136%（n=68）、卖出腿 +0.0615%（n=66），**净效应 −0.1751%（SE 0.1453%，t=−1.20）——方向为本盘略吃亏（偏保守），但统计上与零不可区分**（95% CI [−0.46%, +0.11%]）。经济解释：A股**隔夜反转**使动量换仓在隔夜端不利，引擎的"次日开盘成交"恰好躲开这段反转。故该差**不影响槽间排名、也不构成"虚高"风险**（实测偏保守，对晋升门槛是安全侧），维持现口径不改内核。**功效局限**：n=68 时最小可检出效应约 0.41%/次换仓，"真值=0"与"真值=−0.18%"均在样本可解释范围内；要定案需按权重加权 + 实际换手名义的更高功效设计。
    > 更正记录：本条初版（同日早些时候）曾写"净效应 +0.0038%（t=0.03）、买卖两侧近乎完全对冲"——那是**测量缺陷**造成的假象：买入腿误将"上期已持有、本期并未交易"的保留标的计入（272 条 vs 实际换手 68 条），用未交易标的的噪声把真实量级稀释到近零。已按对称口径更正。
-2. **转债尾盘流动性**：尾盘 14:55 后转债挂单易失败，本盘以收盘价建模；实盘对应操作应提前至 14:50 前（台账 `web_research_tweaks.E_尾盘流动性`，逐 cohort 保留）。
-3. **月频组共享"月首交易日"**：同日调仓会使当日同涨同跌摊掉组内相对差异——解读月度排名时需知悉该日不是独立样本。
+3. **转债尾盘流动性**：尾盘 14:55 后转债挂单易失败，本盘以收盘价建模；实盘对应操作应提前至 14:50 前（台账 `web_research_tweaks.E_尾盘流动性`，逐 cohort 保留）。
+4. **月频组共享"月首交易日"**：同日调仓会使当日同涨同跌摊掉组内相对差异——解读月度排名时需知悉该日不是独立样本。
 
 **非撮合时段的处置（同一语义，槽间已对齐）**：调仓在撮合窗外**不成交、只顺延**，并登记待办、在同窗后续轮次续做至齐备：
 - **周度组 A/B/G**：非撮合窗顺延 → `_control.week_rebalance_done` 占位 → **同周后续交易日**续做（周频窗口仅"周首交易日"，错过不再整周丢失）。
@@ -81,7 +85,7 @@
 
 - 实时行情：`data_provider.DataFetcherManager.get_realtime_quote`（六源降级+熔断；tushare 为 P-1 最高优先级，15000 积分账户）；prefetch 按 5 只分批（tickflow 上限）
 - 转债现价：腾讯直连 `tencent_quotes()`（六源链对带后缀转债代码覆盖不到）
-- A/B 历史信号：只读 `quant_research/output/feeds_snapshot_v*.pkl`（跨项目文件契约）；超过 7 天自动调 `build_feeds_snapshot.py` 重建 v5，失败沿用旧快照并标注
+- B 历史信号：只读 `quant_research/output/feeds_snapshot_v*.pkl`（跨项目文件契约）；超过 7 天自动调 `build_feeds_snapshot.py` 重建 v5，失败沿用旧快照并标注。A/G/H 由引擎探针经 tushare loader 取数，不走该快照。
 - 小市值选股：tushare `daily_basic` + `stock_basic`（月度窗，trade_date=上月末）
 
 ## 4. 消息（飞书，route_type=strategy_compare）
@@ -94,7 +98,7 @@
 ## 5. 状态与审计
 
 - 台账：`.scratch/dsa-strategy-validation/compare_strategies.json`（原子写 + 写前 `.json.bak` 滚动备份）
-- 控制键 `_control`：`close_done`（收盘幂等）/ `event_scan_last`（事件扫描每半天一次）/ `rebalance_done`（月度登记：全部成功 `"all"`，部分成功为已成功标签列表，每日撮合窗续做至齐备；非撮合时段顺延不执行）/ `erp_scaled`（PE 分位总闸已缩放槽登记；槽位周度/月度重建成功后清除，同轮 `erp_scale_pass` 重新应用）/ `_actions`（当日动作，盘中+收盘合并）
+- 控制键 `_control`：`close_done`（收盘幂等）/ `event_scan_last`（事件扫描每半天一次）/ `rebalance_done`（月度登记：全部成功 `"all"`，部分成功为已成功标签列表，每日撮合窗续做至齐备；非撮合时段顺延不执行）/ `week_rebalance_done`（周度同构，同周后续交易日续做）/ `bootstrap_done`（C/D 一次性建仓，`"all"` 或已成功标签列表）/ `erp_scaled`（PE 分位总闸已缩放槽登记；槽位周度/月度重建成功后清除，同轮 `erp_scale_pass` 重新应用）/ `e2_state`、`erp`、`crash_state` 等风控状态 / `_actions`（当日动作，盘中+收盘合并）
 - 执行日志：`logs/compare_deck_task.log`（start/exit + runner 输出）
 - 病历制：槽位停跑/清仓 → `.scratch/dsa-strategy-validation/{槽位}_postmortem.md`
 
@@ -141,8 +145,8 @@ py scripts/compare_deck_cohort.py --start YYYY-MM-DD --apply    # 归档 + 开�
 
 ## 9. 回归保护网
 
-- `tests/test_compare_deck_runner.py` 67 项：纯函数（费用/换算/时段/价差/分位/缓冲带遗留函数/回撤）+ **10-08 月度大考端到端**（mock 时间/行情/引擎，tmp 台账全链）+ 月度注册表（子任务失败次日重试/非撮合窗顺延）+ PE 分位总闸缩放（防御减半/被拒次日补做/重建后同轮重缩放）+ 独占锁四分支 + 撮合窗边界；全部离线可复现（tmp 台账，不依赖生产台账与外部库）
-- `tests/test_paper_execution.py` 21 项（任务 08 执行内核：11 拒绝码/整手/涨跌停/T+1/现金守恒）+ `tests/test_compare_deck_audit.py` 5 项 + `tests/test_deck_registry.py` 6 项：审计三态结论/退出码传播 + 注册表 18 槽/PE 分位总闸作用域单一真源一致性
+- `tests/test_compare_deck_runner.py` 84 项：纯函数（费用/换算/时段/价差/分位/缓冲带遗留函数/回撤）+ **10-08 月度大考端到端**（mock 时间/行情/引擎，tmp 台账全链）+ 月度/周度注册表（子任务失败/顺延次日重试）+ 空槽首建仓行情预取与按当前 equity 定仓 + 子进程 UTF-8 解码 + PE 分位总闸缩放 + 独占锁四分支 + 撮合窗边界；全部离线可复现（tmp 台账，不依赖生产台账与外部库）
+- `tests/test_paper_execution.py` 21 项（任务 08 执行内核：11 拒绝码/整手/涨跌停/T+1/现金守恒）+ `tests/test_compare_deck_cohort.py` 8 项（开账/种子/容器契约）+ `tests/test_compare_deck_audit.py` 5 项 + `tests/test_deck_registry.py` 6 项 + `tests/test_deck_slot_contracts.py` 17 项 + `tests/test_compare_deck_shadow.py` 10 项：审计三态结论/退出码传播 + 注册表 18 槽/PE 分位总闸作用域单一真源一致性 + 槽位数据契约 + 影子只读校验
 - 探针提取脚本 `quant_research/scripts/extract_mwu_targets.py`（ETFMWUProbe/MomentumProbe）曾因多轮 patch 丢 `_target_portfolio`——修改探针后必须跑端到端回归
 
 ## 10. 审计与真钱
@@ -181,6 +185,8 @@ py scripts/compare_deck_cohort.py --start YYYY-MM-DD --apply    # 归档 + 开�
 - **盘后行情污染**：收盘后六源链个别源返回异常价（实测 tickflow 盘后 512890=1.196 vs 收盘 1.180）——调仓时段闸已隔离，但 risk_round 的异动告警在盘后手动运行时可能基于污染价误报（自动化链路只在交易时段运行，无此问题）。
 - **熔断指标**：国证2000（sz399303）为代理指标，非真正的微盘股指数（万得微盘股指数无免费实时源）；-3% 阈值为先验值，未回测校准。
 - **N 槽不可在干净克隆复现**：驱动 `quant_research/vendor/Sequoia-X/n_slot_driver.py`（vendored 第三方仓库，~299MB）与其回填行情数据均**不入库**（`.gitignore` 已忽略 `quant_research/vendor/`）。上表 N 行的"已激活"仅对本机工作区成立；干净克隆下 `sequoia_ready` 闸为假、N 槽**条件式跳过**（不报错、不参与调仓）。复现需自行 vendored Sequoia-X 并回填行情数据。
+- **运行在线依赖**：收盘轮/撮合窗要求交易日本机在 15:00-16:13 保持运行；休眠/关机错过即不补当日成交（注册表顺延至下一交易日收盘），不得用历史价回填。
+- **A/B 数据 as-of 差异**：B 走 `feeds_snapshot_v*.pkl`（末端可能滞后，按文件 mtime 刷新、不校验末端日期）；A/G/H 走 tushare loader。解读 A/B 排名时需知悉该差异。
 
 
 ## 14. 真钱资金分配草案（12-31 硬复核的决策框架）
