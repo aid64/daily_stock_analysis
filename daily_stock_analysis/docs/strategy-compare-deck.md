@@ -109,7 +109,7 @@
 
 ## 5. 状态与审计
 
-- 台账：`.scratch/dsa-strategy-validation/compare_strategies.json`（原子写 + 写前 `.json.bak` 滚动备份）；每日 08:30 `DSA_Ledger_Backup` 已纳入台账与两个 manifest，`--verify` 校验三块容器（见 `docs/disaster-recovery.md`）
+- 台账：`.scratch/dsa-strategy-validation/compare_strategies.json`（原子写 + 写前 `.json.bak` 滚动备份）；每日 08:30 `DSA_Ledger_Backup` 已纳入台账与 `archive/cohort-manifest.jsonl`，`--verify` 校验三块容器（见 `docs/disaster-recovery.md`）
 - 控制键 `_control`：`close_done`（收盘幂等）/ `event_scan_last`（事件扫描每半天一次；**仅扫描未返回【异常】时写键**，失败下一轮重试；键按交易所时间而非墙钟）/ `rebalance_done`（月度登记：全部成功 `"all"`，部分成功为已成功标签列表，每日撮合窗续做至齐备；非撮合时段顺延不执行）/ `week_rebalance_done`（周度同构，同周后续交易日续做）/ `bootstrap_done`（C/D 一次性建仓，`"all"` 或已成功标签列表）/ `erp_scaled`（PE 分位总闸已缩放槽登记；槽位周度/月度重建成功后清除，同轮 `erp_scale_pass` 重新应用）/ `e2_state`、`erp`、`crash_state` 等风控状态 / `_actions`（当日动作，盘中+收盘合并）
 - 执行日志：`logs/compare_deck_task.log`（start/exit + runner 输出）
 - 病历制：槽位停跑/清仓 → `.scratch/dsa-strategy-validation/{槽位}_postmortem.md`

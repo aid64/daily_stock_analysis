@@ -45,8 +45,9 @@ def _env(tmp_path, monkeypatch):
     (deck / "compare_strategies.json").write_text(json.dumps({
         "strategies": {}, "marks": [], "_control": {},
     }, ensure_ascii=False), encoding="utf-8")
-    (deck / "cohort-manifest.jsonl").write_text('{"cohort": 1}\n', encoding="utf-8")
-    (deck / "ledger-seal-manifest.json").write_text("{}", encoding="utf-8")
+    (deck / "archive").mkdir()
+    (deck / "archive" / "cohort-manifest.jsonl").write_text(
+        '{"cohort": 1}\n', encoding="utf-8")
 
     monkeypatch.setattr(mod, "_PROJECT_ROOT", project)
     monkeypatch.setattr(mod, "_REPO_ROOT", repo)
@@ -64,7 +65,7 @@ def test_backup_includes_deck_ledger_and_manifest_hash(tmp_path, monkeypatch):
 
     copied = day / "dsa-strategy-validation" / "compare_strategies.json"
     assert copied.read_bytes() == (deck / "compare_strategies.json").read_bytes()
-    assert (day / "dsa-strategy-validation" / "cohort-manifest.jsonl").exists()
+    assert (day / "dsa-strategy-validation" / "archive" / "cohort-manifest.jsonl").exists()
     assert mod._verify_deck(copied) is True
 
     manifest = (day / "MANIFEST.txt").read_text(encoding="utf-8")

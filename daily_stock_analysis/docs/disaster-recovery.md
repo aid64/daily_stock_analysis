@@ -17,7 +17,7 @@
 | 策略注册表 | `strategies.yaml`（仓库根） | 策略参数（改参数不改代码） |
 | 决策快照归档 | `output/decision_snapshot/` | `/操作单 历史` 的审计留痕 |
 | 历史操作单 | `output/order_sheets/` | 回填/对比依据 |
-| 对比盘台账 | `.scratch/dsa-strategy-validation/compare_strategies.json` | cohort 真源（prereg/marks/`_control`/18 槽持仓）；同目录的 `cohort-manifest.jsonl`、`ledger-seal-manifest.json` 一并备份 |
+| 对比盘台账 | `.scratch/dsa-strategy-validation/compare_strategies.json` | cohort 真源（prereg/marks/`_control`/18 槽持仓）；`archive/cohort-manifest.jsonl`（如存在）一并备份。`ledger-seal-manifest.json` 属一次性封存证据，不在每日备份内 |
 
 布局：`data/backups/<YYYY-MM-DD>/…`，每份含 `MANIFEST.txt`（备份时间/大小/源库路径；对比盘台账存在时另含 `deck_ledger_bytes` 与 `deck_ledger_sha256`）。
 `data/` 已在 `.gitignore`，备份不入库、不产生脏 diff。
@@ -93,7 +93,8 @@ schtasks /Run /TN "DSA_Ledger_Backup"             # 计划任务上下文验证�
 1. clone 仓库（代码是 git 真源）；
 2. 从备份恢复 `data/stock_analysis.db`、`.env`、`strategies.yaml`、
    `output/decision_snapshot/`、`output/order_sheets/`，以及
-   `dsa-strategy-validation/compare_strategies.json` 与两个 manifest；
+   `dsa-strategy-validation/compare_strategies.json` 与
+   `dsa-strategy-validation/archive/cohort-manifest.jsonl`；
 3. `pip install -r requirements.txt` → 重启 server → 重注册 keepalive 与备份计划任务。
 
 ## 四、边界与已知限制
