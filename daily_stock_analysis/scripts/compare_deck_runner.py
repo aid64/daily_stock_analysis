@@ -1167,12 +1167,15 @@ def event_round(led: dict, dry: bool) -> list[dict]:
         seen_titles = {str(v.get("title") or v.get("event") or "")
                        for v in (led["strategies"].get("X_事件套利", {}).get("veto_log", []))}
         seen_titles |= {str(v.get("title") or "") for v in (led["strategies"].get("X_事件套利", {}).get("watchlist", []))}
+        fetch_failures = 0
         for d in (today, today - _dt.timedelta(days=1)):
             try:
                 df = ak.stock_notice_report(symbol="全部", date=d.strftime("%Y%m%d"))
             except Exception:
+                fetch_failures += 1
                 continue
             if df is None:
+                fetch_failures += 1
                 continue
             for _, row in df.iterrows():
                 title = str(row.get("公告标题", ""))
@@ -1181,6 +1184,8 @@ def event_round(led: dict, dry: bool) -> list[dict]:
                                        "name": str(row.get("名称", "")), "title": title,
                                        "url": str(row.get("网址", ""))})
         msgs = []
+        if fetch_failures:
+            msgs.append(f"【异常】事件扫描数据源失败/不完整({fetch_failures}/2), 待下轮重试")
         slot = led["strategies"]["X_事件套利"]
         px = realtime_quotes([e["code"] for e in new_events]) if new_events else {}
         for ev in new_events:
@@ -1207,13 +1212,14 @@ def event_round(led: dict, dry: bool) -> list[dict]:
         return [] if dry else msgs
     except Exception as exc:
         log.error("事件轮失败: %r", exc)
-        return []
+        return [] if dry else [f"【异常】事件扫描失败: {exc!r:.80}"]
 
 
 def watchlist_round(led: dict, dry: bool) -> list[dict]:
     """X 观察名单跟踪：每交易日核查候选事件公司的新公告 → 提取对价 → 按 rule 核价差。"""
     slot = led["strategies"].get("X_事件套利", {})
     msgs: list[dict] = []
+    failures = 0
     try:
         for item in slot.get("watchlist", []):
             code = str(item.get("code", ""))
@@ -1223,6 +1229,7 @@ def watchlist_round(led: dict, dry: bool) -> list[dict]:
                 anns = fetch_recent_announcements(code)
             except Exception as exc:
                 log.warning("观察名单公告获取失败 %s: %r", code, exc)
+                failures += 1
                 continue
             item["last_checked"] = EX_DATE.isoformat()
             seen = set(item.get("seen_titles", []))
@@ -1256,8 +1263,12 @@ def watchlist_round(led: dict, dry: bool) -> list[dict]:
                         msgs.append(f"X观察 {name}: {title[:36]} → {record['decision']}")
                 slot.setdefault("veto_log", []).append(record)
             item["seen_titles"] = sorted(seen)[-20:]
+        if failures:
+            msgs.append(f"【异常】观察名单公告获取失败 {failures} 只, 待下轮重试")
     except Exception as exc:
         log.error("观察名单轮失败: %r", exc)
+        if not dry:
+            msgs.append(f"【异常】观察名单轮失败: {exc!r:.80}")
     return [] if dry else msgs
 
 
@@ -1529,10 +1540,14 @@ def run_intraday(dry: bool) -> str:
     px = slot_prices(led)
     # 事件全量扫描节流：每半天最多一次（公告流一次 ~800 行，逐轮扫既慢又浪费）
     ctrl = led.setdefault("_control", {})
-    halfday = f"{EX_DATE:%Y%m%d}_{ 'AM' if datetime.now().hour < 12 else 'PM'}"
+    session_now = globals().get("_session_now") or datetime.now()
+    halfday = f"{EX_DATE:%Y%m%d}_{ 'AM' if session_now.hour < 12 else 'PM'}"
     scan = ctrl.get("event_scan_last") != halfday
-    msgs = ((event_round(led, dry) + watchlist_round(led, dry)) if scan else []) + risk_round(led, px, dry)
-    if scan and not dry:
+    scan_msgs = ((event_round(led, dry) + watchlist_round(led, dry)) if scan else [])
+    msgs = scan_msgs + risk_round(led, px, dry)
+    # 扫描失败不写节流键: 下一 20 分钟轮重试（未完成不得标记完成）
+    if scan and not dry and not any(
+            isinstance(m, str) and m.startswith("【异常】") for m in scan_msgs):
         ctrl["event_scan_last"] = halfday
     if (msgs or scan) and not dry:
         today = EX_DATE.isoformat()
