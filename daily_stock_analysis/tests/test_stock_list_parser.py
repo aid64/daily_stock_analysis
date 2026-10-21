@@ -12,10 +12,12 @@ so PR1 is a strict superset of pre-PR coverage rather than a replacement.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
 
 import pytest
 
+from src.data import stock_index_loader as index_loader
 from src.services.stock_list_parser import (
     AnalysisTarget,
     IndexEntry,
@@ -27,6 +29,24 @@ from src.services.stock_list_parser import (
     serialize_stock_list,
     split_stock_list,
 )
+
+
+@pytest.fixture(autouse=True)
+def _bundled_index_registry(monkeypatch):
+    """Fix the default registry to the bundled public index.
+
+    A developer machine may have a newer ``data/cache/stocks.index.json`` with
+    extra index rows; letting it win makes the 31-entry contract depend on
+    local cache state (CI's clean checkout has no cache).
+    """
+    bundled = (Path(__file__).resolve().parents[1]
+               / "apps" / "dsa-web" / "public" / "stocks.index.json")
+    monkeypatch.setattr(index_loader, "get_stock_index_candidate_paths", lambda: (bundled,))
+    monkeypatch.setattr(index_loader, "get_remote_stock_index_cache_path",
+                        lambda: bundled.with_name("__missing_remote_cache__.json"))
+    monkeypatch.setattr(index_loader, "_ACTIVE_INDEX_ROWS_CACHE", None)
+    monkeypatch.setattr(index_loader, "_STOCK_INDEX_CACHE", None)
+    monkeypatch.setattr(index_loader, "_REMOTE_INDEX_VALIDITY_CACHE", None)
 
 
 # ---------------------------------------------------------------------------
