@@ -171,3 +171,21 @@ def test_audit_start_only_log_does_not_crash(monkeypatch, tmp_path):
     row = _row(rows, "执行日志")
     assert row["status"] == "WARN" and "无 exit" in row["detail"]
     assert rc == 0
+
+
+def test_wake_task_status_pass():
+    xml = ('<Task><RegistrationInfo><URI>DSA_Deck_Close</URI></RegistrationInfo>'
+           '<Settings><WakeToRun>true</WakeToRun></Settings>'
+           '<Triggers><StartBoundary>2026-10-21T15:00:30+08:00</StartBoundary></Triggers>'
+           '<Actions><Exec><Arguments>run_hidden_sync.vbs</Arguments></Exec></Actions></Task>')
+    status, detail = mod.wake_task_status(xml)
+    assert status == "PASS" and "sync" in detail
+
+
+def test_wake_task_status_warns_when_disabled_or_missing_sync():
+    xml = ('<Task><URI>DSA_Deck_Close</URI>'
+           '<Settings><WakeToRun>true</WakeToRun><Enabled>false</Enabled></Settings>'
+           '<StartBoundary>2026-10-21T15:00:30</StartBoundary>'
+           '<Arguments>run_hidden.vbs</Arguments></Task>')
+    status, detail = mod.wake_task_status(xml)
+    assert status == "WARN" and "sync=False" in detail

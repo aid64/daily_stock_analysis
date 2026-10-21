@@ -6,6 +6,7 @@
   1. 台账自洽性：marks 最新日期、_control 键推进、各槽 equity ≈ cash+Σ(qty×成本价)
   2. 执行日志：logs/compare_deck_task.log 最近 start/exit 与退出码
   3. 计划任务：DSA_Deck_Intraday 存在且已启用
+  3b. 唤醒任务：DSA_Deck_Close 存在、WakeToRun、sync launcher、15:00:30
   4. 抽样净值：3 只持仓 现价×qty+cash vs 台账 equity（容差 1%）
   5. 时间健康：交易所时间戳 vs 本机时钟偏差（提醒用，不判失败）
 """
@@ -105,6 +106,20 @@ def source_consistency(bs_rows: list, tencent_price, stamp: str,
     return "PASS", f"baostock {bs_close} ≈ 腾讯 {tt} ({qdate})"
 
 
+def wake_task_status(xml: str) -> tuple[str, str]:
+    """DSA_Deck_Close 必须 enabled + WakeToRun + sync launcher + 15:00:30 触发器。"""
+    if not xml or "<Task" not in xml or "DSA_Deck_Close" not in xml:
+        return "WARN", "DSA_Deck_Close 未找到/无法解析"
+    disabled = "<Enabled>false</Enabled>" in xml
+    wake = "<WakeToRun>true</WakeToRun>" in xml
+    sync = "run_hidden_sync.vbs" in xml
+    boundary = "15:00:30" in xml
+    if wake and sync and not disabled and boundary:
+        return "PASS", "enabled/wake/sync/15:00:30 均就绪"
+    return "WARN", (f"enabled={not disabled} wake={wake} sync={sync} "
+                    f"boundary_150030={boundary}")
+
+
 def main() -> int:
     # 1. 台账
     led = {}
@@ -193,6 +208,23 @@ def main() -> int:
               "DSA_Deck_Intraday 已启用" if enabled else "未启用/未找到")
     except Exception as exc:
         check("计划任务", "WARN", f"查询失败: {exc!r:.80}")
+
+    # 3b. 唤醒收盘任务 DSA_Deck_Close: enabled + WakeToRun + sync launcher + 15:00:30
+    try:
+        r = subprocess.run(["schtasks", "/Query", "/TN", "DSA_Deck_Close", "/XML"],
+                           capture_output=True, timeout=15)
+        raw = r.stdout
+        if isinstance(raw, bytes):
+            if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
+                xml = raw.decode("utf-16")
+            else:
+                xml = raw.decode("utf-8", errors="replace")
+        else:
+            xml = str(raw or "")
+        status, detail = wake_task_status(xml)
+        check("唤醒任务", status, detail)
+    except Exception as exc:
+        check("唤醒任务", "WARN", f"查询失败: {exc!r:.60}")
 
     # 4. 抽样净值
     samples = []

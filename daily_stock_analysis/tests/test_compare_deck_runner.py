@@ -1505,3 +1505,102 @@ def test_smallcap_rebalance_prefetches_quotes_for_empty_slot(monkeypatch):
     assert slot["holds"] and slot["holds"][0]["symbol"] == "SZ301578"
     assert slot["holds"][0]["qty"] == 100
     assert "月度再平衡" in msgs[0]
+
+
+# ------------------------------------------------- run_intraday 扫描节流/失败重试
+def _intraday_scan_env(tmp_path, monkeypatch, scan_msg=None):
+    import json as _json
+    from datetime import date as _date
+
+    led = _fake_ledger()
+    led["_control"]["event_scan_last"] = "20261020_PM"
+    p = tmp_path / "intraday_scan.json"
+    p.write_text(_json.dumps(led, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(mod, "LEDGER", p)
+    monkeypatch.setattr(mod, "EX_DATE", _date(2026, 10, 21))
+    monkeypatch.setattr(mod, "is_exchange_trading_day", lambda d: True)
+    monkeypatch.setattr(mod, "slot_prices", lambda led: {})
+    monkeypatch.setattr(mod, "risk_round", lambda led, px, dry: [])
+    monkeypatch.setattr(mod, "notify", lambda *a, **k: False)
+    monkeypatch.setattr(mod, "exchange_now", lambda: datetime(2026, 10, 21, 10, 0))
+    monkeypatch.setattr(mod, "_session_now", datetime(2026, 10, 21, 10, 0), raising=False)
+    calls = {"event": 0, "watch": 0}
+
+    def _event(led, dry):
+        calls["event"] += 1
+        return [scan_msg] if scan_msg else []
+
+    def _watch(led, dry):
+        calls["watch"] += 1
+        return []
+
+    monkeypatch.setattr(mod, "event_round", _event)
+    monkeypatch.setattr(mod, "watchlist_round", _watch)
+    return p, calls
+
+
+def test_run_intraday_retries_scan_after_abnormal_scan(tmp_path, monkeypatch):
+    """扫描返回【异常】时不得写 event_scan_last；下一轮必须重新扫描。"""
+    import json as _json
+
+    msg = "【异常】事件扫描数据源失败/不完整(2/2), 待下轮重试"
+    p, calls = _intraday_scan_env(tmp_path, monkeypatch, scan_msg=msg)
+    mod.run_intraday(False)
+    saved = _json.loads(p.read_text(encoding="utf-8"))
+    assert saved["_control"]["event_scan_last"] == "20261020_PM"
+    assert calls == {"event": 1, "watch": 1}
+
+    mod.run_intraday(False)
+    saved = _json.loads(p.read_text(encoding="utf-8"))
+    assert saved["_control"]["event_scan_last"] == "20261020_PM"
+    assert calls == {"event": 2, "watch": 2}
+
+
+def test_run_intraday_sets_scan_key_on_success(tmp_path, monkeypatch):
+    import json as _json
+
+    p, calls = _intraday_scan_env(tmp_path, monkeypatch)
+    mod.run_intraday(False)
+    saved = _json.loads(p.read_text(encoding="utf-8"))
+    assert saved["_control"]["event_scan_last"] == "20261021_AM"
+    assert calls == {"event": 1, "watch": 1}
+
+    mod.run_intraday(False)   # 同半天不再扫描
+    assert calls == {"event": 1, "watch": 1}
+
+
+def test_run_intraday_halfday_uses_exchange_time(tmp_path, monkeypatch):
+    """节流键按交易所时间（_session_now）而非墙钟；13:00 应写 PM。"""
+    import json as _json
+
+    p, _ = _intraday_scan_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(mod, "_session_now", datetime(2026, 10, 21, 13, 0), raising=False)
+    mod.run_intraday(False)
+    saved = _json.loads(p.read_text(encoding="utf-8"))
+    assert saved["_control"]["event_scan_last"] == "20261021_PM"
+
+
+def test_event_round_reports_source_failure(monkeypatch):
+    class FakeAk:
+        @staticmethod
+        def stock_notice_report(**kwargs):
+            raise RuntimeError("dns")
+
+    monkeypatch.setitem(sys.modules, "akshare", FakeAk)
+    led = _fake_ledger()
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 21))
+    msgs = mod.event_round(led, False)
+    assert any(m.startswith("【异常】") for m in msgs)
+
+
+def test_watchlist_round_reports_item_failure(monkeypatch):
+    led = _fake_ledger()
+    led["strategies"]["X_事件套利"]["watchlist"] = [{"code": "600000", "name": "测试"}]
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 21))
+
+    def _boom(code):
+        raise RuntimeError("dns")
+    monkeypatch.setattr(mod, "fetch_recent_announcements", _boom)
+    msgs = mod.watchlist_round(led, False)
+    assert any(m.startswith("【异常】") for m in msgs)
+    assert "last_checked" not in led["strategies"]["X_事件套利"]["watchlist"][0]
