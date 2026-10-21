@@ -27,7 +27,7 @@
 | N_技术形态对照 | Sequoia-X 七形态扫描（命中≥2优先） | 月度调仓窗 | **本机已激活**（回填 231 万行，闸门 200 万+新鲜度）；驱动与数据不入库，干净克隆下条件式跳过（见 §13 已知局限） |
 | O_行业轮动 | 申万L1（SW2021）行业20交易日动量→前3行业→市值龙头2只/行业 | 月度调仓窗 | 升序算动量+全量成员后取龙头；国金研报同源 |
 | H_MWU_CB融合 | etf_mwu_cb 四专家（动量/均值回归/防御/转债 PIT 双低） | 月度调仓窗 | CB price feed 由 PIT 生成（`pit_prices_to_feed`），四专家真实参与；池 < min_candidates=15 时转债专家让位现金；`unpriced_terms` 输出缺价审计 |
-| F_小市值20 / F2_神帖对照 | tushare 流通市值升序 | 月度窗 | F 剔次新、单票≤¥2500；F2 主板不剔次新（对照）；均熔断跟随 |
+| F_小市值20 / F2_神帖对照 | tushare 流通市值升序 | 月度窗 | F 剔次新、单票≤¥2500；F2 主板不剔次新（对照）；均熔断跟随。**¥12,411 下 20×2500 / 5×4000 结构性不可行**：2026-10-22 首建仓前改为 F **最多 8 只**、F2 **最多 3 只**，每票预算 `min(单票上限, 槽内 equity/槽数)` 后按 100 股整手向下取整；高价股可能因一手超预算被跳过，实际只数按可买尽买（槽名保留用于 cohort 对照） |
 | Y_确定性收益 | 国债逆回购(节前/月末 GC001) | 节前最后交易日 14:30 后 | 打新走 dsa 每日待办提醒；逆回购利息=名义×年化×计息天/365 |
 | X_事件套利 | 要约收购/现金选择权/吸收合并 | 事件驱动 | 价差规则：现价<对价×0.98(ST 0.95)，单笔≤¥1,241 |
 
@@ -49,7 +49,7 @@
 
 - 成交价 = `realtime_quotes()` 实时价（腾讯），无价/零价直接 `NO_QUOTE` 拒绝，不按意图价成交。
 - 成交时点 = `_fills_open`（运行时段内且 ≤15:00）。**15:00 整点含收盘集合竞价价**，15:01-15:10 只结算不成交。
-- **定仓基数**：A/B/G/H/E 使用调仓时的**当前 equity**（与引擎回测 `broker.getvalue()` 同口径）；F/F2 用固定单票上限；C/D 用槽内现金 98% 买入。
+- **定仓基数**：A/B/G/H/E 使用调仓时的**当前 equity**（与引擎回测 `broker.getvalue()` 同口径）；F/F2 用 `min(单票上限, 槽内 equity/槽数)` 作为每票预算并按整手向下取整；C/D 用槽内现金 98% 买入。
 - 因此**收盘轮的成交价 ≈ 当日收盘价**；台账 `track_rule` 自述为"每交易日收盘实时价重估各策略 equity；周频策略调仓日再平衡"。
 
 **各槽信号的数据截止（as-of）**：
@@ -57,7 +57,7 @@
 | 槽族 | 信号来源 | 数据截止 |
 |---|---|---|
 | A | 引擎探针（`extract_mwu_targets.py` → tushare loader） | 探针 `as_of` |
-| B | `_load_snapshot()` 最新 `feeds_snapshot_v*.pkl` | 快照末端数据日（文件 mtime 超 7 天自动重建；**不校验末端日期**） |
+| B | `_load_snapshot()` 最新 `feeds_snapshot_v*.pkl` | 快照末端数据日（文件 mtime 超 7 天**或末端早于上一交易日**时自动重建；重建后仍滞后则日志/消息标注实际末端） |
 | G / H | `extract_mwu_targets.py`（tushare loader / 转债 PIT） | 探针 `as_of` |
 | E | quant 引擎导出目标（季频选债，月度窗重导出） | 引擎 `as_of`；目标资金按当前 equity |
 | F / F2 | tushare `daily_basic`，`trade_date=上月末` | **上月末**（早于调仓日，无当日回看） |
@@ -82,11 +82,22 @@
 - **消息据实**：凡未实际成交（非撮合窗未下单、或下单被内核拒绝）**不得声称"调仓→"**，改报 `目标→… (非撮合时段, 未成交, 待续做)` 或 `调仓→… (部分未成交: N 笔被拒)`。
 - 三道风控（个股熔断 / E2 / E 信用）在非交易时段仍按既有语义**抑制为只记录**（不迁移状态、不发动作消息）。
 
+### 2.2 首建仓 P0 修复（2026-10-22）
+
+2026-10-21 首次收盘轮只成交 C/D（基准建仓），A/B/G/F/F2/E/H 全现金、周/月注册表均为 `[]`。根因不是行情缺失，而是**成交闸在慢预取后二次取时**：收盘轮启动时本可成交，C/D 预取耗时数十秒后 `exchange_now()` 失败/回退墙钟 15:02，周/月注册表与 A/B/G/H 误判"非撮合时段"而静默顺延。修复：
+
+1. `_main_inner` 在进程入口捕获交易所会话时间并暴露为 `_session_now`；`run_close` 启动即计算 `fills_ok`，周/月/建仓注册表与 A/B/G/H 全部复用该值，**不再二次取时**。
+2. `marks` 从收盘轮开头移到注册表/成交/ERP 缩放之后：首日净值即反映成交、费用与持仓市值，而不是先记全现金。
+3. F/F2 改为最多 8/3 只与每票预算，避免 20×2500/5×4000 在 ¥12,411 下永远买不满（见 §1 槽位表；一手超预算的标的会跳过）。
+4. B 快照重建除 mtime 外校验**末端数据日**（`< 上一交易日` 即重建）；10-19 重建出的快照末端仅 10-16，10-22 收盘会再次重建。
+5. 审计新增**注册表完成度**（当日 `rebalance_done`/`week_rebalance_done` 非 `all` 即 WARN）、**主动槽覆盖**（主动槽全现金即 WARN）、**任务 LastTaskResult**（非 0 WARN），并纳入三态核心证据——禁止再以"只成交 C/D"宣称正常。
+6. `DSA_Deck_Intraday` 设 `StartWhenAvailable=True`（2026-10-22）：休眠/错过触发后在机器恢复时补跑，仍受独占锁、运行窗、15:00 撮合闸与 `close_done` 幂等约束，不产生盘后成交；`WakeToRun` 仍为 False（避免整夜每 20 分钟唤醒）。
+
 ## 3. 数据源
 
 - 实时行情：`data_provider.DataFetcherManager.get_realtime_quote`（六源降级+熔断；tushare 为 P-1 最高优先级，15000 积分账户）；prefetch 按 5 只分批（tickflow 上限）
 - 转债现价：腾讯直连 `tencent_quotes()`（六源链对带后缀转债代码覆盖不到）
-- B 历史信号：只读 `quant_research/output/feeds_snapshot_v*.pkl`（跨项目文件契约）；超过 7 天自动调 `build_feeds_snapshot.py` 重建 v5，失败沿用旧快照并标注。A/G/H 由引擎探针经 tushare loader 取数，不走该快照。
+- B 历史信号：只读 `quant_research/output/feeds_snapshot_v*.pkl`（跨项目文件契约）；文件超 7 天**或末端数据日早于上一交易日**时自动调 `build_feeds_snapshot.py` 重建 v5，失败沿用旧快照并标注；重建成功但数据源仍滞后时消息标注实际末端（如 `至 2026-10-16`）。A/G/H 由引擎探针经 tushare loader 取数，不走该快照。
 - 小市值选股：tushare `daily_basic` + `stock_basic`（月度窗，trade_date=上月末）
 
 ## 4. 消息（飞书，route_type=strategy_compare）
@@ -180,16 +191,16 @@ powercfg -setactive SCHEME_CURRENT
 
 ## 9. 回归保护网
 
-- `tests/test_compare_deck_runner.py` 89 项：纯函数（费用/换算/时段/价差/分位/缓冲带遗留函数/回撤）+ **10-08 月度大考端到端**（mock 时间/行情/引擎，tmp 台账全链）+ 月度/周度注册表（子任务失败/顺延次日重试）+ 空槽首建仓行情预取与按当前 equity 定仓 + 子进程 UTF-8 解码 + 盘中扫描失败重试/交易所 halfday + PE 分位总闸缩放 + 独占锁四分支 + 撮合窗边界；全部离线可复现（tmp 台账，不依赖生产台账与外部库）
-- `tests/test_paper_execution.py` 21 项（任务 08 执行内核：11 拒绝码/整手/涨跌停/T+1/现金守恒）+ `tests/test_compare_deck_cohort.py` 8 项（开账/种子/容器契约）+ `tests/test_compare_deck_audit.py` 14 项（含时间健康跨日戳/多源同日比较/执行日志 start-exit 配对/唤醒任务检查）+ `tests/test_deck_registry.py` 6 项 + `tests/test_deck_slot_contracts.py` 17 项 + `tests/test_compare_deck_shadow.py` 10 项：审计三态结论/退出码传播 + 注册表 18 槽/PE 分位总闸作用域单一真源一致性 + 槽位数据契约 + 影子只读校验
+- `tests/test_compare_deck_runner.py` 94 项：纯函数（费用/换算/时段/价差/分位/缓冲带遗留函数/回撤）+ **10-08 月度大考端到端**（mock 时间/行情/引擎，tmp 台账全链）+ 月度/周度注册表（子任务失败/顺延次日重试）+ 空槽首建仓行情预取与按当前 equity 定仓 + 启动会话捕获（入口 → run_close，慢行情不二次取时）+ marks 后置 + F/F2 每票预算 + 快照末端重建 + 子进程 UTF-8 解码 + 盘中扫描失败重试/交易所 halfday + PE 分位总闸缩放 + 独占锁四分支 + 撮合窗边界；全部离线可复现（tmp 台账，不依赖生产台账与外部库）
+- `tests/test_paper_execution.py` 21 项（任务 08 执行内核：11 拒绝码/整手/涨跌停/T+1/现金守恒）+ `tests/test_compare_deck_cohort.py` 8 项（开账/种子/容器契约）+ `tests/test_compare_deck_audit.py` 17 项（含时间健康跨日戳/收盘后不报时钟偏差/多源同日比较/执行日志 start-exit 配对/唤醒任务/注册表与主动槽覆盖/任务结果 PASS 与非零 WARN）+ `tests/test_deck_registry.py` 6 项 + `tests/test_deck_slot_contracts.py` 17 项 + `tests/test_compare_deck_shadow.py` 10 项：审计三态结论/退出码传播 + 注册表 18 槽/PE 分位总闸作用域单一真源一致性 + 槽位数据契约 + 影子只读校验
 - 探针提取脚本 `quant_research/scripts/extract_mwu_targets.py`（ETFMWUProbe/MomentumProbe）曾因多轮 patch 丢 `_target_portfolio`——修改探针后必须跑端到端回归
 
 ## 10. 审计与真钱
 
-- 审计脚本：`scripts/compare_deck_audit.py`（只读，8 项核查，✓/⚠/✗ 三态）——检查员 AI 每轮只跑此脚本并解读
+- 审计脚本：`scripts/compare_deck_audit.py`（只读，30+ 项核查，✓/⚠/✗ 三态；含注册表完成度/主动槽覆盖/任务结果）——检查员 AI 每轮只跑此脚本并解读
 - 检查员解读规则（三态结论 + 退出码）：
   - 任一 ✗（FAIL）→ 结论 `【异常】N 项 FAIL`，退出码 1，须人工介入
-  - 无 ✗ 但核心证据（marks 新鲜度 / 执行日志 / 抽样净值）任一非 ✓ → 结论 `样本不足, 无法判定`，退出码 0
+  - 无 ✗ 但核心证据（marks 新鲜度 / 执行日志 / 抽样净值 / 注册表 / 主动槽覆盖 / 任务结果 / 唤醒任务）任一非 ✓ → 结论 `样本不足, 无法判定`，退出码 0
   - 核心证据全 ✓ → 结论 `正常`，退出码 0
   - 台账不可读 → 退出码 2
 - 关键 FAIL 判据：marks 断供 >15 天 FAIL / >10 天 WARN；最近 intraday 执行日志 exit≠0 → FAIL；抽样净值偏差超阈 → FAIL

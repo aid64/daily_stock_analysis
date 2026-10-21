@@ -39,6 +39,7 @@ LEDGER = PROJECT_DIR.parent / ".scratch" / "dsa-strategy-validation" / "compare_
 CAPITAL = 12411.0
 LEDGER_SCHEMA_VERSION = 3
 _TRADING_OK = True  # 交易闸: _main_inner 按时段设置(15:10 后收盘补结算为 False); 测试/直调默认放行
+_session_now: datetime | None = None  # 入口捕获的会话时间（交易所戳优先）; 慢行情后不得二次取时
 EX_DATE = date.today()  # 交易所日历日（_main_inner 启动时取墙钟日期；旧行情戳只用于报价新鲜度，不倒拨运行日期）
 COMM_RATE, COMM_MIN = 0.0000845, 5.0
 STAMP_SELL = 0.0005  # 股票卖出印花税（ETF 免）
@@ -303,6 +304,21 @@ def _fills_open(now: datetime | None) -> bool:
     return bool(now) and is_trading_session(now) and (now.hour * 100 + now.minute) <= 1500
 
 
+def _session_fills_ok() -> bool:
+    """本次运行捕获的成交闸：会话闸在启动时的交易所时间 + _TRADING_OK。
+
+    收盘轮里 C/D 行情预取可能耗时数十秒，期间二次 exchange_now() 失败会回退墙钟
+    15:02 并误判"非撮合时段"；注册表和子任务必须用启动时捕获的会话时间，
+    而不是再次取时。
+    """
+    if not _TRADING_OK:
+        return False
+    session_now = globals().get("_session_now")
+    if session_now is None or session_now.date() != EX_DATE:
+        session_now = exchange_now() or datetime.now()
+    return _fills_open(session_now)
+
+
 def exchange_now() -> datetime | None:
     """用交易所行情时间戳作为真实时间基准（本机时钟不可信时唯一可靠来源）。"""
     try:
@@ -503,25 +519,54 @@ def revalue(slot: dict, px: dict) -> float:
 
 
 # ---------------------------------------------------------------- 信号计算
-def maybe_refresh_snapshot(dry: bool) -> str:
-    """A/B 信号的历史快照超过 7 天未更新时，用 quant_research 数据链重建（tushare 优先）。
+def _snapshot_last_date(path) -> date | None:
+    """快照内所有标的的最大数据日期；损坏/为空返回 None。"""
+    try:
+        import pandas as pd
+        data = pd.read_pickle(path)
+        dates = [pd.to_datetime(df["date"]).max().date()
+                 for df in data.values()
+                 if df is not None and len(df) and "date" in df.columns]
+        return max(dates) if dates else None
+    except Exception:
+        return None
 
+
+def _last_completed_trading_day(until: date) -> date:
+    d = until - timedelta(days=1)
+    for _ in range(15):
+        if is_exchange_trading_day(d):
+            return d
+        d -= timedelta(days=1)
+    return d
+
+
+def maybe_refresh_snapshot(dry: bool) -> str:
+    """A/B 信号的历史快照超过 7 天未更新 **或数据末端早于上一交易日** 时重建。
+
+    只看文件 mtime 会漏掉"刚重建但数据源仍滞后"的快照（10-19 实测末端 10-16）。
     失败时保留旧快照照常出信号（口径略陈旧，日志+消息标注）。"""
     out_dir = PROJECT_DIR.parent / "quant_research" / "output"
     snaps = sorted(out_dir.glob("feeds_snapshot_v*.pkl"), key=lambda p: p.stat().st_mtime, reverse=True)
-    if snaps and (datetime.now() - datetime.fromtimestamp(snaps[0].stat().st_mtime)).days < 7:
+    newest = snaps[0] if snaps else None
+    last_data = _snapshot_last_date(newest) if newest else None
+    last_trading = _last_completed_trading_day(EX_DATE)
+    data_stale = newest is None or last_data is None or last_data < last_trading
+    file_fresh = newest is not None and (datetime.now() - datetime.fromtimestamp(newest.stat().st_mtime)).days < 7
+    if file_fresh and not data_stale:
         return ""
-    target = snaps[0].with_name("feeds_snapshot_v5.pkl") if snaps else out_dir / "feeds_snapshot_v5.pkl"
+    target = newest.with_name("feeds_snapshot_v5.pkl") if newest else out_dir / "feeds_snapshot_v5.pkl"
     if dry:
-        return f"[dry] 快照已过期, 将重建→{target.name}"
+        return f"[dry] 快照需重建(末端 {last_data}, 上一交易日 {last_trading})→{target.name}"
     try:
         start = (EX_DATE - __import__("datetime").timedelta(days=450)).isoformat()
         _run_cmd([sys.executable, str(PROJECT_DIR.parent / "quant_research" / "scripts" / "build_feeds_snapshot.py"),
                   "--start", start, "--output", str(target)],
                  PROJECT_DIR.parent / "quant_research", 900)
         if target.exists():
-            log.info("快照已刷新: %s", target.name)
-            return f"快照已刷新({target.name})"
+            new_last = _snapshot_last_date(target)
+            log.info("快照已刷新: %s (末端 %s)", target.name, new_last)
+            return f"快照已刷新({target.name}, 至 {new_last})"
         log.error("快照重建后未找到输出 %s", target)
         return "【异常】快照重建失败(信号沿用旧快照)"
     except Exception as exc:
@@ -612,7 +657,7 @@ def momentum_target_from_engine(data: dict) -> dict[str, float]:
     return {s: 1.0 / len(ranked) for s in ranked} if ranked else {}
 
 
-def momentum_signal(led: dict, px: dict, dry: bool) -> list[dict]:
+def momentum_signal(led: dict, px: dict, dry: bool, fills_ok: bool | None = None) -> list[dict]:
     """A_动量：引擎口径（extract_mwu_targets.py 探针提取 ranked/defensive_mode）。
 
     微调保留：货币腿 511880 权重以现金持有（一手 ¥1 万+，功能等价现金）。
@@ -641,8 +686,8 @@ def momentum_signal(led: dict, px: dict, dry: bool) -> list[dict]:
         for o in sells + buys:
             o["is_stock"] = False
         changed = bool(sells or buys)
-        now = exchange_now()
-        tradable = bool(now) and _fills_open(now)
+        tradable = fills_ok if fills_ok is not None else _session_fills_ok()
+        now = globals().get("_session_now") or datetime.now()
         rejects: list[str] = []
         if changed and not tradable:
             log.warning("非交易时段(交易所 %s), A 槽调仓抑制为只记录", now)
@@ -664,7 +709,7 @@ def momentum_signal(led: dict, px: dict, dry: bool) -> list[dict]:
         return ["【异常】A_动量 引擎信号提取失败, 持仓不变"]
 
 
-def rotation_signal(led: dict, px: dict, dry: bool) -> list[dict]:
+def rotation_signal(led: dict, px: dict, dry: bool, fills_ok: bool | None = None) -> list[dict]:
     """B_轮动：核心3资产25日收益选最强，全负→空仓。"""
     feeds = _load_snapshot()
     if feeds is None:
@@ -694,8 +739,8 @@ def rotation_signal(led: dict, px: dict, dry: bool) -> list[dict]:
         qty = int(slot_equity(slot, px) * 0.98 // (price * 100)) * 100
         if qty:
             buys.append({"symbol": target[0], "qty": qty, "price": price})
-    now = exchange_now()
-    tradable = bool(now) and _fills_open(now)
+    now = globals().get("_session_now") or datetime.now()
+    tradable = fills_ok if fills_ok is not None else _session_fills_ok()
     rejects: list[str] = []
     if tradable:
         rejects = apply_orders(slot, sells, buys, px)
@@ -740,6 +785,10 @@ def smallcap_rebalance(led: dict, slot_name: str, slots: int, cap_per: float,
         return ("SH" if m == "SH" else "SZ") + c
     # 纯小市值排序(23月回测: 缓冲带月均拖累0.72pp——去缓冲)
     ensure_prices(px, [tcode(r["ts_code"]) for r in recs])
+    # 12,411 资金下 20×2500 / 5×4000 结构性不可行：按槽内 equity/持仓数分配每只预算，
+    # 再按 100 股整手向下取整；cap_per 仍是单票上限。
+    equity = slot_equity(slot, px)
+    per_budget = min(cap_per, equity / slots) if slots > 0 else 0.0
     picks_syms = []
     picks = []
     for r in recs:
@@ -749,10 +798,13 @@ def smallcap_rebalance(led: dict, slot_name: str, slots: int, cap_per: float,
         if sym in picks_syms:
             continue
         price = px.get(sym, {}).get("price")
-        if not price or price * 100 > cap_per:
+        if not price:
+            continue
+        qty = int(per_budget // (price * 100)) * 100
+        if qty < 100:
             continue
         picks_syms.append(sym)
-        picks.append({"symbol": sym, "name": r["name"], "price": price, "qty": 100})
+        picks.append({"symbol": sym, "name": r["name"], "price": price, "qty": qty})
     sells = [{"symbol": h["symbol"], "qty": h["qty"], "price": px.get(h["symbol"], {}).get("price") or h["price"], "is_stock": True}
              for h in slot.get("holds", []) if h["symbol"] not in picks_syms]
     if dry:
@@ -993,7 +1045,8 @@ def mwu_target_orders(target: dict[str, float], cur: dict[str, int], prices: dic
 
 
 def mwu_rebalance(led: dict, px: dict, dry: bool, slot_name: str = "G_MWU融合",
-                  strategy: str = "etf_mwu", strategy_config: str = "config/strategy/etf_mwu.yaml") -> list[str]:
+                  strategy: str = "etf_mwu", strategy_config: str = "config/strategy/etf_mwu.yaml",
+                  fills_ok: bool | None = None) -> list[str]:
     """MWU 槽位：跑引擎提取最新目标 → 与持仓 diff 先卖后买。失败不影响收盘落账。"""
     slot = led["strategies"].get(slot_name)
     if not slot:
@@ -1016,8 +1069,8 @@ def mwu_rebalance(led: dict, px: dict, dry: bool, slot_name: str = "G_MWU融合"
         sells, buys = mwu_target_orders(target, cur, prices, capital=slot_equity(slot, px))
         for o in sells + buys:
             o["is_stock"] = False
-        now = exchange_now()
-        tradable = bool(now) and _fills_open(now)
+        now = globals().get("_session_now") or datetime.now()
+        tradable = fills_ok if fills_ok is not None else _session_fills_ok()
         rejects: list[str] = []
         if (sells or buys) and not tradable:
             log.warning("非交易时段(交易所 %s), %s 调仓抑制为只记录", now, slot_name)
@@ -2442,7 +2495,7 @@ def _is_week_first_trading_day() -> bool:
     return result
 
 
-def _monthly_tasks(led: dict, px: dict, dry: bool) -> list:
+def _monthly_tasks(led: dict, px: dict, dry: bool, fills_ok: bool) -> list:
     """月度调仓注册表: (标签, 槽位元组, 调用) 列表。函数内构造, 探针 ns 可逐个替换策略。
 
     - 标签: rebalance_done 月度记录的子任务标识; 全部成功登记 "all",
@@ -2452,15 +2505,16 @@ def _monthly_tasks(led: dict, px: dict, dry: bool) -> list:
     """
     return [
         ("smallcap20", ("F_小市值20",),
-         lambda: smallcap_rebalance(led, "F_小市值20", 20, 2500, True, px, dry)),
+         lambda: smallcap_rebalance(led, "F_小市值20", 8, 2500, True, px, dry)),
         ("smallcap5", ("F2_小市值5只神帖对照",),
-         lambda: smallcap_rebalance(led, "F2_小市值5只神帖对照", 5, 4000, False, px, dry)),
+         lambda: smallcap_rebalance(led, "F2_小市值5只神帖对照", 3, 4000, False, px, dry)),
         ("cb", ("E_可转债双低",),
          lambda: cb_rebalance(led, px, dry)),
         ("mwu_cb", ("H_MWU_CB融合",),
          lambda: mwu_rebalance(led, px, dry, slot_name="H_MWU_CB融合",
                                strategy="etf_mwu_cb",
-                               strategy_config="config/strategy/etf_mwu_cb_monthly.yaml")),
+                               strategy_config="config/strategy/etf_mwu_cb_monthly.yaml",
+                               fills_ok=fills_ok)),
         ("pead", ("I_PEAD业绩预告",),
          lambda: pead_rebalance(led, px, dry)),
         ("reversal", ("J_短期反转",),
@@ -2476,7 +2530,7 @@ def _monthly_tasks(led: dict, px: dict, dry: bool) -> list:
     ]
 
 
-def _weekly_tasks(led: dict, px: dict, dry: bool) -> list:
+def _weekly_tasks(led: dict, px: dict, dry: bool, fills_ok: bool) -> list:
     """周度调仓注册表: (标签, 槽位元组, 调用) 列表。
 
     与月度同构——周频槽此前是裸调用（非撮合时段只记 log、被拒不重试、消息照报
@@ -2484,14 +2538,14 @@ def _weekly_tasks(led: dict, px: dict, dry: bool) -> list:
     「子任务幂等 + 失败重试 + 非撮合窗顺延」。
     """
     return [
-        ("momentum", ("A_动量",), lambda: momentum_signal(led, px, dry)),
-        ("rotation", ("B_轮动",), lambda: rotation_signal(led, px, dry)),
-        ("mwu", ("G_MWU融合",), lambda: mwu_rebalance(led, px, dry)),
+        ("momentum", ("A_动量",), lambda: momentum_signal(led, px, dry, fills_ok=fills_ok)),
+        ("rotation", ("B_轮动",), lambda: rotation_signal(led, px, dry, fills_ok=fills_ok)),
+        ("mwu", ("G_MWU融合",), lambda: mwu_rebalance(led, px, dry, fills_ok=fills_ok)),
     ]
 
 
 def _subtask_registry_pass(led: dict, ctrl: dict, registry_key: str, key: str,
-                           tasks: list, *, tag: str) -> list[str]:
+                           tasks: list, *, tag: str, fills_ok: bool) -> list[str]:
     """子任务注册表的**唯一实现**（月频与周频共用，避免同一语义两套代码）。
 
     语义：
@@ -2500,10 +2554,13 @@ def _subtask_registry_pass(led: dict, ctrl: dict, registry_key: str, key: str,
     - 全部成功登记 "all"，部分成功登记已完成标签列表 → 后续同窗（月内每日 /
       同周后续交易日）经列表门续做至齐备。
     - 子任务成功即清除该槽 `erp_scaled` 标记（重建后待总闸重新缩放）。
+
+    `fills_ok` 必须由 run_close 在启动时捕获（见 `_session_fills_ok`）——慢行情
+    预取后再取时可能失败/回退墙钟，导致合法的 15:00 收盘轮被误判为盘后补跑。
     """
     msgs: list[str] = []
     done = ctrl.setdefault(registry_key, {})
-    if not _fills_open(exchange_now() or datetime.now()):
+    if not fills_ok:
         # 非撮合时段(如 15:0x 补结算轮 / 补跑轮): 只顺延不执行。
         if not isinstance(done.get(key), list):
             done[key] = []
@@ -2576,22 +2633,14 @@ def run_close(dry: bool) -> str:
     # 非交易日（周末/节假日）不得补结算写 marks；接口失败时 is_exchange_trading_day 保守 True（幂等兜底）。
     if not is_exchange_trading_day(EX_DATE):
         return f"休市(交易所日历 {EX_DATE})，跳过"
+    # 启动时捕获成交闸：后面 C/D/引擎行情预取可能耗时数十秒，不能二次取时。
+    fills_ok = _session_fills_ok()
     led = load_ledger()
     px = slot_prices(led)
     today = EX_DATE.isoformat()
     snap_msg = maybe_refresh_snapshot(dry)
     repo_msgs = [] if dry else repo_maturity_pass(led, dry)
     div_msgs = [] if dry else daily_dividend_pass(led, px, dry)
-    marks = led.setdefault("marks", [])
-    equity, ret = {}, {}
-    for name, s in led["strategies"].items():
-        eq = revalue(s, px)
-        equity[name], ret[name] = eq, round((eq / CAPITAL - 1) * 100, 2)
-    existing = next((m for m in marks if m["date"] == today), None)
-    if existing:
-        existing.update({"equity": equity, "return_pct": ret})
-    else:
-        marks.append({"date": today, "equity": equity, "return_pct": ret})
     msgs: list[str] = []
     if snap_msg:
         msgs.append(snap_msg)
@@ -2611,7 +2660,7 @@ def run_close(dry: bool) -> str:
     if not dry and ctrl.setdefault("bootstrap_done", {}).get("once") != "all":
         msgs.extend(_subtask_registry_pass(
             led, ctrl, "bootstrap_done", "once",
-            _bootstrap_tasks(led, px, dry), tag="建仓"))
+            _bootstrap_tasks(led, px, dry), tag="建仓", fills_ok=fills_ok))
     # 周度注册表: 与月度同构（同一语义单一实现 `_subtask_registry_pass`）。
     # 门: 周首交易日启动; 非撮合窗顺延; 部分完成(列表记录)则**同周后续交易日**续做至齐备
     #     （周频窗口只有"周首交易日"这一个，此前裸调用错过即整周丢失，且消息仍报"调仓→"）。
@@ -2622,7 +2671,7 @@ def run_close(dry: bool) -> str:
             and (_is_week_first_trading_day() or isinstance(wdone.get(week_key), list))):
         msgs.extend(_subtask_registry_pass(
             led, ctrl, "week_rebalance_done", week_key,
-            _weekly_tasks(led, px, dry), tag="周度"))
+            _weekly_tasks(led, px, dry, fills_ok), tag="周度", fills_ok=fills_ok))
     month_key = today[:7]
     done = ctrl.setdefault("rebalance_done", {})
     # 月度注册表: 子策略粒度幂等 + 失败重试 + 非撮合窗顺延。
@@ -2631,9 +2680,20 @@ def run_close(dry: bool) -> str:
             and (_is_month_first_trading_day() or isinstance(done.get(month_key), list))):
         msgs.extend(_subtask_registry_pass(
             led, ctrl, "rebalance_done", month_key,
-            _monthly_tasks(led, px, dry), tag="月度"))
+            _monthly_tasks(led, px, dry, fills_ok), tag="月度", fills_ok=fills_ok))
     # ERP 缩放执行侧: 周度/月度重建之后调用(重建清标记 → 此处重新应用 ×0.5; 据实 + 被拒次日补做)
     msgs.extend(erp_scale_pass(led, px, dry))
+    # marks 在注册表/成交之后计算: 首日即可反映成交与费用，而不是先记全现金、拖到次日。
+    marks = led.setdefault("marks", [])
+    equity, ret = {}, {}
+    for name, s in led["strategies"].items():
+        eq = revalue(s, px)
+        equity[name], ret[name] = eq, round((eq / CAPITAL - 1) * 100, 2)
+    existing = next((m for m in marks if m["date"] == today), None)
+    if existing:
+        existing.update({"equity": equity, "return_pct": ret})
+    else:
+        marks.append({"date": today, "equity": equity, "return_pct": ret})
     # 本轮操作先并入 _actions 再出 summary: 收盘通知的"今日操作"必须含当轮成交,
     # 旧顺序 summary 先构建 → 通知声称"无调仓"而台账实际有交易。
     if not dry:
@@ -2693,7 +2753,7 @@ def _session_gate(stamp: datetime | None, wall: datetime, force: bool):
 
 
 def _main_inner(args: argparse.Namespace) -> int:
-    global EX_DATE, _TRADING_OK
+    global EX_DATE, _TRADING_OK, _session_now
     stamp = exchange_now()
     wall = datetime.now()
     EX_DATE, _session_now, _TRADING_OK, reject = _session_gate(stamp, wall, args.force)

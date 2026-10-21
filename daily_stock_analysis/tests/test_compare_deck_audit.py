@@ -26,7 +26,7 @@ def _ledger(marks_dates, strategies=None):
             "_control": {}}
 
 
-def _run_audit(monkeypatch, tmp_path, ledger_dict, log_text, live=None):
+def _run_audit(monkeypatch, tmp_path, ledger_dict, log_text, live=None, last_result="0"):
     led = tmp_path / "ledger.json"
     led.write_text(json.dumps(ledger_dict, ensure_ascii=False), encoding="utf-8")
     log = tmp_path / "task.log"
@@ -35,8 +35,20 @@ def _run_audit(monkeypatch, tmp_path, ledger_dict, log_text, live=None):
     monkeypatch.setattr(mod, "TASK_LOG", log)
     monkeypatch.setattr(mod, "tencent_live", lambda codes: dict(live or {}))
     monkeypatch.setattr(mod, "exchange_stamp", lambda: "")
-    monkeypatch.setattr(mod.subprocess, "run",
-                        lambda *a, **k: SimpleNamespace(stdout="已启用", returncode=0))
+    close_xml = ('<Task><RegistrationInfo><URI>DSA_Deck_Close</URI></RegistrationInfo>'
+                 '<Settings><WakeToRun>true</WakeToRun></Settings>'
+                 '<Triggers><StartBoundary>2026-10-21T15:00:30+08:00</StartBoundary></Triggers>'
+                 '<Actions><Exec><Arguments>run_hidden_sync.vbs</Arguments></Exec></Actions></Task>')
+
+    def _fake_run(cmd, *a, **k):
+        joined = " ".join(str(x) for x in cmd)
+        if "LastTaskResult" in joined:
+            return SimpleNamespace(stdout=f"{last_result}\n", returncode=0)
+        if "DSA_Deck_Close" in joined and "/XML" in joined:
+            return SimpleNamespace(stdout=close_xml, returncode=0)
+        return SimpleNamespace(stdout="已启用", returncode=0)
+
+    monkeypatch.setattr(mod.subprocess, "run", _fake_run)
     fake_bs = SimpleNamespace(login=lambda: None, logout=lambda: None,
                               query_history_k_data_plus=lambda *a, **k:
                               SimpleNamespace(error_code="1"))
@@ -103,15 +115,72 @@ def test_audit_verdict_normal_when_all_core_pass(monkeypatch, tmp_path):
                                   "holds": [{"symbol": "510300.SH", "qty": 100, "price": 4.5}],
                                   "equity": 491.2}}
     led = _ledger([_today()], strategies=strategies)
-    led["_control"] = {"close_done": _today()}
+    iso = datetime.strptime(_today(), "%Y-%m-%d").isocalendar()
+    week_key = f"{iso[0]}-W{int(iso[1]):02d}"
+    led["_control"] = {"close_done": _today(),
+                       "rebalance_done": {_today()[:7]: "all"},
+                       "week_rebalance_done": {week_key: "all"}}
     rc, out, rows = _run_audit(monkeypatch, tmp_path, led,
                                f"{_today()}T09:00:00 intraday start\n{_today()}T09:00:01 intraday exit=0\n",
                                live={"510300": 4.5})
     assert _row(rows, "marks 最新")["status"] == "PASS"
     assert _row(rows, "执行日志")["status"] == "PASS"
     assert _row(rows, "抽样净值")["status"] == "PASS"
+    assert _row(rows, "注册表")["status"] == "PASS"
+    assert _row(rows, "主动槽覆盖")["status"] == "PASS"
+    assert _row(rows, "任务结果")["status"] == "PASS"
+    assert _row(rows, "唤醒任务")["status"] == "PASS"
     assert "结论: 正常" in out
     assert rc == 0
+
+
+def test_audit_warns_nonzero_task_result(monkeypatch, tmp_path):
+    """任务调度器 LastTaskResult 非 0 → 任务结果 WARN，且不得宣称正常。"""
+    strategies = {"F_小市值20": {"cash": 41.2,
+                                  "holds": [{"symbol": "510300.SH", "qty": 100, "price": 4.5}],
+                                  "equity": 491.2}}
+    led = _ledger([_today()], strategies=strategies)
+    iso = datetime.strptime(_today(), "%Y-%m-%d").isocalendar()
+    week_key = f"{iso[0]}-W{int(iso[1]):02d}"
+    led["_control"] = {"close_done": _today(),
+                       "rebalance_done": {_today()[:7]: "all"},
+                       "week_rebalance_done": {week_key: "all"}}
+    rc, out, rows = _run_audit(monkeypatch, tmp_path, led,
+                               f"{_today()}T09:00:00 intraday start\n{_today()}T09:00:01 intraday exit=0\n",
+                               live={"510300": 4.5}, last_result="267009")
+    assert _row(rows, "任务结果")["status"] == "WARN"
+    assert "267009" in _row(rows, "任务结果")["detail"]
+    assert "样本不足" in out
+    assert "结论: 正常" not in out
+    assert rc == 0
+
+
+def test_audit_flags_partial_first_fill(monkeypatch, tmp_path):
+    """首建仓只成交 C/D、主动槽全现金、周/月仍 [] → 注册表/主动槽 WARN，不得宣称正常。"""
+    strategies = {
+        "C_沪深300持有": {"cash": 269.5, "holds": [{"symbol": "510300.SH", "qty": 2900, "price": 4.185}], "equity": 12411.0},
+        "D_红利低波持有": {"cash": 276.0, "holds": [{"symbol": "512890.SH", "qty": 10000, "price": 1.213}], "equity": 12411.0},
+        "F_小市值20": {"cash": 12411.0, "holds": [], "equity": 12411.0},
+    }
+    led = _ledger([_today()], strategies=strategies)
+    iso = datetime.strptime(_today(), "%Y-%m-%d").isocalendar()
+    week_key = f"{iso[0]}-W{int(iso[1]):02d}"
+    led["_control"] = {"close_done": _today(),
+                       "rebalance_done": {_today()[:7]: []},
+                       "week_rebalance_done": {week_key: []}}
+    rc, out, rows = _run_audit(monkeypatch, tmp_path, led,
+                               f"{_today()}T09:00:00 intraday start\n{_today()}T09:00:01 intraday exit=0\n",
+                               live={"510300": 4.185, "512890": 1.213})
+    assert _row(rows, "注册表")["status"] == "WARN"
+    assert _row(rows, "主动槽覆盖")["status"] == "WARN"
+    assert "样本不足" in out
+    assert "结论: 正常" not in out
+    assert rc == 0
+
+
+def test_time_health_after_close_does_not_report_clock_skew():
+    status, detail = mod.time_health("20261021161400", datetime(2026, 10, 21, 20, 35))
+    assert status == "PASS" and "已收盘" in detail and "本机偏差约" not in detail
 
 
 # ------------------------------------------------- 时间健康/多源同日比较（A4/A5）

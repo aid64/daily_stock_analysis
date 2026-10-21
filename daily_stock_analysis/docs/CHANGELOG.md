@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [修复] 对比盘**首建仓成交闸二次取时**：`_main_inner` 未把入口捕获的会话时间暴露为全局，`run_close` 的周/月/建仓注册表与 A/B/G/H 在建仓/引擎行情预取数十秒后再次 `exchange_now()`；10-21 首次收盘轮因此只有 C/D 成交、周/月均登记 `[]`、主动槽全现金。现入口捕获 `_session_now`，`run_close` 启动即计算 `fills_ok` 并贯穿全部注册表与交易槽，不再二次取时；补入口→close 与慢行情回归。
+- [修复] 对比盘 **marks 先于成交**：收盘轮开头即按全现金记当日净值，首日成交与费用要拖到次日才反映；现 marks 移至注册表/成交/ERP 缩放之后计算，补首日后置回归。
+- [修复] 对比盘 F/F2 **资金结构性不可行**：¥12,411 下 F 20×2500 / F2 5×4000 永远买不满（旧实现还固定 100 股/票）；现按 `min(单票上限, 槽内 equity/槽数)` 分配每票预算并整手向下取整，F/F2 改为最多 8/3 只（一手超预算的标的跳过）；补每票预算与空槽预取回归。
+- [修复] 对比盘 B 快照**只校验 mtime 不校验数据末端**：10-19 重建出的快照末端仅 10-16 仍被复用为最新信号；现末端早于上一交易日即重建，消息/日志标注实际末端（`至 YYYY-MM-DD`）。
+- [改进] 对比盘审计新增**注册表完成度**（当日周/月非 `all` 即 WARN）、**主动槽覆盖**（主动槽全现金即 WARN）、**任务 LastTaskResult**（非 0 WARN），并纳入三态核心证据，禁止"只成交 C/D"被判定正常；`DSA_Deck_Intraday` 设 `StartWhenAvailable=True`（保留 `WakeToRun=False`、电池/并发/时限等设置），补 3 条审计回归（部分建仓/收盘后时钟/任务非零结果）。
 - [修复] 对比盘盘中扫描节流：`event_scan_last` 仅在事件/观察池扫描未返回【异常】时写键；扫描源失败显式返回【异常】，下一 20 分钟轮重试；halfday 键改用交易所时间（`_session_now`）而非墙钟。补 3 条 `run_intraday` + 2 条扫描源回归。
 - [改进] 对比盘审计新增 `DSA_Deck_Close` 检查（enabled / WakeToRun / sync launcher / 15:00:30），补 2 条回归。
 - [修复] 对比盘审计执行日志 **start/exit 配对**：最后一轮只有 start（任务被终止/仍在运行）显式 WARN，不再拿更早的 exit 误判 PASS；start-only 日志不再触发 IndexError。补 2 条回归。

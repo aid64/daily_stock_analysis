@@ -72,6 +72,8 @@ def time_health(stamp: str, now: datetime | None = None) -> tuple[str, str]:
         return "WARN", f"交易所时间戳格式异常: {stamp[:16]}"
     if ex.date() != now.date():
         return "WARN", f"交易所时间戳 {ex:%m-%d %H:%M} 非当日（市场已收盘），不计算本机偏差"
+    if ex.hour * 100 + ex.minute >= 1500:
+        return "PASS", f"交易所已收盘（{ex:%m-%d %H:%M}），不计算本机偏差"
     skew_min = abs((now - ex).total_seconds()) / 60
     status = "WARN" if skew_min > 12 * 60 else "PASS"
     return status, (f"交易所时间戳 {ex:%m-%d %H:%M} | 本机偏差约 {skew_min/60:.1f}h"
@@ -154,6 +156,32 @@ def main() -> int:
     ctrl_keys = {k: str(v)[:20] for k, v in ctrl.items() if k in ("close_done", "event_scan_last", "dividend_check_last", "erp_last_check")}
     check("_control 键", "PASS" if ctrl_keys else "WARN", json.dumps(ctrl_keys, ensure_ascii=False))
 
+    # 2b. 收盘完成度: 注册表 + 主动槽覆盖。首建仓只成交 C/D 时这里必须 WARN。
+    close_done = str(ctrl.get("close_done") or "")
+    if close_done == datetime.now().strftime("%Y-%m-%d"):
+        pending = []
+        month_key = close_done[:7]
+        month_done = (ctrl.get("rebalance_done") or {}).get(month_key)
+        if month_done not in (None, "all"):
+            pending.append(f"月度({month_done})")
+        iso = datetime.strptime(close_done, "%Y-%m-%d").isocalendar()
+        week_key = f"{iso[0]}-W{int(iso[1]):02d}"
+        week_done = (ctrl.get("week_rebalance_done") or {}).get(week_key)
+        if week_done not in (None, "all"):
+            pending.append(f"周度({week_done})")
+        check("注册表", "WARN" if pending else "PASS",
+              "未完成: " + "; ".join(pending) if pending else "周/月均 all")
+        excluded = ("C_沪深300持有", "D_红利低波持有", "X_事件套利",
+                    "Y_确定性收益", "L_北向择时")
+        active = [n for n in led.get("strategies", {}) if n not in excluded]
+        invested = [n for n in active if led["strategies"][n].get("holds")]
+        check("主动槽覆盖", "PASS" if invested else "WARN",
+              f"{len(invested)}/{len(active)} 有持仓"
+              + ("" if invested else "（仅基准/现金）"))
+    else:
+        check("注册表", "WARN", f"今日未收盘 (close_done={close_done or '缺失'})")
+        check("主动槽覆盖", "WARN", "今日未收盘")
+
     # 自洽: equity ≈ cash + Σ(qty×成本价) (容差 3% — 成本价≠现价的固有偏差上限)
     bad = []
     for name, s in led.get("strategies", {}).items():
@@ -226,6 +254,27 @@ def main() -> int:
     except Exception as exc:
         check("唤醒任务", "WARN", f"查询失败: {exc!r:.60}")
 
+    # 3c. 任务结果: Task Scheduler 的 LastTaskResult（0x800710E0 等非零结果）
+    def _last_result(name: str):
+        try:
+            r = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 f"(Get-ScheduledTaskInfo -TaskName '{name}').LastTaskResult"],
+                capture_output=True, text=True, timeout=15)
+            return int((r.stdout or "").strip())
+        except Exception:
+            return None
+
+    task_results = {n: _last_result(n) for n in ("DSA_Deck_Intraday", "DSA_Deck_Close")}
+    missing_results = [n for n, v in task_results.items() if v is None]
+    bad_results = [f"{n}={v}" for n, v in task_results.items() if v not in (None, 0)]
+    if missing_results:
+        check("任务结果", "WARN", f"无法读取: {missing_results}")
+    elif bad_results:
+        check("任务结果", "WARN", f"非零: {', '.join(bad_results)}")
+    else:
+        check("任务结果", "PASS", "DSA_Deck_Intraday / DSA_Deck_Close 均 0")
+
     # 4. 抽样净值
     samples = []
     for sym in ("510300.SH", "512890.SH", "SZ301578"):
@@ -291,9 +340,11 @@ def _emit() -> None:
     for r in results:
         mark = {"PASS": "✓", "WARN": "⚠", "FAIL": "✗"}[r["status"]]
         print(f"{mark} {r['check']}: {r['detail']}")
-    # 三态结论: 有 FAIL → 异常; 核心证据(marks/执行日志/抽样净值)任一非 PASS → 样本不足;
-    # 其余 WARN 属提醒项不阻断判定。
-    core = ("marks 最新", "执行日志", "抽样净值")
+    # 三态结论: 有 FAIL → 异常; 核心证据任一非 PASS → 样本不足;
+    # 其余 WARN 属提醒项不阻断判定。注册表/主动槽/任务结果/唤醒任务都是首次全建仓
+    # 的必要证据，不能让"只成交 C/D"或任务非零结果被"正常"掩盖。
+    core = ("marks 最新", "执行日志", "抽样净值", "注册表",
+            "主动槽覆盖", "任务结果", "唤醒任务")
     if n_fail:
         verdict = f"【异常】{n_fail} 项 FAIL"
     elif any(r["status"] != "PASS" and r["check"] in core for r in results):
