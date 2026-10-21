@@ -17,8 +17,9 @@
 | 策略注册表 | `strategies.yaml`（仓库根） | 策略参数（改参数不改代码） |
 | 决策快照归档 | `output/decision_snapshot/` | `/操作单 历史` 的审计留痕 |
 | 历史操作单 | `output/order_sheets/` | 回填/对比依据 |
+| 对比盘台账 | `.scratch/dsa-strategy-validation/compare_strategies.json` | cohort 真源（prereg/marks/`_control`/18 槽持仓）；同目录的 `cohort-manifest.jsonl`、`ledger-seal-manifest.json` 一并备份 |
 
-布局：`data/backups/<YYYY-MM-DD>/…`，每份含 `MANIFEST.txt`（备份时间/大小/源库路径）。
+布局：`data/backups/<YYYY-MM-DD>/…`，每份含 `MANIFEST.txt`（备份时间/大小/源库路径；对比盘台账存在时另含 `deck_ledger_bytes` 与 `deck_ledger_sha256`）。
 `data/` 已在 `.gitignore`，备份不入库、不产生脏 diff。
 
 ## 二、每天怎么备（Windows 计划任务）
@@ -47,13 +48,14 @@ Set-ScheduledTask -TaskName "DSA_Ledger_Backup" -Settings $s
 手动执行（在 `daily_stock_analysis/` 下）：
 
 ```bash
-py scripts/backup_ledger.py --verify              # 备份 + 校验 db 可打开且核心表齐全
+py scripts/backup_ledger.py --verify              # 备份 + 校验 db 与对比盘台账
 py scripts/backup_ledger.py --retention 30        # 改保留份数（0=不删）
 schtasks /Run /TN "DSA_Ledger_Backup"             # 计划任务上下文验证（改包装后必做）
 ```
 
 `--verify` 会打开备份出的 db 确认 `portfolio_accounts/trades/cash_ledger/positions/event_audit`
-五张核心表齐全；校验失败退出码非 0（计划任务可据此告警）。
+五张核心表齐全；若对比盘台账存在，还会确认其可解析且保留 `strategies` / `marks` / `_control`
+三块容器。任一校验失败退出码非 0（计划任务可据此告警）。干净检出/未启用对比盘时台账缺失只告警，不阻断账户备份。
 
 > 建议：`data/backups/` 只在本机等于"同盘副本"，防不了盘坏。真要抗硬件故障，
 > 再把 `data/backups/` 定期同步到第二块盘或网盘（本脚本不做外部上传，避免把
@@ -90,7 +92,8 @@ schtasks /Run /TN "DSA_Ledger_Backup"             # 计划任务上下文验证�
 
 1. clone 仓库（代码是 git 真源）；
 2. 从备份恢复 `data/stock_analysis.db`、`.env`、`strategies.yaml`、
-   `output/decision_snapshot/`、`output/order_sheets/`；
+   `output/decision_snapshot/`、`output/order_sheets/`，以及
+   `dsa-strategy-validation/compare_strategies.json` 与两个 manifest；
 3. `pip install -r requirements.txt` → 重启 server → 重注册 keepalive 与备份计划任务。
 
 ## 四、边界与已知限制

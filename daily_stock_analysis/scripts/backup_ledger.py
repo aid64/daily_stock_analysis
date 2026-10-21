@@ -12,6 +12,9 @@ append-only 审计），此前零备份——盘坏/误删 = 账本与审计全�
   3. strategies.yaml（仓库根）      —— 策略注册表
   4. output/decision_snapshot/     —— 决策快照归档（审计留痕）
   5. output/order_sheets/          —— 历史操作单（回填/对比依据）
+  6. .scratch/dsa-strategy-validation/compare_strategies.json
+                                   —— 对比盘台账/cohort 真源（含 prereg/marks/_control），
+                                      以及 cohort-manifest.jsonl、ledger-seal-manifest.json
 
 布局：data/backups/<YYYY-MM-DD>/…（data/ 已 gitignore，备份不入库）
 滚动：默认保留最近 RETENTION 份，超出按日期删最旧。
@@ -19,7 +22,7 @@ append-only 审计），此前零备份——盘坏/误删 = 账本与审计全�
 用法（在 daily_stock_analysis/ 下）：
   py scripts/backup_ledger.py              # 备份到当日目录
   py scripts/backup_ledger.py --retention 30
-  py scripts/backup_ledger.py --verify     # 备份后校验 db 可打开且表齐全
+  py scripts/backup_ledger.py --verify     # 备份后校验 db 可打开、表齐全，且对比盘台账可解析
 
 恢复见 docs/disaster-recovery.md。
 建议由 Windows 计划任务每日调用一次（注册命令见该文档）。
@@ -28,6 +31,8 @@ append-only 审计），此前零备份——盘坏/误删 = 账本与审计全�
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import logging
 import shutil
 import sqlite3
@@ -43,6 +48,8 @@ _REPO_ROOT = _PROJECT_ROOT.parent                      # 仓库根
 _DB = _PROJECT_ROOT / "data" / "stock_analysis.db"
 _BACKUP_ROOT = _PROJECT_ROOT / "data" / "backups"
 _OUTPUT = _PROJECT_ROOT / "output"
+_DECK_DIR = _REPO_ROOT / ".scratch" / "dsa-strategy-validation"
+_DECK_FILES = ("compare_strategies.json", "cohort-manifest.jsonl", "ledger-seal-manifest.json")
 
 RETENTION_DEFAULT = 14
 
@@ -101,6 +108,30 @@ def _verify(db_path: Path) -> bool:
     return True
 
 
+def _verify_deck(path: Path) -> bool:
+    """对比盘台账可解析且保留三块核心容器（strategies/marks/_control）。"""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        logger.error("校验失败：对比盘台账无法解析: %r", exc)
+        return False
+    ok = (isinstance(data, dict)
+          and isinstance(data.get("strategies"), dict)
+          and isinstance(data.get("marks"), list)
+          and isinstance(data.get("_control"), dict))
+    if not ok:
+        logger.error("校验失败：对比盘台账缺少 strategies/marks/_control 容器")
+    return ok
+
+
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def _prune(retention: int) -> None:
     if not _BACKUP_ROOT.exists():
         return
@@ -139,13 +170,26 @@ def run_backup(retention: int = RETENTION_DEFAULT, verify: bool = False) -> Path
     _copy_if_exists(_OUTPUT / "decision_snapshot", day_dir / "decision_snapshot")
     _copy_if_exists(_OUTPUT / "order_sheets", day_dir / "order_sheets")
 
-    (day_dir / "MANIFEST.txt").write_text(
-        f"backup_at={datetime.now().isoformat(timespec='seconds')}\n"
-        f"db_bytes={db_dst.stat().st_size}\n"
-        f"source_db={_DB}\n",
-        encoding="utf-8")
+    deck_dst = day_dir / "dsa-strategy-validation" / "compare_strategies.json"
+    deck_copied = _copy_if_exists(_DECK_DIR / "compare_strategies.json", deck_dst)
+    for name in _DECK_FILES[1:]:
+        _copy_if_exists(_DECK_DIR / name, day_dir / "dsa-strategy-validation" / name)
+
+    manifest = [
+        f"backup_at={datetime.now().isoformat(timespec='seconds')}",
+        f"db_bytes={db_dst.stat().st_size}",
+        f"source_db={_DB}",
+    ]
+    if deck_copied:
+        manifest += [
+            f"deck_ledger_bytes={deck_dst.stat().st_size}",
+            f"deck_ledger_sha256={_sha256(deck_dst)}",
+        ]
+    (day_dir / "MANIFEST.txt").write_text("\n".join(manifest) + "\n", encoding="utf-8")
 
     ok = _verify(db_dst) if verify else True
+    if verify and deck_copied and not _verify_deck(deck_dst):
+        ok = False
     _prune(retention)
     if not ok:
         raise SystemExit(3)
