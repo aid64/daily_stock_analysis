@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
-- [改进] 每日备份纳入**对比盘台账**：`backup_ledger.py` 现备份 `.scratch/dsa-strategy-validation/compare_strategies.json` 及 `cohort-manifest.jsonl`/`ledger-seal-manifest.json`，`MANIFEST.txt` 记录台账大小与 sha256；`--verify` 增加台账可解析且含 `strategies`/`marks`/`_control` 的校验（干净检出缺失时不阻断账户备份）。补 3 条备份回归，同步 `disaster-recovery.md`/`strategy-compare-deck.md`。
+- [改进] 每日备份纳入**对比盘台账**：`backup_ledger.py` 现备份 `.scratch/dsa-strategy-validation/compare_strategies.json` 及 `archive/cohort-manifest.jsonl`（如存在），`MANIFEST.txt` 记录台账大小与 sha256；`--verify` 增加台账可解析且含 `strategies`/`marks`/`_control` 的校验（干净检出缺失时不阻断账户备份）。补 3 条备份回归，同步 `disaster-recovery.md`/`strategy-compare-deck.md`。
 - [修复] 对比盘**首建仓成交闸二次取时**：`_main_inner` 未把入口捕获的会话时间暴露为全局，`run_close` 的周/月/建仓注册表与 A/B/G/H 在建仓/引擎行情预取数十秒后再次 `exchange_now()`；10-21 首次收盘轮因此只有 C/D 成交、周/月均登记 `[]`、主动槽全现金。现入口捕获 `_session_now`，`run_close` 启动即计算 `fills_ok` 并贯穿全部注册表与交易槽，不再二次取时；补入口→close 与慢行情回归。
 - [修复] 对比盘 **marks 先于成交**：收盘轮开头即按全现金记当日净值，首日成交与费用要拖到次日才反映；现 marks 移至注册表/成交/ERP 缩放之后计算，补首日后置回归。
 - [修复] 对比盘 F/F2 **资金结构性不可行**：¥12,411 下 F 20×2500 / F2 5×4000 永远买不满（旧实现还固定 100 股/票）；现按 `min(单票上限, 槽内 equity/槽数)` 分配每票预算并整手向下取整，F/F2 改为最多 8/3 只（一手超预算的标的跳过）；补每票预算与空槽预取回归。

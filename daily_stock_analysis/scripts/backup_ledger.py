@@ -14,7 +14,7 @@ append-only 审计），此前零备份——盘坏/误删 = 账本与审计全�
   5. output/order_sheets/          —— 历史操作单（回填/对比依据）
   6. .scratch/dsa-strategy-validation/compare_strategies.json
                                    —— 对比盘台账/cohort 真源（含 prereg/marks/_control），
-                                      以及 cohort-manifest.jsonl、ledger-seal-manifest.json
+                                      以及 archive/cohort-manifest.jsonl（如存在）
 
 布局：data/backups/<YYYY-MM-DD>/…（data/ 已 gitignore，备份不入库）
 滚动：默认保留最近 RETENTION 份，超出按日期删最旧。
@@ -49,7 +49,7 @@ _DB = _PROJECT_ROOT / "data" / "stock_analysis.db"
 _BACKUP_ROOT = _PROJECT_ROOT / "data" / "backups"
 _OUTPUT = _PROJECT_ROOT / "output"
 _DECK_DIR = _REPO_ROOT / ".scratch" / "dsa-strategy-validation"
-_DECK_FILES = ("compare_strategies.json", "cohort-manifest.jsonl", "ledger-seal-manifest.json")
+_DECK_FILES = ("compare_strategies.json", "archive/cohort-manifest.jsonl")
 
 RETENTION_DEFAULT = 14
 
