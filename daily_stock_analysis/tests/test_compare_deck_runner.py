@@ -466,6 +466,7 @@ def _monthly_env(tmp_path, monkeypatch, fills_time, fail=()):
     monkeypatch.setattr(mod, "LEDGER", p)
     monkeypatch.setattr(mod, "EX_DATE", _date(2026, 10, 8))
     monkeypatch.setattr(mod, "exchange_now", lambda: fills_time)
+    monkeypatch.setattr(mod, "_session_now", fills_time, raising=False)
     monkeypatch.setattr(mod, "is_exchange_trading_day", lambda d: True)
     monkeypatch.setattr(mod, "_is_month_last_trading_day", lambda: False)
     monkeypatch.setattr(mod, "_is_week_first_trading_day", lambda: False)
@@ -556,6 +557,7 @@ def _weekly_env(tmp_path, monkeypatch, fills_time, fail=(), defer=()):
     monkeypatch.setattr(mod, "LEDGER", p)
     monkeypatch.setattr(mod, "EX_DATE", _date(2026, 10, 19))   # 周一 = 周首交易日
     monkeypatch.setattr(mod, "exchange_now", lambda: fills_time)
+    monkeypatch.setattr(mod, "_session_now", fills_time, raising=False)
     monkeypatch.setattr(mod, "is_exchange_trading_day", lambda d: True)
     monkeypatch.setattr(mod, "_is_month_last_trading_day", lambda: False)
     monkeypatch.setattr(mod, "_is_month_first_trading_day", lambda: False)
@@ -605,6 +607,7 @@ def test_weekly_registry_defers_outside_fills_window_then_completes(tmp_path, mo
     monkeypatch.setattr(mod, "EX_DATE", _date(2026, 10, 20))
     monkeypatch.setattr(mod, "_is_week_first_trading_day", lambda: False)
     monkeypatch.setattr(mod, "exchange_now", lambda: datetime(2026, 10, 20, 14, 40))
+    monkeypatch.setattr(mod, "_session_now", datetime(2026, 10, 20, 14, 40), raising=False)
     mod.run_close(False)
     saved = _json.loads(p.read_text(encoding="utf-8"))
     assert saved["_control"]["week_rebalance_done"]["2026-W43"] == "all"
@@ -630,6 +633,7 @@ def test_weekly_registry_failure_not_all_and_retried_same_week(tmp_path, monkeyp
     monkeypatch.setattr(mod, "EX_DATE", _date(2026, 10, 21))
     monkeypatch.setattr(mod, "_is_week_first_trading_day", lambda: False)
     monkeypatch.setattr(mod, "exchange_now", lambda: datetime(2026, 10, 21, 10, 0))
+    monkeypatch.setattr(mod, "_session_now", datetime(2026, 10, 21, 10, 0), raising=False)
 
     def _ok_rotation(*a, **k):        # 补做轮: 失败项恢复可用
         calls["rotation"] += 1
@@ -657,6 +661,7 @@ def test_weekly_registry_defers_when_subtask_reports_deferral(tmp_path, monkeypa
     monkeypatch.setattr(mod, "EX_DATE", _date(2026, 10, 20))
     monkeypatch.setattr(mod, "_is_week_first_trading_day", lambda: False)
     monkeypatch.setattr(mod, "exchange_now", lambda: datetime(2026, 10, 20, 14, 40))
+    monkeypatch.setattr(mod, "_session_now", datetime(2026, 10, 20, 14, 40), raising=False)
     def _retry_rotation(*a, **k):
         calls["rotation"] += 1
         return ["rotation 调仓→fixture"]
@@ -670,6 +675,7 @@ def test_weekly_registry_defers_when_subtask_reports_deferral(tmp_path, monkeypa
 def test_weekly_slot_message_is_honest_about_non_fill(monkeypatch):
     """未实际成交不得声称"调仓→"（仓库硬约束）。以 B_轮动 三种路径为例。"""
     import pandas as pd
+    monkeypatch.setattr(mod, "_session_now", None, raising=False)
 
     def _feeds(n=30):
         out = {}
@@ -721,6 +727,7 @@ def _boot_env(tmp_path, monkeypatch, fills_time):
     monkeypatch.setattr(mod, "LEDGER", p)
     monkeypatch.setattr(mod, "EX_DATE", _date(2026, 10, 20))
     monkeypatch.setattr(mod, "exchange_now", lambda: fills_time)
+    monkeypatch.setattr(mod, "_session_now", fills_time, raising=False)
     monkeypatch.setattr(mod, "is_exchange_trading_day", lambda d: True)
     monkeypatch.setattr(mod, "_is_month_last_trading_day", lambda: False)
     monkeypatch.setattr(mod, "_is_month_first_trading_day", lambda: False)
@@ -1067,6 +1074,32 @@ def test_main_inner_wall_date_not_rolled_back_by_stamp(monkeypatch, capsys):
     assert "非交易时段" in capsys.readouterr().out
 
 
+def test_main_inner_exposes_captured_session_to_close(monkeypatch):
+    """入口捕获的交易所会话时间必须成为全局，供 run_close 的成交闸直接复用。
+
+    否则 run_close 会二次 exchange_now；慢行情/接口抖动时又回到 10-21 首建仓
+    只有 C/D 成交的故障路径。
+    """
+    class _Frozen1530(_FrozenWall):
+        _fixed = datetime(2026, 10, 22, 15, 0, 30)
+
+    stamp = datetime(2026, 10, 22, 15, 0, 5)
+    seen = {}
+
+    def _close(dry):
+        seen.update(session=mod._session_now, ok=mod._TRADING_OK)
+        return "x"
+
+    monkeypatch.setattr(mod, "_session_now", None, raising=False)
+    monkeypatch.setattr(mod, "datetime", _Frozen1530)
+    monkeypatch.setattr(mod, "exchange_now", lambda: stamp)
+    monkeypatch.setattr(mod, "run_close", _close)
+    mod._main_inner(__import__("argparse").Namespace(force=False, mode="close", dry_run=True))
+
+    assert seen == {"session": stamp, "ok": True}
+    assert mod._session_now == stamp
+
+
 def test_main_inner_catchup_after_1510_enters_with_gate_closed(monkeypatch):
     """15:10 后收盘补结算必须被放行进入，且 _TRADING_OK=False（内核拒绝新成交）。"""
     class _Frozen1522(_FrozenWall):
@@ -1394,6 +1427,7 @@ def test_momentum_signal_prefetches_target_quotes_and_sizes_on_equity(monkeypatc
     """空槽首建仓：目标 ETF 必须预取报价；定仓基数为当前权益而非初始本金。"""
     import json as _json
     from types import SimpleNamespace
+    monkeypatch.setattr(mod, "_session_now", None, raising=False)
 
     slot = {"holds": [], "cash": 21000.0, "equity": 21000.0}
     led = {"strategies": {"A_动量": slot}}
@@ -1417,6 +1451,7 @@ def test_momentum_signal_prefetches_target_quotes_and_sizes_on_equity(monkeypatc
 
 def test_rotation_signal_prefetches_target_quotes_and_sizes_on_equity(monkeypatch):
     import pandas as pd
+    monkeypatch.setattr(mod, "_session_now", None, raising=False)
 
     def _feeds(n=30):
         out = {}
@@ -1447,6 +1482,7 @@ def test_rotation_signal_prefetches_target_quotes_and_sizes_on_equity(monkeypatc
 def test_mwu_rebalance_prefetches_target_quotes_and_sizes_on_equity(monkeypatch):
     import json as _json
     from types import SimpleNamespace
+    monkeypatch.setattr(mod, "_session_now", None, raising=False)
 
     slot = {"holds": [], "cash": 21000.0, "equity": 21000.0}
     led = {"strategies": {"G_MWU融合": slot}}
@@ -1495,15 +1531,15 @@ def test_smallcap_rebalance_prefetches_quotes_for_empty_slot(monkeypatch):
     led = {"strategies": {"F_小市值20": slot}}
     monkeypatch.setattr(mod, "smallcap_universe",
                         lambda *a, **k: [{"ts_code": "301578.SZ", "name": "辰奕智能",
-                                          "circ_mv": 100, "close": 23.0}])
+                                          "circ_mv": 100, "close": 10.0}])
     monkeypatch.setattr(mod, "realtime_quotes",
-                        lambda codes: {c: {"price": 23.0, "pct": 0.0} for c in codes})
+                        lambda codes: {c: {"price": 10.0, "pct": 0.0} for c in codes})
     monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 21))
     monkeypatch.setattr(mod, "_TRADING_OK", True)
 
-    msgs = mod.smallcap_rebalance(led, "F_小市值20", 20, 2500, True, {}, False)
+    msgs = mod.smallcap_rebalance(led, "F_小市值20", 8, 2500, True, {}, False)
     assert slot["holds"] and slot["holds"][0]["symbol"] == "SZ301578"
-    assert slot["holds"][0]["qty"] == 100
+    assert slot["holds"][0]["qty"] == 100       # 槽内 12,411/8≈1,551，价 10 只够 1 手
     assert "月度再平衡" in msgs[0]
 
 
@@ -1604,3 +1640,76 @@ def test_watchlist_round_reports_item_failure(monkeypatch):
     msgs = mod.watchlist_round(led, False)
     assert any(m.startswith("【异常】") for m in msgs)
     assert "last_checked" not in led["strategies"]["X_事件套利"]["watchlist"][0]
+
+
+# ------------------------------------------------- 首建仓 P0: 捕获撮合闸/marks/预算/快照末端
+def test_close_uses_captured_session_when_exchange_fails(tmp_path, monkeypatch):
+    """15:00 启动、慢行情后 exchange_now 失败，周/月仍必须按启动会话成交。"""
+    import json as _json
+
+    p, calls = _weekly_env(tmp_path, monkeypatch, datetime(2026, 10, 19, 22, 5))
+    monkeypatch.setattr(mod, "_session_now", datetime(2026, 10, 19, 14, 40), raising=False)
+    monkeypatch.setattr(mod, "exchange_now", lambda: None)
+    mod.run_close(False)
+    saved = _json.loads(p.read_text(encoding="utf-8"))
+    assert saved["_control"]["week_rebalance_done"]["2026-W43"] == "all"
+    assert calls == {"momentum": 1, "rotation": 1, "mwu": 1}
+
+
+def test_close_marks_reflect_post_trade_equity(tmp_path, monkeypatch):
+    """marks 必须在注册表/成交之后计算，首日即反映费用与持仓市值。"""
+    import json as _json
+
+    p = _boot_env(tmp_path, monkeypatch, datetime(2026, 10, 20, 10, 0))
+    mod.run_close(False)
+    saved = _json.loads(p.read_text(encoding="utf-8"))
+    c = saved["strategies"]["C_沪深300持有"]
+    mark_eq = saved["marks"][-1]["equity"]["C_沪深300持有"]
+    assert mark_eq < 12411.0
+    assert abs(mark_eq - (c["cash"] + c["holds"][0]["qty"] * 4.4)) < 1.0
+    assert saved["marks"][-1]["date"] == "2026-10-20"
+
+
+def test_smallcap_rebalance_uses_per_stock_budget(monkeypatch):
+    """F 8 只: 12,411/8≈1,551，价 1 时应买 1,500 股，而不是固定 100 股。"""
+    slot = {"holds": [], "cash": 12411.0, "equity": 12411.0}
+    led = {"strategies": {"F_小市值20": slot}}
+    recs = [{"ts_code": f"00{i:04d}.SZ", "name": f"S{i}", "circ_mv": i, "close": 1.0}
+            for i in range(1, 9)]
+    monkeypatch.setattr(mod, "smallcap_universe", lambda *a, **k: recs)
+    monkeypatch.setattr(mod, "realtime_quotes",
+                        lambda codes: {c: {"price": 1.0, "pct": 0.0} for c in codes})
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 21))
+    monkeypatch.setattr(mod, "_TRADING_OK", True)
+
+    msgs = mod.smallcap_rebalance(led, "F_小市值20", 8, 2500, True, {}, False)
+    assert len(slot["holds"]) == 8
+    assert all(h["qty"] == 1500 for h in slot["holds"])
+    assert "月度再平衡" in msgs[0]
+
+
+def test_maybe_refresh_snapshot_rebuilds_on_stale_data(tmp_path, monkeypatch):
+    """文件 mtime 很新但数据末端早于上一交易日时，必须重建快照。"""
+    import pandas as pd
+
+    root = tmp_path / "repo"
+    daily = root / "daily"
+    out = root / "quant_research" / "output"
+    out.mkdir(parents=True)
+    daily.mkdir()
+    snap = out / "feeds_snapshot_v5.pkl"
+    pd.to_pickle({"510300.SH": pd.DataFrame(
+        [{"date": pd.Timestamp("2026-10-16"), "close": 1.0}])}, snap)
+    monkeypatch.setattr(mod, "PROJECT_DIR", daily)
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 21))
+    monkeypatch.setattr(mod, "is_exchange_trading_day", lambda d: d.weekday() < 5)
+    calls = []
+
+    def _fake(cmd, cwd, timeout):
+        calls.append(cmd)
+        return None
+
+    monkeypatch.setattr(mod, "_run_cmd", _fake)
+    msg = mod.maybe_refresh_snapshot(False)
+    assert calls and "快照已刷新" in msg
+    assert "2026-10-16" in msg
