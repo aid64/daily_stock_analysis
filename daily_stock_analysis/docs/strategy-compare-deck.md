@@ -181,7 +181,7 @@ powercfg -setactive SCHEME_CURRENT
 ## 9. 回归保护网
 
 - `tests/test_compare_deck_runner.py` 84 项：纯函数（费用/换算/时段/价差/分位/缓冲带遗留函数/回撤）+ **10-08 月度大考端到端**（mock 时间/行情/引擎，tmp 台账全链）+ 月度/周度注册表（子任务失败/顺延次日重试）+ 空槽首建仓行情预取与按当前 equity 定仓 + 子进程 UTF-8 解码 + PE 分位总闸缩放 + 独占锁四分支 + 撮合窗边界；全部离线可复现（tmp 台账，不依赖生产台账与外部库）
-- `tests/test_paper_execution.py` 21 项（任务 08 执行内核：11 拒绝码/整手/涨跌停/T+1/现金守恒）+ `tests/test_compare_deck_cohort.py` 8 项（开账/种子/容器契约）+ `tests/test_compare_deck_audit.py` 10 项（含时间健康跨日戳/多源同日比较）+ `tests/test_deck_registry.py` 6 项 + `tests/test_deck_slot_contracts.py` 17 项 + `tests/test_compare_deck_shadow.py` 10 项：审计三态结论/退出码传播 + 注册表 18 槽/PE 分位总闸作用域单一真源一致性 + 槽位数据契约 + 影子只读校验
+- `tests/test_paper_execution.py` 21 项（任务 08 执行内核：11 拒绝码/整手/涨跌停/T+1/现金守恒）+ `tests/test_compare_deck_cohort.py` 8 项（开账/种子/容器契约）+ `tests/test_compare_deck_audit.py` 12 项（含时间健康跨日戳/多源同日比较/执行日志 start-exit 配对）+ `tests/test_deck_registry.py` 6 项 + `tests/test_deck_slot_contracts.py` 17 项 + `tests/test_compare_deck_shadow.py` 10 项：审计三态结论/退出码传播 + 注册表 18 槽/PE 分位总闸作用域单一真源一致性 + 槽位数据契约 + 影子只读校验
 - 探针提取脚本 `quant_research/scripts/extract_mwu_targets.py`（ETFMWUProbe/MomentumProbe）曾因多轮 patch 丢 `_target_portfolio`——修改探针后必须跑端到端回归
 
 ## 10. 审计与真钱
@@ -194,6 +194,7 @@ powercfg -setactive SCHEME_CURRENT
   - 台账不可读 → 退出码 2
 - 关键 FAIL 判据：marks 断供 >15 天 FAIL / >10 天 WARN；最近 intraday 执行日志 exit≠0 → FAIL；抽样净值偏差超阈 → FAIL
 - 时间健康 / 多源一致性（2026-10-21 修）：时间戳非当日只标注「市场已收盘」，不再把跨日旧戳误报为 7.8h 时钟偏差；多源一致性按**同一行情日**比较 baostock 与腾讯（盘中跳过），不再拿硬编码 2026-09-30 与实时价比较
+- 执行日志 start/exit 配对（2026-10-21 修）：最后一轮只有 start（任务被终止或仍在运行）显式 WARN，不再取最后一条事件或拿更早的 exit 误判；start-only 日志不再触发 IndexError
 - 真钱手册：`docs/real-money-playbook.md`（Y 逆回购券商操作 / X 事件套利人工复核清单 / 晋升流程）
 
 ## 11. 三项数据增强（2026-10-03 落地）

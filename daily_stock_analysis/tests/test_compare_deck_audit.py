@@ -149,3 +149,25 @@ def test_source_consistency_flags_divergence_on_same_date():
         [["2026-10-20", "4.4320"]], 4.22, "20261020161400",
         datetime(2026, 10, 21, 0, 30))
     assert status == "WARN" and "偏差" in detail
+
+
+# ------------------------------------------------- 执行日志 start/exit 配对
+def test_audit_warns_when_last_run_has_no_exit(monkeypatch, tmp_path):
+    """最后一轮只有 start（被终止/仍在运行）→ WARN，不得拿上一条 exit 误判 PASS。"""
+    rc, out, rows = _run_audit(
+        monkeypatch, tmp_path, _ledger([_today()]),
+        f"{_today()}T09:00:00 intraday start\n{_today()}T09:00:01 intraday exit=0\n"
+        f"{_today()}T10:00:00 intraday start\n")
+    row = _row(rows, "执行日志")
+    assert row["status"] == "WARN" and "无 exit" in row["detail"]
+    assert rc == 0 and "样本不足" in out
+
+
+def test_audit_start_only_log_does_not_crash(monkeypatch, tmp_path):
+    """旧实现遇 start-only 日志会 IndexError；新实现必须降级为 WARN。"""
+    rc, _, rows = _run_audit(
+        monkeypatch, tmp_path, _ledger([_today()]),
+        f"{_today()}T09:00:00 intraday start\n")
+    row = _row(rows, "执行日志")
+    assert row["status"] == "WARN" and "无 exit" in row["detail"]
+    assert rc == 0

@@ -148,26 +148,40 @@ def main() -> int:
             bad.append(f"{name}(¥{approx:,.0f} vs ¥{eq:,.0f})")
     check("槽位自洽", "PASS" if not bad else "FAIL", "全部自洽" if not bad else "; ".join(bad))
 
-    # 2. 执行日志: 解析最近 start/exit, 非零退出码 FAIL（旧实现只查有记录, exit=9 也判 PASS）。
-    recent = {"intraday": None, "close": None}
+    # 2. 执行日志: 配对 start/exit；最后一轮无 exit 显式 WARN
+    # （旧实现取最后一条事件, 遇 start 会 IndexError, 或拿更早的 exit 误判）。
+    recent = {"intraday": {"start": None, "exit": None},
+              "close": {"start": None, "exit": None}}
     try:
-        lines = TASK_LOG.read_text(encoding="utf-8", errors="replace").splitlines()[-60:]
+        lines = TASK_LOG.read_text(encoding="utf-8", errors="replace").splitlines()[-500:]
         for ln in lines:
             m = re.match(r"(\S+) (\w+) (start|exit=(-?\d+))", ln)
-            if m:
-                recent[m.group(2)] = (m.group(1), m.group(3))
+            if not m:
+                continue
+            mode, stamp, kind = m.group(2), m.group(1), m.group(3)
+            slot = recent.setdefault(mode, {"start": None, "exit": None})
+            if kind == "start":
+                slot["start"] = stamp
+            else:
+                slot["exit"] = (stamp, int(kind.split("=", 1)[1]))
     except FileNotFoundError:
         pass
     entry = recent["intraday"]
-    if entry is None:
-        check("执行日志", "WARN", f"{TASK_LOG.name} 缺失/无记录")
-    else:
-        stamp, status = entry
-        code = int(status.split("=", 1)[1])
-        if code != 0:
-            check("执行日志", "FAIL", f"intraday 最近 {stamp} {status} 非零退出")
+    if entry["exit"] is None:
+        if entry["start"]:
+            check("执行日志", "WARN",
+                  f"最后一轮 {entry['start']} 无 exit 记录（任务被终止或仍在运行）")
         else:
-            check("执行日志", "PASS", f"intraday 最近 {stamp} {status}")
+            check("执行日志", "WARN", f"{TASK_LOG.name} 缺失/无记录")
+    else:
+        stamp, code = entry["exit"]
+        if entry["start"] and entry["start"] > stamp:
+            check("执行日志", "WARN",
+                  f"最后一轮 {entry['start']} 无 exit 记录; 上一条 {stamp} exit={code}")
+        elif code != 0:
+            check("执行日志", "FAIL", f"intraday 最近 {stamp} exit={code} 非零退出")
+        else:
+            check("执行日志", "PASS", f"intraday 最近 {stamp} exit={code}")
 
     # 3. 计划任务
     try:
