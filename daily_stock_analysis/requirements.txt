@@ -319,7 +319,7 @@ orjson>=3.10,<4             # LiteLLM runtime JSON dependency; explicitly bundle
 
 
 
-litellm>=1.80.10,!=1.82.7,!=1.82.8,<1.99.0   # Unified LLM client (Gemini/Anthropic/OpenAI/DeepSeek etc.)
+litellm!=1.82.7,!=1.82.8,>=1.106.0,<1.107.0   # Unified LLM client (Gemini/Anthropic/OpenAI/DeepSeek etc.)
 
 
 
