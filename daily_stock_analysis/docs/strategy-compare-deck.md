@@ -128,7 +128,7 @@
 - 台账：`.scratch/dsa-strategy-validation/compare_strategies.json`（原子写 + 写前 `.json.bak` 滚动备份）；每日 08:30 `DSA_Ledger_Backup` 已纳入台账与 `archive/cohort-manifest.jsonl`，`--verify` 校验三块容器；离机同步见 `docs/disaster-recovery.md` §2.1
 - 控制键 `_control`：`close_done`（收盘幂等）/ `event_scan_last`（事件扫描每半天一次；**仅扫描未返回【异常】时写键**，失败下一轮重试；键按交易所时间而非墙钟）/ `rebalance_done`（月度登记：全部成功 `"all"`，部分成功为已成功标签列表，每日撮合窗续做至齐备；非撮合时段顺延不执行）/ `week_rebalance_done`（周度同构，同周后续交易日续做）/ `bootstrap_done`（C/D 一次性建仓，`"all"` 或已成功标签列表）/ `erp_scaled`（PE 分位总闸已缩放槽登记；槽位周度/月度重建成功后清除，同轮 `erp_scale_pass` 重新应用）/ `e2_state`、`erp`、`crash_state` 等风控状态 / `_actions`（当日动作，盘中+收盘合并）
 - 执行日志：`logs/compare_deck_task.log`（start/exit + runner 输出）
-- 每日 17:30 `DSA_Deck_Audit`：只读运行 `compare_deck_audit.py`，追加 `logs/compare_deck_audit.log`（含 start/exit）；不写台账、不发通知，任务 `LastTaskResult` 为审计退出码。监控边界见 §13（不检查备份/离机/审计任务自身）
+- 每日 17:30 `DSA_Deck_Audit`：先生成收盘台账快照 `.scratch/dsa-strategy-validation/postclose/compare_strategies.YYYYMMDD.json`（临时文件校验后原子替换，保留最近 30 份），再只读运行 `compare_deck_audit.py`，追加 `logs/compare_deck_audit.log`（含 start/exit）；不写 live 台账、不发通知，任务 `LastTaskResult` 为审计退出码。监控边界见 §13
 - 病历制：槽位停跑/清仓 → `.scratch/dsa-strategy-validation/{槽位}_postmortem.md`
 
 ## 6. 回滚
@@ -209,15 +209,15 @@ powercfg -setactive SCHEME_CURRENT
 ## 9. 回归保护网
 
 - `tests/test_compare_deck_runner.py` 100 项：纯函数（费用/换算/时段/价差/分位/缓冲带遗留函数/回撤）+ **10-08 月度大考端到端**（mock 时间/行情/引擎，tmp 台账全链）+ 月度/周度注册表（子任务失败/顺延次日重试）+ 空槽首建仓行情预取与按当前 equity 定仓 + 启动会话捕获（入口 → run_close，慢行情不二次取时）+ marks 后置 + F/F2 每票预算 + 快照末端重建 + 核心缺价收盘闸（不写 marks/close_done）+ 缺价成本兜底 + 511010 整手 + 任务拒绝/数据源失败诚实性 + 子进程 UTF-8 解码 + 盘中扫描失败重试/交易所 halfday + PE 分位总闸缩放 + 独占锁四分支 + 撮合窗边界；全部离线可复现（tmp 台账，不依赖生产台账与外部库）
-- `tests/test_paper_execution.py` 21 项（任务 08 执行内核：11 拒绝码/整手/涨跌停/T+1/现金守恒）+ `tests/test_compare_deck_cohort.py` 8 项（开账/种子/容器契约）+ `tests/test_compare_deck_audit.py` 17 项（含时间健康跨日戳/收盘后不报时钟偏差/多源同日比较/执行日志 start-exit 配对/唤醒任务/注册表与主动槽覆盖/任务结果 PASS 与非零 WARN）+ `tests/test_deck_registry.py` 6 项 + `tests/test_deck_slot_contracts.py` 17 项 + `tests/test_compare_deck_shadow.py` 10 项：审计三态结论/退出码传播 + 注册表 18 槽/PE 分位总闸作用域单一真源一致性 + 槽位数据契约（含 M 数据缺失显式失败）+ 影子只读校验
+- `tests/test_paper_execution.py` 21 项（任务 08 执行内核：11 拒绝码/整手/涨跌停/T+1/现金守恒）+ `tests/test_compare_deck_cohort.py` 8 项（开账/种子/容器契约）+ `tests/test_compare_deck_audit.py` 18 项（含时间健康跨日戳/收盘后不报时钟偏差/多源同日比较/执行日志 start-exit 配对/唤醒任务/注册表与主动槽覆盖/任务结果 PASS 与非零 WARN/备份与收盘快照缺口）+ `tests/test_deck_registry.py` 6 项 + `tests/test_deck_slot_contracts.py` 17 项 + `tests/test_compare_deck_shadow.py` 10 项：审计三态结论/退出码传播 + 注册表 18 槽/PE 分位总闸作用域单一真源一致性 + 槽位数据契约（含 M 数据缺失显式失败）+ 影子只读校验
 - 探针提取脚本 `quant_research/scripts/extract_mwu_targets.py`（ETFMWUProbe/MomentumProbe）曾因多轮 patch 丢 `_target_portfolio`——修改探针后必须跑端到端回归
 
 ## 10. 审计与真钱
 
-- 审计脚本：`scripts/compare_deck_audit.py`（只读，30+ 项核查，✓/⚠/✗ 三态；含注册表完成度/主动槽覆盖/任务结果）——检查员 AI 每轮只跑此脚本并解读
+- 审计脚本：`scripts/compare_deck_audit.py`（只读，30+ 项核查，✓/⚠/✗ 三态；含注册表完成度/主动槽覆盖/任务结果/备份与收盘快照）——检查员 AI 每轮只跑此脚本并解读
 - 检查员解读规则（三态结论 + 退出码）：
   - 任一 ✗（FAIL）→ 结论 `【异常】N 项 FAIL`，退出码 1，须人工介入
-  - 无 ✗ 但核心证据（marks 新鲜度 / 执行日志 / 抽样净值 / 注册表 / 主动槽覆盖 / 任务结果 / 唤醒任务）任一非 ✓ → 结论 `样本不足, 无法判定`，退出码 0
+  - 无 ✗ 但核心证据（marks 新鲜度 / 执行日志 / 抽样净值 / 注册表 / 主动槽覆盖 / 任务结果 / 唤醒任务 / 备份 / 收盘快照）任一非 ✓ → 结论 `样本不足, 无法判定`，退出码 0
   - 核心证据全 ✓ → 结论 `正常`，退出码 0
   - 台账不可读 → 退出码 2
 - 关键 FAIL 判据：marks 断供 >15 天 FAIL / >10 天 WARN；最近 intraday 执行日志 exit≠0 → FAIL；抽样净值偏差超阈 → FAIL
@@ -253,9 +253,9 @@ powercfg -setactive SCHEME_CURRENT
 - **N 槽不可在干净克隆复现**：驱动 `quant_research/vendor/Sequoia-X/n_slot_driver.py`（vendored 第三方仓库，~299MB）与其回填行情数据均**不入库**（`.gitignore` 已忽略 `quant_research/vendor/`）。上表 N 行的"已激活"仅对本机工作区成立；干净克隆下 `sequoia_ready` 闸为假、N 槽**条件式跳过**（不报错、不参与调仓）。复现需自行 vendored Sequoia-X 并回填行情数据。
 - **运行在线依赖**：收盘轮/撮合窗要求交易日本机在 15:00-16:13 保持运行；休眠时由 `DSA_Deck_Close`（WakeToRun）唤醒，整机关机仍无法唤醒。若 15:00:30 唤醒后网络未就绪：核心 C/D 缺价会整轮顺延且不写 `close_done`，15:02/15:22/后续轮（交易所戳仍为 15:00:00）可补成交/补写 marks；若整日不可用，当日无成交且可能有 marks 缺口，注册表续做至下一窗口。不得用历史价回填。
 - **A/B 数据 as-of 差异**：B 走 `feeds_snapshot_v*.pkl`，文件 mtime 超 7 天**或末端数据日早于上一交易日**时重建；A/G/H 走 tushare loader。B 重建后数据源仍滞后时消息标注实际末端（如 `至 2026-10-16`）。解读 A/B 排名时需知悉该差异。
-- **收盘后备份缺口**：每日 `DSA_Ledger_Backup` 在 **08:30** 运行，早于 15:00 收盘；收盘后的台账状态要到次日 08:30 才进入完整备份，期间只有 live 文件与 `.json.bak`。离机同步目标尚未配置。高风险日（首建仓/大调仓）应手动跑 `backup_ledger.py` 或尽快配置第二存储。
+- **收盘后备份缺口**：每日 `DSA_Ledger_Backup` 在 **08:30** 运行，早于 15:00 收盘；收盘后的**台账**已由 17:30 `DSA_Deck_Audit` 快照到 `.scratch/.../postclose/`（保留 30 份），但 **DB/`.env` 等完整备份**仍要到次日 08:30，且快照与 live 同盘。离机同步目标尚未配置；高风险日（首建仓/大调仓）仍应手动跑 `backup_ledger.py` 或配置第二存储。
 - **评估窗口起点**：2026-10-22 主动槽 0/13，未形成全量建仓；60 日评估窗口应从首个主动槽实际建仓日（而不是 10-22）起算，确认前不改 `prereg`。
-- **审计监控边界**：`DSA_Deck_Audit` 只读检查 marks/执行日志/抽样净值/注册表/主动槽/任务结果/唤醒任务；**不检查**备份新鲜度、备份任务、离机目标或审计任务自身；审计 FAIL 只体现为 `LastTaskResult` 与日志，不额外推送。这些需人工或后续增强。
+- **审计监控边界**：`DSA_Deck_Audit` 检查 marks/执行日志/抽样净值/注册表/主动槽/任务结果/唤醒任务，**并检查备份新鲜度、收盘台账快照与 `DSA_Ledger_Backup` 结果**；仍**不检查**离机目标或审计任务自身，审计 FAIL 只体现为 `LastTaskResult` 与日志，不额外推送。收盘快照只含台账，不含 DB/`.env`。
 
 
 ## 14. 真钱资金分配草案（12-31 硬复核的决策框架）
