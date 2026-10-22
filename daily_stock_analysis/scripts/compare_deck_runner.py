@@ -304,6 +304,21 @@ def _fills_open(now: datetime | None) -> bool:
     return bool(now) and is_trading_session(now) and (now.hour * 100 + now.minute) <= 1500
 
 
+_CORE_BENCHMARKS = ("C_沪深300持有", "D_红利低波持有")
+
+
+def _core_missing_quotes(led: dict, px: dict) -> list[str]:
+    """核心基准持仓中仍缺现价的标的；空列表表示收盘可落 marks。"""
+    missing = []
+    for name in _CORE_BENCHMARKS:
+        for h in led.get("strategies", {}).get(name, {}).get("holds", []):
+            if h.get("fixed_value"):
+                continue
+            if not (px.get(h["symbol"]) or {}).get("price"):
+                missing.append(h["symbol"])
+    return sorted(set(missing))
+
+
 def _session_fills_ok() -> bool:
     """本次运行捕获的成交闸：会话闸在启动时的交易所时间 + _TRADING_OK。
 
@@ -499,7 +514,11 @@ def repo_maturity_pass(led: dict, dry: bool) -> list[str]:
 
 
 def revalue(slot: dict, px: dict) -> float:
-    """估值：缺价持仓不计入净值并显式标记 valuation_status（不再伪装成成本价）。
+    """估值：缺价持仓按成本价兜底并显式标记 valuation_status。
+
+    不能把缺价持仓直接排除出净值：一次行情源故障会把 C/D 记成「只剩现金」，
+    产生 -97% 的假净值。成本价兜底与 ``slot_equity`` 同口径，仍然如实标记
+    ``unvalued``；核心基准缺价时 ``run_close`` 会整轮顺延，不写 marks。
 
     fixed_value 行（逆回购等面值计价）按名义额计入，与执行内核口径一致。"""
     eq = float(slot.get("cash", 0.0))
@@ -511,8 +530,9 @@ def revalue(slot: dict, px: dict) -> float:
         p = (px.get(h["symbol"]) or {}).get("price")
         if not p:
             unvalued[h["symbol"]] = "missing"
-            continue
-        eq += h["qty"] * float(p)
+            p = h.get("price")
+        if p:
+            eq += h["qty"] * float(p)
     slot["equity"] = round(eq, 2)
     slot["valuation_status"] = {"fully_valued": not unvalued, "unvalued": unvalued}
     return slot["equity"]
@@ -761,6 +781,8 @@ def smallcap_universe(month_end: str, exclude_new: bool, top: int) -> list[dict]
     pro = ts_client()
     db = pro.call("daily_basic", trade_date=month_end, fields="ts_code,circ_mv,close")
     sb = pro.call("stock_basic", list_status="L", fields="ts_code,name,list_date")
+    if db is None or sb is None:
+        raise RuntimeError("daily_basic/stock_basic 数据源不可用")
     df = db.merge(sb, on="ts_code", how="left").dropna(subset=["circ_mv", "name"])
     df = df[~df["name"].str.contains("ST", na=False)]
     df = df[~df["ts_code"].str.startswith(("8", "4", "9", "688"))]
@@ -812,10 +834,10 @@ def smallcap_rebalance(led: dict, slot_name: str, slots: int, cap_per: float,
     rejects = apply_orders(slot, sells, [
         {"symbol": p["symbol"], "name": p["name"], "qty": p["qty"], "price": p["price"], "is_stock": True} for p in picks], px)
     slot["universe_rule"] = slot.get("universe_rule", "") + f" | 最后选股 {month_end}"
-    msg = f"{slot_name} 月度再平衡→{[p['symbol'] for p in picks] or '空仓'}"
     if rejects:
-        msg += f" (部分未成交: {len(rejects)} 笔被拒)"
-    return [msg]
+        slot["note"] = f"{EX_DATE} 调仓被拒: {rejects[0][:80]}"
+        return [f"【顺延】{slot_name} 未成交: {'; '.join(rejects)[:160]}"]
+    return [f"{slot_name} 月度再平衡→{[p['symbol'] for p in picks] or '空仓'}"]
 
 
 def pead_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
@@ -830,15 +852,18 @@ def pead_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
         if not cands:
             slot["note"] = f"{EX_DATE} 无新预增候选, 维持旧仓"
             return [f"I_PEAD 无新预增候选, 维持旧仓"]
-        ensure_prices(px, [("SH" if r["ts_code"].endswith(".SH") else "SZ") + r["ts_code"][:6] for r in cands])
+        cand_syms = [("SH" if r["ts_code"].endswith(".SH") else "SZ") + r["ts_code"][:6] for r in cands]
+        ensure_prices(px, cand_syms)
         picks = []
-        for r in cands:
-            sym = ("SH" if r["ts_code"].endswith(".SH") else "SZ") + r["ts_code"][:6]
+        for r, sym in zip(cands, cand_syms):
             p = px.get(sym, {}).get("price") or 0
             if p and p * 100 <= 2500:
                 picks.append({"symbol": sym, "name": names_of(cands).get(r["ts_code"], sym), "price": p, "qty": 100})
             if len(picks) >= 5:
                 break
+        if not picks and not any((px.get(s) or {}).get("price") for s in cand_syms):
+            slot["note"] = f"{EX_DATE} 候选无报价, 维持旧仓"
+            return ["【异常】I_PEAD 候选无报价, 持仓不变"]
         # 持有期上限: PEAD漂移窗20-60日, 持有超过60个日历日的标的强制轮出(月度窗自然覆盖大半)
         stale = [h for h in slot.get("holds", [])
                  if (EX_DATE - datetime.strptime(h.get("held_since", "2026-09-28"), "%Y-%m-%d").date()).days > 60]
@@ -848,7 +873,10 @@ def pead_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
                 for p in picks if p["symbol"] not in {h["symbol"] for h in slot.get("holds", [])}]
         for h in slot.get("holds", []):
             h.setdefault("held_since", EX_DATE.isoformat())
-        apply_orders(slot, sells, buys, px)
+        rejects = apply_orders(slot, sells, buys, px)
+        if rejects:
+            slot["note"] = f"{EX_DATE} 调仓被拒: {rejects[0][:80]}"
+            return [f"【顺延】I_PEAD 未成交: {'; '.join(rejects)[:160]}"]
         slot["note"] = f"{EX_DATE} 候选{len(cands)}→持仓{len(picks)}"
         return [f"I_PEAD 调仓→{[p['symbol'] for p in picks] or '空仓'}"]
     except Exception as exc:
@@ -867,21 +895,27 @@ def reversal_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
         cands = reversal_universe()
         if not cands:
             return ["J_反转 无候选(全市场无合格超跌), 维持旧仓"]
-        ensure_prices(px, [("SH" if r["ts_code"].endswith(".SH") else "SZ") + r["ts_code"][:6] for r in cands])
+        cand_syms = [("SH" if r["ts_code"].endswith(".SH") else "SZ") + r["ts_code"][:6] for r in cands]
+        ensure_prices(px, cand_syms)
         picks = []
-        for r in cands:
-            sym = ("SH" if r["ts_code"].endswith(".SH") else "SZ") + r["ts_code"][:6]
+        for r, sym in zip(cands, cand_syms):
             p = px.get(sym, {}).get("price") or 0
             if p and p * 100 <= 2500:
                 picks.append({"symbol": sym, "name": names_of(cands).get(r["ts_code"], sym),
                               "price": p, "qty": 100, "ret21": r["ret21"]})
             if len(picks) >= 5:
                 break
+        if not picks and not any((px.get(s) or {}).get("price") for s in cand_syms):
+            slot["note"] = f"{EX_DATE} 候选无报价, 维持旧仓"
+            return ["【异常】J_反转 候选无报价, 持仓不变"]
         sells = [{"symbol": h["symbol"], "qty": h["qty"], "price": px.get(h["symbol"], {}).get("price") or h.get("price", 0), "is_stock": True}
                  for h in slot.get("holds", []) if h["symbol"] not in {p["symbol"] for p in picks}]
         buys = [{"symbol": p["symbol"], "name": p["name"], "qty": p["qty"], "price": p["price"], "is_stock": True}
                 for p in picks if p["symbol"] not in {h["symbol"] for h in slot.get("holds", [])}]
-        apply_orders(slot, sells, buys, px)
+        rejects = apply_orders(slot, sells, buys, px)
+        if rejects:
+            slot["note"] = f"{EX_DATE} 调仓被拒: {rejects[0][:80]}"
+            return [f"【顺延】J_反转 未成交: {'; '.join(rejects)[:160]}"]
         slot["note"] = f"{EX_DATE} 21日跌幅最深候选: " + " ".join(f"{p['name']}{p['ret21']:+.0f}%" for p in picks[:3])
         return [f"J_反转 调仓→{[p['symbol'] for p in picks] or '空仓'}"]
     except Exception as exc:
@@ -946,22 +980,32 @@ def buywatch_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
         if not cands:
             slot["note"] = f"{EX_DATE} 项目漏斗无候选, 维持旧仓"
             return ["K_项目选股 无候选, 维持旧仓"]
+        syms = [("SH" if str(c.get("symbol", "")).startswith("6") else "SZ") + str(c.get("symbol", ""))
+                for c in cands]
+        ensure_prices(px, syms)
         picks = []
-        for c in cands:
-            sym = ("SH" if str(c.get("symbol", "")).startswith("6") else "SZ") + str(c.get("symbol", ""))
-            p = px.get(sym, {}).get("price") or c.get("close") or 0
+        for c, sym in zip(cands, syms):
+            p = px.get(sym, {}).get("price")
             if p and p * 100 <= 2500:
                 picks.append({"symbol": sym, "name": c.get("name", sym), "price": p, "qty": 100,
                               "score": c.get("score")})
             if len(picks) >= 5:
                 break
+        quoted = any((px.get(s) or {}).get("price") for s in syms)
+        if not picks:
+            slot["note"] = f"{EX_DATE} 候选无报价, 持仓不变"
+            return (["【异常】K_项目选股 候选无报价, 持仓不变"] if not quoted
+                    else ["K_项目选股 无预算内候选, 维持旧仓"])
         sells = [{"symbol": h["symbol"], "qty": h["qty"], "price": px.get(h["symbol"], {}).get("price") or h.get("price", 0), "is_stock": True}
                  for h in slot.get("holds", []) if h["symbol"] not in {p["symbol"] for p in picks}]
         buys = [{"symbol": p["symbol"], "name": p["name"], "qty": p["qty"], "price": p["price"], "is_stock": True}
                 for p in picks if p["symbol"] not in {h["symbol"] for h in slot.get("holds", [])}]
-        apply_orders(slot, sells, buys, px)
+        rejects = apply_orders(slot, sells, buys, px)
+        if rejects:
+            slot["note"] = f"{EX_DATE} 调仓被拒: {rejects[0][:80]}"
+            return [f"【顺延】K_项目选股 未成交: {'; '.join(rejects)[:160]}"]
         slot["note"] = f"{EX_DATE} " + " ".join(f"{p['name']}(分{p['score']})" for p in picks[:3])
-        return [f"K_项目选股 调仓→{[p['symbol'] for p in picks] or '空仓'}"]
+        return [f"K_项目选股 调仓→{[p['symbol'] for p in picks]}"]
     except Exception as exc:
         log.error("K_项目选股 调仓失败: %r", exc)
         return ["【异常】K_项目选股 候选重取失败, 持仓不变"]
@@ -1007,9 +1051,11 @@ def _is_month_first_trading_day() -> bool:
 
 
 def _lot_size(symbol: str) -> int:
-    """ETF/股票 100 股/手；转债与 511010 防御腿 10 张/手。"""
-    if symbol == "511010.SH":
-        return 10
+    """ETF/股票 100 股/手；转债 10 张/手。
+
+    511010 等债券 ETF 的最小交易单位同样是 100 份；此前按 10 份处理会与
+    paper_execution 的 ETF 政策冲突，买入被 lot_size 拒绝。
+    """
     try:
         from src.core.paper_execution import AssetClass
         from src.services import deck_registry
@@ -1033,7 +1079,9 @@ def mwu_target_orders(target: dict[str, float], cur: dict[str, int], prices: dic
         want = int(float(w) * capital // (p * lot)) * lot
         have = cur.get(sym, 0)
         if want > have:
-            buys.append({"symbol": sym, "qty": want - have, "price": p})
+            qty = (want - have) // lot * lot   # 买入必须是整手；奇数旧仓向下取整
+            if qty:
+                buys.append({"symbol": sym, "qty": qty, "price": p})
         elif want < have:
             sells.append({"symbol": sym, "qty": have - want, "price": p})
     for sym, qty in cur.items():
@@ -1139,11 +1187,11 @@ def cb_rebalance(led: dict, px: dict, dry: bool) -> list[dict]:
         buys = [{"symbol": sym, "qty": lots - cur.get(sym, 0), "price": price_of[sym]}
                 for sym, lots in want.items() if lots > cur.get(sym, 0)]
         rejects = apply_orders(slot, sells, buys, px)
-        slot["note"] = f"月度调仓 {EX_DATE} 目标{len(want)}只 executable"
-        msgs = [f"E_可转债双低 月度调仓→{sorted(want)}"]
         if rejects:
-            msgs.append(f"E 成交拒绝: {rejects}")
-        return msgs
+            slot["note"] = f"月度调仓 {EX_DATE} 被拒: {rejects[0][:80]}"
+            return [f"【顺延】E_可转债双低 未成交: {'; '.join(rejects)[:160]}"]
+        slot["note"] = f"月度调仓 {EX_DATE} 目标{len(want)}只 executable"
+        return [f"E_可转债双低 月度调仓→{sorted(want)}"]
     except Exception as exc:
         log.error("E 月度调仓失败: %r", exc)
         return [f"【异常】E 月度调仓失败: {exc!r:.120}"]
@@ -1619,8 +1667,11 @@ def run_intraday(dry: bool) -> str:
         if ctrl.get("close_done") == done_key:
             out += " | 收盘轮当日已执行, 跳过"
         else:
-            out += " | " + run_close(dry)
-            if not dry:
+            close_out = run_close(dry)
+            out += " | " + close_out
+            # 核心基准缺价的【异常】收盘不得写 close_done：后续行情恢复的轮次
+            # 还要补写当日 marks。
+            if not dry and not close_out.startswith("【异常】"):
                 led2 = load_ledger()
                 led2.setdefault("_control", {})["close_done"] = done_key
                 save_ledger(led2)
@@ -1966,12 +2017,15 @@ def pead_universe(days_back: int = 40, top: int = 8) -> list[dict]:
 
     口径澄清: 同比预增≠相对市场预期的超预期(PEAD/SUE), 本槽是"预增动量"前向检验。"""
     pro = ts_client()
-    seen, out = set(), []
+    seen, out, ok_days = set(), [], 0
     for d in range(1, days_back + 1):  # 新→旧遍历: 同股首次命中即最新公告
         day = (EX_DATE - timedelta(days=d)).strftime("%Y%m%d")
         df = pro.call("forecast", ann_date=day,
                       fields="ts_code,ann_date,type,p_change_min,p_change_max,net_profit_min")
-        if df is None or df.empty:
+        if df is None:
+            continue
+        ok_days += 1
+        if df.empty:
             continue
         for _, r in df.iterrows():
             code = str(r.get("ts_code", ""))
@@ -1987,6 +2041,8 @@ def pead_universe(days_back: int = 40, top: int = 8) -> list[dict]:
             seen.add(code)
             out.append({"ts_code": code, "ann_date": day, "p_change_min": chg_min,
                         "p_change_max": _float_or_none(r.get("p_change_max"))})
+    if ok_days == 0:
+        raise RuntimeError("forecast 数据源全部不可用")
     return out[:top]
 
 
@@ -1999,13 +2055,19 @@ def reversal_universe(days: int = 21, top: int = 8) -> list[dict]:
     pro = ts_client()
     sessions = _recent_trading_days(days + 1, EX_DATE)  # days 期收益 = days+1 个收盘
     series: dict[str, dict[str, tuple[float, float]]] = {}
+    ok_days = 0
     for day in sessions:
         df = pro.call("daily", trade_date=day, fields="ts_code,close,amount")
-        if df is None or df.empty:
+        if df is None:
+            continue
+        ok_days += 1
+        if df.empty:
             continue
         for _, r in df.iterrows():
             amount_yuan = (_float_or_none(r.get("amount")) or 0.0) * 1000.0  # 千元 → 元
             series.setdefault(str(r["ts_code"]), {})[day] = (float(r["close"]), amount_yuan)
+    if ok_days == 0:
+        raise RuntimeError("daily 数据源全部不可用")
     out = []
     for code, pxmap in series.items():
         days_sorted = sorted(pxmap)
@@ -2018,8 +2080,7 @@ def reversal_universe(days: int = 21, top: int = 8) -> list[dict]:
         out.append({"ts_code": code, "ret21": round((c1 / c0 - 1) * 100, 2)})
     names = _stock_basic_names()
     if not names:
-        log.warning("J_反转: stock_basic 不可用, 候选保守置空(不降级 ST/板块过滤)")
-        return []
+        raise RuntimeError("stock_basic 不可用, 无法过滤 ST/板块")
     out = [r for r in out if _ok_symbol(names.get(r["ts_code"], ""), r["ts_code"])]
     out.sort(key=lambda r: r["ret21"])
     # 崩刀过滤: 跌幅最深候选当日主力净流出≥3000万 → 真崩非超跌, 剔除
@@ -2148,16 +2209,16 @@ def holder_concentration_universe(top: int = 8) -> list[dict]:
     df = _holder_period_frame(pro, cur_q)
     prev = _holder_period_frame(pro, prev_q)
     if df.empty or prev.empty:
-        log.warning("M_筹码集中度: 报告期数据缺失(%s/%s), 本次不调仓", cur_q, prev_q)
-        return []
+        # 报告期数据缺失多为数据源不可用；空列表会被注册表当成"成功无候选"，
+        # 月度槽当月不再重试。显式抛出，由注册表按失败顺延。
+        raise RuntimeError(f"stk_holdernumber 数据缺失 {cur_q}/{prev_q}")
     m = df.merge(prev, on="ts_code", suffixes=("_new", "_prev"))
     m = m[(m["holder_num_new"] > 0) & (m["holder_num_prev"] > 0)]
     m["chg"] = (m["holder_num_new"] / m["holder_num_prev"] - 1) * 100
     m = m[m["chg"] <= -10].sort_values("chg")
     names = _stock_basic_names()
     if not names:
-        log.warning("M_筹码集中度: stock_basic 不可用, 候选保守置空(不降级 ST/板块过滤)")
-        return []
+        raise RuntimeError("stock_basic 不可用, 无法过滤 ST/板块")
     out = []
     for _, r in m.iterrows():
         code = str(r["ts_code"])
@@ -2218,21 +2279,27 @@ def holder_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
         return ["M_筹码集中度(dry) 候选重取"]
     try:
         cands = holder_concentration_universe()
-        ensure_prices(px, [("SH" if r["ts_code"].endswith(".SH") else "SZ") + r["ts_code"][:6] for r in cands])
+        cand_syms = [("SH" if r["ts_code"].endswith(".SH") else "SZ") + r["ts_code"][:6] for r in cands]
+        ensure_prices(px, cand_syms)
         picks = []
-        for r in cands:
-            sym = ("SH" if r["ts_code"].endswith(".SH") else "SZ") + r["ts_code"][:6]
+        for r, sym in zip(cands, cand_syms):
             p = px.get(sym, {}).get("price") or 0
             if p and p * 100 <= 2500:
                 picks.append({"symbol": sym, "name": r["name"], "price": p, "qty": 100,
                               "holder_chg": r["chg"]})
             if len(picks) >= 5:
                 break
+        if cands and not picks and not any((px.get(s) or {}).get("price") for s in cand_syms):
+            slot["note"] = f"{EX_DATE} 候选无报价, 维持旧仓"
+            return ["【异常】M_筹码集中度 候选无报价, 持仓不变"]
         sells = [{"symbol": h["symbol"], "qty": h["qty"], "price": px.get(h["symbol"], {}).get("price") or h.get("price", 0), "is_stock": True}
                  for h in slot.get("holds", []) if h["symbol"] not in {p["symbol"] for p in picks}]
         buys = [{"symbol": p["symbol"], "name": p["name"], "qty": p["qty"], "price": p["price"], "is_stock": True}
                 for p in picks if p["symbol"] not in {h["symbol"] for h in slot.get("holds", [])}]
-        apply_orders(slot, sells, buys, px)
+        rejects = apply_orders(slot, sells, buys, px)
+        if rejects:
+            slot["note"] = f"{EX_DATE} 调仓被拒: {rejects[0][:80]}"
+            return [f"【顺延】M_筹码集中度 未成交: {'; '.join(rejects)[:160]}"]
         slot["note"] = f"{EX_DATE} 户数降幅候选: " + " ".join(f"{p['name']}{p['holder_chg']:+.0f}%" for p in picks[:3])
         return [f"M_筹码集中度 调仓→{[p['symbol'] for p in picks] or '空仓'}"]
     except Exception as exc:
@@ -2282,20 +2349,26 @@ def sequoia_scan(led: dict, px: dict, dry: bool) -> list[str]:
         slot = led["strategies"].get("N_技术形态对照")
         if not slot:
             return []
-        px = ensure_prices(px, [("SH" if c.startswith(("6", "5")) else "SZ") + c[:6] for c in ranked])
+        cand_syms = [("SH" if c.startswith(("6", "5")) else "SZ") + c[:6] for c in ranked]
+        px = ensure_prices(px, cand_syms)
         picks = []
-        for c in ranked:
-            sym = ("SH" if c.startswith(("6", "5")) else "SZ") + c[:6]
+        for c, sym in zip(ranked, cand_syms):
             p = px.get(sym, {}).get("price") or 0
             if p and p * 100 <= 2500:
                 picks.append({"symbol": sym, "qty": 100, "price": p, "hits": hits[c]})
             if len(picks) >= 5:
                 break
+        if ranked and not picks and not any((px.get(s) or {}).get("price") for s in cand_syms):
+            slot["note"] = f"{EX_DATE} 候选无报价, 维持旧仓"
+            return ["【异常】N_技术形态 候选无报价, 持仓不变"]
         sells = [{"symbol": h["symbol"], "qty": h["qty"], "price": px.get(h["symbol"], {}).get("price") or h.get("price", 0), "is_stock": True}
                  for h in slot.get("holds", []) if h["symbol"] not in {p["symbol"] for p in picks}]
         buys = [{"symbol": p["symbol"], "qty": p["qty"], "price": p["price"], "is_stock": True}
                 for p in picks if p["symbol"] not in {h["symbol"] for h in slot.get("holds", [])}]
-        apply_orders(slot, sells, buys, px)
+        rejects = apply_orders(slot, sells, buys, px)
+        if rejects:
+            slot["note"] = f"{EX_DATE} 调仓被拒: {rejects[0][:80]}"
+            return [f"【顺延】N_技术形态 未成交: {'; '.join(rejects)[:160]}"]
         slot["note"] = f"{EX_DATE} 多策略命中: " + " ".join(f"{p['symbol']}×{p['hits']}" for p in picks[:3])
         return [f"N_技术形态 调仓→{[p['symbol'] for p in picks] or '空仓'}"]
     except Exception as exc:
@@ -2311,16 +2384,22 @@ def industry_momentum_universe(top_industries: int = 3, per_industry: int = 2, t
     避免漏掉大市值龙头) + daily_basic(市值)。窗口: trade_cal 最近 21 个收盘 = 20 期收益。"""
     pro = ts_client()
     lv1 = pro.call("index_classify", level="L1", src="SW2021", fields="index_code")
-    codes = lv1["index_code"].tolist() if lv1 is not None and len(lv1) else []
+    if lv1 is None or lv1.empty:
+        raise RuntimeError("index_classify 数据源不可用")
+    codes = lv1["index_code"].tolist()
     sessions = _recent_trading_days(21, EX_DATE)
     start, end = sessions[0], EX_DATE.strftime("%Y%m%d")
     # 窗口完整性下限(75%): trade_cal 不可用按工作日回退时会混入休市日, 少于 15 根不评分
     min_rows = max(10, int(len(sessions) * 0.75))
     scored = []
+    sw_ok = 0
     for c in codes:
         d = pro.call("sw_daily", ts_code=c, start_date=start, end_date=end,
                      fields="trade_date,close")
-        if d is None or d.empty:
+        if d is None:
+            continue
+        sw_ok += 1
+        if d.empty:
             continue
         d = d.dropna(subset=["close"]).sort_values("trade_date")  # 官方降序返回 → 先升序
         if len(d) < min_rows:
@@ -2330,10 +2409,12 @@ def industry_momentum_universe(top_industries: int = 3, per_industry: int = 2, t
             continue
         ret20 = (closes[-1] / closes[0] - 1) * 100
         scored.append((c, ret20))
+    if sw_ok == 0:
+        raise RuntimeError("sw_daily 数据源全部不可用")
     scored.sort(key=lambda x: -x[1])
     top_ind = [c for c, _ in scored[:top_industries]]
     if not top_ind:
-        return []
+        raise RuntimeError("行业动量无有效数据")
     # 成分股(每行业按流通市值取前 per_industry 只, 全量成员再排序)
     pool = []
     for ind in top_ind:
@@ -2355,6 +2436,8 @@ def industry_momentum_universe(top_industries: int = 3, per_industry: int = 2, t
         # 行业β代表: 选行业内市值最大 per_industry 只(流动性龙头)——不混小市值因子, 保持行业动量归因纯净
         for _, r in db.nlargest(per_industry, "circ_mv").iterrows():
             pool.append({"ts_code": r["ts_code"], "industry": ind})
+    if not pool:
+        raise RuntimeError("行业成分/市值数据不可用")
     return pool[:top]
 
 
@@ -2370,20 +2453,26 @@ def industry_rebalance(led: dict, px: dict, dry: bool) -> list[str]:
         if not cands:
             slot["note"] = f"{EX_DATE} 无候选, 维持旧仓"
             return ["O_行业轮动 无候选, 维持旧仓"]
-        ensure_prices(px, [("SH" if r["ts_code"].endswith(".SH") else "SZ") + r["ts_code"][:6] for r in cands])
+        cand_syms = [("SH" if r["ts_code"].endswith(".SH") else "SZ") + r["ts_code"][:6] for r in cands]
+        ensure_prices(px, cand_syms)
         picks = []
-        for r in cands:
-            sym = ("SH" if r["ts_code"].endswith(".SH") else "SZ") + r["ts_code"][:6]
+        for r, sym in zip(cands, cand_syms):
             p = px.get(sym, {}).get("price") or 0
             if p and p * 100 <= 2500 and sym not in {q["symbol"] for q in picks}:
                 picks.append({"symbol": sym, "price": p, "qty": 100})
             if len(picks) >= 5:
                 break
+        if not picks and not any((px.get(s) or {}).get("price") for s in cand_syms):
+            slot["note"] = f"{EX_DATE} 候选无报价, 维持旧仓"
+            return ["【异常】O_行业轮动 候选无报价, 持仓不变"]
         sells = [{"symbol": h["symbol"], "qty": h["qty"], "price": px.get(h["symbol"], {}).get("price") or h.get("price", 0), "is_stock": True}
                  for h in slot.get("holds", []) if h["symbol"] not in {p["symbol"] for p in picks}]
         buys = [{"symbol": p["symbol"], "qty": p["qty"], "price": p["price"], "is_stock": True}
                 for p in picks if p["symbol"] not in {h["symbol"] for h in slot.get("holds", [])}]
-        apply_orders(slot, sells, buys, px)
+        rejects = apply_orders(slot, sells, buys, px)
+        if rejects:
+            slot["note"] = f"{EX_DATE} 调仓被拒: {rejects[0][:80]}"
+            return [f"【顺延】O_行业轮动 未成交: {'; '.join(rejects)[:160]}"]
         slot["note"] = f"{EX_DATE} 行业动量Top3龙头轮动"
         return [f"O_行业轮动 调仓→{[p['symbol'] for p in picks] or '空仓'}"]
     except Exception as exc:
@@ -2638,6 +2727,16 @@ def run_close(dry: bool) -> str:
     led = load_ledger()
     px = slot_prices(led)
     today = EX_DATE.isoformat()
+    # 核心基准缺价时整轮顺延：否则 marks 会被记成「只剩现金」，且 close_done
+    # 会让后续恢复的轮次不再补写。重试一次行情后仍缺即返回【异常】。
+    core_missing = _core_missing_quotes(led, px)
+    if core_missing:
+        ensure_prices(px, core_missing)
+        core_missing = _core_missing_quotes(led, px)
+    if core_missing:
+        msg = f"【异常】收盘缺价 {core_missing}，本轮不写 marks/注册表，待后续轮重试"
+        log.warning(msg)
+        return msg
     snap_msg = maybe_refresh_snapshot(dry)
     repo_msgs = [] if dry else repo_maturity_pass(led, dry)
     div_msgs = [] if dry else daily_dividend_pass(led, px, dry)

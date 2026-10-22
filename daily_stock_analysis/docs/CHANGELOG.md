@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [修复] 对比盘 **10-22 缺价事故**：15:00 轮 DNS 全断时 C/D 有持仓但无现价，旧 `revalue` 把缺价持仓排除出净值（C/D 被记成 -97.8%），且 `close_done` 仍写入导致后续轮不再补写。现核心 C/D 缺价先重拉、仍缺则整轮返回【异常】且不写 marks/注册表、不写 `close_done`；`revalue` 对非核心缺价按成本价兜底并标记 `unvalued`。补核心缺价/成本兜底/close_done 回归。
+- [修复] 对比盘 **511010 手数不一致**：runner 按 10 份/手、执行内核按 ETF 100 份/手，G/H 的 511010 买单一直被 `lot_size` 拒绝；现统一为 CB 10 / 其余 100，`mwu_target_orders` 买入差额按整手向下取整，补整手回归（来源：上交所债券 ETF 最小 100 份）。
+- [修复] 对比盘**任务诚实性**：K/I/J/M/N/O/E/F/F2 对 `apply_orders` 拒绝显式返回【顺延】，不再“建仓→/调仓→”后登记成功；候选存在但全部无报价返回【异常】；`pead/reversal/holder/industry/smallcap` 数据源全失败显式抛错，不再用空列表冒充“无候选”。补 K 拒绝与 forecast/daily_basic 全失败回归。
 - [chore] 新增 Dependabot（`daily_stock_analysis`/`quant_research` pip + GitHub Actions，周更、分组、限 5 个 PR）与 CodeQL（Python `security-extended`，main push、内部 PR 与周扫；fork PR 跳过 SARIF 上传）；仅仓库自动化，无运行时改动。
 - [改进] 新增 `scripts/backup_offsite.py`：把最新每日备份同步到用户指定的第二存储，逐文件 sha256 校验并写 `OFFSITE_MANIFEST.txt`；默认保留 14 份、**默认排除 `.env`**（`--include-env` 仅用于加密目标），拒绝目标位于本机 `data/backups` 内；同步 `disaster-recovery.md` §2.1 与 `strategy-compare-deck.md` §5。补 6 条离线回归。
 - [改进] 每日备份纳入**对比盘台账**：`backup_ledger.py` 现备份 `.scratch/dsa-strategy-validation/compare_strategies.json` 及 `archive/cohort-manifest.jsonl`（如存在），`MANIFEST.txt` 记录台账大小与 sha256；`--verify` 增加台账可解析且含 `strategies`/`marks`/`_control` 的校验（干净检出缺失时不阻断账户备份）。补 3 条备份回归，同步 `disaster-recovery.md`/`strategy-compare-deck.md`。

@@ -93,6 +93,18 @@
 5. 审计新增**注册表完成度**（当日 `rebalance_done`/`week_rebalance_done` 非 `all` 即 WARN）、**主动槽覆盖**（主动槽全现金即 WARN）、**任务 LastTaskResult**（非 0 WARN），并纳入三态核心证据——禁止再以"只成交 C/D"宣称正常。
 6. `DSA_Deck_Intraday` 设 `StartWhenAvailable=True`（2026-10-22）：休眠/错过触发后在机器恢复时补跑，仍受独占锁、运行窗、15:00 撮合闸与 `close_done` 幂等约束，不产生盘后成交；`WakeToRun` 仍为 False（避免整夜每 20 分钟唤醒）。
 
+### 2.3 10-22 缺价事故与收盘闸（2026-10-22 盘后）
+
+**事故**：15:00 轮启动时 DNS（`api.waditu.com` / 腾讯 / 飞书）全面失败。C/D 有持仓但取不到现价，旧 `revalue` 把缺价持仓排除出净值 → C/D 被记成只剩现金（-97.8%），且 `close_done` 仍被写入，后续行情恢复的轮次不会补写。A/G/H/E 因目标缺价报【异常】未成交；F/F2 在数据源返回 None 时异常；K 实际未成交却报“建仓→”；I/J/M/O 在数据源缺失时返回空列表被登记为成功。
+
+**修复（同一语义覆盖所有入口）**：
+
+1. **核心基准收盘闸**：`run_close` 在写 marks 前检查 C/D 持仓现价；缺价先补拉一次，仍缺则返回 `【异常】收盘缺价…`，**不写 marks/注册表**；`run_intraday` 只有收盘结果不以 `【异常】` 开头才写 `close_done`。行情恢复后的后续轮次会补写当日 marks。
+2. **估值兜底**：`revalue` 对非核心缺价持仓按成本价计入并标记 `valuation_status.unvalued`（与 `slot_equity` 同口径），不再把缺价误记成现金全额亏损。
+3. **手数一致性**：511010 等债券 ETF 也是 **100 份/手**（此前 runner 按 10 份、执行内核按 ETF 100 份，买单被 `lot_size` 拒绝）；`_lot_size` 统一为 CB 10 / 其余 100；`mwu_target_orders` 的买入差额按整手向下取整，避免奇数旧仓导致非整手买单。
+4. **任务诚实性**：K/I/J/M/N/O/E/F/F2 对 `apply_orders` 拒绝显式返回【顺延】（不再“建仓→”/“调仓→”后登记成功）；候选存在但全部无报价返回【异常】；`pead/reversal/holder/industry/smallcap` 的数据源全失败显式抛错，不再用空列表冒充“无候选”。
+5. **10-22 台账修复**：按 510300=4.107、512890=1.202 修复 10-22 C/D 净值（12,179.8 / 12,296.0），并按成交成本补正 10-21 的 C/D marks（12,406）；`_actions` 增加校正说明。月度注册表在事故后按实际状态重置，10-23 继续补做，不把当天的空结果当作当月完成。
+
 ## 3. 数据源
 
 - 实时行情：`data_provider.DataFetcherManager.get_realtime_quote`（六源降级+熔断；tushare 为 P-1 最高优先级，15000 积分账户）；prefetch 按 5 只分批（tickflow 上限）
@@ -191,8 +203,8 @@ powercfg -setactive SCHEME_CURRENT
 
 ## 9. 回归保护网
 
-- `tests/test_compare_deck_runner.py` 94 项：纯函数（费用/换算/时段/价差/分位/缓冲带遗留函数/回撤）+ **10-08 月度大考端到端**（mock 时间/行情/引擎，tmp 台账全链）+ 月度/周度注册表（子任务失败/顺延次日重试）+ 空槽首建仓行情预取与按当前 equity 定仓 + 启动会话捕获（入口 → run_close，慢行情不二次取时）+ marks 后置 + F/F2 每票预算 + 快照末端重建 + 子进程 UTF-8 解码 + 盘中扫描失败重试/交易所 halfday + PE 分位总闸缩放 + 独占锁四分支 + 撮合窗边界；全部离线可复现（tmp 台账，不依赖生产台账与外部库）
-- `tests/test_paper_execution.py` 21 项（任务 08 执行内核：11 拒绝码/整手/涨跌停/T+1/现金守恒）+ `tests/test_compare_deck_cohort.py` 8 项（开账/种子/容器契约）+ `tests/test_compare_deck_audit.py` 17 项（含时间健康跨日戳/收盘后不报时钟偏差/多源同日比较/执行日志 start-exit 配对/唤醒任务/注册表与主动槽覆盖/任务结果 PASS 与非零 WARN）+ `tests/test_deck_registry.py` 6 项 + `tests/test_deck_slot_contracts.py` 17 项 + `tests/test_compare_deck_shadow.py` 10 项：审计三态结论/退出码传播 + 注册表 18 槽/PE 分位总闸作用域单一真源一致性 + 槽位数据契约 + 影子只读校验
+- `tests/test_compare_deck_runner.py` 100 项：纯函数（费用/换算/时段/价差/分位/缓冲带遗留函数/回撤）+ **10-08 月度大考端到端**（mock 时间/行情/引擎，tmp 台账全链）+ 月度/周度注册表（子任务失败/顺延次日重试）+ 空槽首建仓行情预取与按当前 equity 定仓 + 启动会话捕获（入口 → run_close，慢行情不二次取时）+ marks 后置 + F/F2 每票预算 + 快照末端重建 + 核心缺价收盘闸（不写 marks/close_done）+ 缺价成本兜底 + 511010 整手 + 任务拒绝/数据源失败诚实性 + 子进程 UTF-8 解码 + 盘中扫描失败重试/交易所 halfday + PE 分位总闸缩放 + 独占锁四分支 + 撮合窗边界；全部离线可复现（tmp 台账，不依赖生产台账与外部库）
+- `tests/test_paper_execution.py` 21 项（任务 08 执行内核：11 拒绝码/整手/涨跌停/T+1/现金守恒）+ `tests/test_compare_deck_cohort.py` 8 项（开账/种子/容器契约）+ `tests/test_compare_deck_audit.py` 17 项（含时间健康跨日戳/收盘后不报时钟偏差/多源同日比较/执行日志 start-exit 配对/唤醒任务/注册表与主动槽覆盖/任务结果 PASS 与非零 WARN）+ `tests/test_deck_registry.py` 6 项 + `tests/test_deck_slot_contracts.py` 17 项 + `tests/test_compare_deck_shadow.py` 10 项：审计三态结论/退出码传播 + 注册表 18 槽/PE 分位总闸作用域单一真源一致性 + 槽位数据契约（含 M 数据缺失显式失败）+ 影子只读校验
 - 探针提取脚本 `quant_research/scripts/extract_mwu_targets.py`（ETFMWUProbe/MomentumProbe）曾因多轮 patch 丢 `_target_portfolio`——修改探针后必须跑端到端回归
 
 ## 10. 审计与真钱
