@@ -246,7 +246,7 @@ lark-oapi>=1.0.0             # Feishu API
 
 
 
-pandas>=2.0.0               # Data analysis
+pandas>=3.0.6               # Data analysis
 
 
 
