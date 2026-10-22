@@ -20,7 +20,7 @@ jobs:
       futu_packaging: ${{ steps.filter.outputs.futu_packaging }}
     steps:
       - name: 📥 Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
       - name: 🧭 Filter paths
         id: filter
         uses: dorny/paths-filter@v3
@@ -75,7 +75,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 📥 Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
       - name: 🐍 Setup Python
         uses: actions/setup-python@v6
         with:
@@ -95,7 +95,7 @@ jobs:
         shard: [1, 2, 3]
     steps:
       - name: 📥 Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
       - name: 🐍 Setup Python
         uses: actions/setup-python@v6
         with:
@@ -148,7 +148,7 @@ jobs:
     if: needs.changes.outputs.quant == 'true'
     steps:
       - name: 📥 Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
       - name: 🐍 Setup Python
         uses: actions/setup-python@v6
         with:
@@ -213,7 +213,7 @@ jobs:
     if: needs.changes.outputs.docker == 'true'
     steps:
       - name: 📥 Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
       - name: 🛠️ Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: 🐳 Build image
@@ -249,7 +249,7 @@ jobs:
     if: needs.changes.outputs.futu_packaging == 'true'
     steps:
       - name: 📥 Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
       - name: 🐍 Setup Python
         uses: actions/setup-python@v6
         with:
@@ -277,7 +277,7 @@ jobs:
     if: needs.changes.outputs.futu_packaging == 'true'
     steps:
       - name: 📥 Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
       - name: 🐍 Setup Python
         uses: actions/setup-python@v6
         with:
@@ -309,7 +309,7 @@ jobs:
         working-directory: daily_stock_analysis/apps/dsa-web
     steps:
       - name: 📥 Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
       - name: 🟢 Setup Node
         uses: actions/setup-node@v6
         with:
