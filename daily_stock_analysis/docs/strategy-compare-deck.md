@@ -31,6 +31,8 @@
 | Y_确定性收益 | 国债逆回购(节前/月末 GC001) | 节前最后交易日 14:30 后 | 打新走 dsa 每日待办提醒；逆回购利息=名义×年化×计息天/365 |
 | X_事件套利 | 要约收购/现金选择权/吸收合并 | 事件驱动 | 价差规则：现价<对价×0.98(ST 0.95)，单笔≤¥1,241 |
 
+> **511010 手数**：债券 ETF 最小 **100 份/手**（不是 10 份）；¥12,411 资金下 511010 约 ¥14,000/手，G/H 的防御腿可能只能留在现金。2026-10-22 已把 runner 的 10 份/手改为与执行内核一致的 100 份/手（见 §2.3），这是现实约束，不是漏单。
+
 ## 2. 调度与时间
 
 - Windows 计划任务 `DSA_Deck_Intraday`：每 20 分钟 → `compare_deck_task.ps1 -Mode intraday`
@@ -126,7 +128,7 @@
 - 台账：`.scratch/dsa-strategy-validation/compare_strategies.json`（原子写 + 写前 `.json.bak` 滚动备份）；每日 08:30 `DSA_Ledger_Backup` 已纳入台账与 `archive/cohort-manifest.jsonl`，`--verify` 校验三块容器；离机同步见 `docs/disaster-recovery.md` §2.1
 - 控制键 `_control`：`close_done`（收盘幂等）/ `event_scan_last`（事件扫描每半天一次；**仅扫描未返回【异常】时写键**，失败下一轮重试；键按交易所时间而非墙钟）/ `rebalance_done`（月度登记：全部成功 `"all"`，部分成功为已成功标签列表，每日撮合窗续做至齐备；非撮合时段顺延不执行）/ `week_rebalance_done`（周度同构，同周后续交易日续做）/ `bootstrap_done`（C/D 一次性建仓，`"all"` 或已成功标签列表）/ `erp_scaled`（PE 分位总闸已缩放槽登记；槽位周度/月度重建成功后清除，同轮 `erp_scale_pass` 重新应用）/ `e2_state`、`erp`、`crash_state` 等风控状态 / `_actions`（当日动作，盘中+收盘合并）
 - 执行日志：`logs/compare_deck_task.log`（start/exit + runner 输出）
-- 每日 17:30 `DSA_Deck_Audit`：只读运行 `compare_deck_audit.py`，追加 `logs/compare_deck_audit.log`（含 start/exit）；不写台账、不发通知，任务 `LastTaskResult` 为审计退出码
+- 每日 17:30 `DSA_Deck_Audit`：只读运行 `compare_deck_audit.py`，追加 `logs/compare_deck_audit.log`（含 start/exit）；不写台账、不发通知，任务 `LastTaskResult` 为审计退出码。监控边界见 §13（不检查备份/离机/审计任务自身）
 - 病历制：槽位停跑/清仓 → `.scratch/dsa-strategy-validation/{槽位}_postmortem.md`
 
 ## 6. 回滚
@@ -242,15 +244,18 @@ powercfg -setactive SCHEME_CURRENT
 
 ## 13. 已知局限（诚实清单，改进前必读）
 
-- **分红/除息未调整**：D 红利低波（512890）等分红除息日价格跳降会直接体现为净值下跌——净值曲线对高股息标的系统性偏低估。假期后如遇除息，按事件在台账 tuning 记录并手工校正当期 marks。
+- **分红/除息的口径**：价格序列**不做除息复权**；每日 `daily_dividend_pass` 会把数据源返回的现金分红（含 C/D 的 `fund_div`）计入对应槽现金并登记 `dividend_booked`，因此总收益近似正确，但除息日价格与现金到账存在时点差。若数据源缺事件/到账延迟，仍需人工按除息日核对并校正当期 marks；不能把“未复权价格”直接当成未计入分红。
 - **T+1 已由执行内核强制**：`src/core/paper_execution.py` 按资产类别施加策略（股票/ETF `t_plus_1=True`、转债/逆回购豁免），超额卖出返回 `T_PLUS_1` 拒绝码（任务 08 内核）；残余差异仅"卖出资金当日可用"这一账户现金流语义，低频（周/月）调仓下影响可忽略。
 - **佣金假设**：万 0.845 + 最低 5 元为 quant_research 研究假设，未与真实券商账户费率核对——晋升真钱前必须核对。
 - **Y 槽打新未自动跟踪**：中签回填依赖人工；转债打新收益未计提。
-- **盘后行情污染**：收盘后六源链个别源返回异常价（实测 tickflow 盘后 512890=1.196 vs 收盘 1.180）——调仓时段闸已隔离，但 risk_round 的异动告警在盘后手动运行时可能基于污染价误报（自动化链路只在交易时段运行，无此问题）。
+- **盘后行情污染**：收盘后六源链个别源返回异常价（实测 tickflow 盘后 512890=1.196 vs 收盘 1.180）。成交仍受 `_fills_open`/交易所戳约束；`StartWhenAvailable` 可能触发盘后补跑，`risk_round` 在非交易时段只记录、不迁移状态，但仍可能基于污染价产生告警文本，需人工判断。
 - **熔断指标**：国证2000（sz399303）为代理指标，非真正的微盘股指数（万得微盘股指数无免费实时源）；-3% 阈值为先验值，未回测校准。
 - **N 槽不可在干净克隆复现**：驱动 `quant_research/vendor/Sequoia-X/n_slot_driver.py`（vendored 第三方仓库，~299MB）与其回填行情数据均**不入库**（`.gitignore` 已忽略 `quant_research/vendor/`）。上表 N 行的"已激活"仅对本机工作区成立；干净克隆下 `sequoia_ready` 闸为假、N 槽**条件式跳过**（不报错、不参与调仓）。复现需自行 vendored Sequoia-X 并回填行情数据。
-- **运行在线依赖**：收盘轮/撮合窗要求交易日本机在 15:00-16:13 保持运行；休眠时由 `DSA_Deck_Close`（WakeToRun）唤醒，整机关机仍无法唤醒；错过即不补当日成交（注册表顺延至下一交易日收盘），不得用历史价回填。
-- **A/B 数据 as-of 差异**：B 走 `feeds_snapshot_v*.pkl`（末端可能滞后，按文件 mtime 刷新、不校验末端日期）；A/G/H 走 tushare loader。解读 A/B 排名时需知悉该差异。
+- **运行在线依赖**：收盘轮/撮合窗要求交易日本机在 15:00-16:13 保持运行；休眠时由 `DSA_Deck_Close`（WakeToRun）唤醒，整机关机仍无法唤醒。若 15:00:30 唤醒后网络未就绪：核心 C/D 缺价会整轮顺延且不写 `close_done`，15:02/15:22/后续轮（交易所戳仍为 15:00:00）可补成交/补写 marks；若整日不可用，当日无成交且可能有 marks 缺口，注册表续做至下一窗口。不得用历史价回填。
+- **A/B 数据 as-of 差异**：B 走 `feeds_snapshot_v*.pkl`，文件 mtime 超 7 天**或末端数据日早于上一交易日**时重建；A/G/H 走 tushare loader。B 重建后数据源仍滞后时消息标注实际末端（如 `至 2026-10-16`）。解读 A/B 排名时需知悉该差异。
+- **收盘后备份缺口**：每日 `DSA_Ledger_Backup` 在 **08:30** 运行，早于 15:00 收盘；收盘后的台账状态要到次日 08:30 才进入完整备份，期间只有 live 文件与 `.json.bak`。离机同步目标尚未配置。高风险日（首建仓/大调仓）应手动跑 `backup_ledger.py` 或尽快配置第二存储。
+- **评估窗口起点**：2026-10-22 主动槽 0/13，未形成全量建仓；60 日评估窗口应从首个主动槽实际建仓日（而不是 10-22）起算，确认前不改 `prereg`。
+- **审计监控边界**：`DSA_Deck_Audit` 只读检查 marks/执行日志/抽样净值/注册表/主动槽/任务结果/唤醒任务；**不检查**备份新鲜度、备份任务、离机目标或审计任务自身；审计 FAIL 只体现为 `LastTaskResult` 与日志，不额外推送。这些需人工或后续增强。
 
 
 ## 14. 真钱资金分配草案（12-31 硬复核的决策框架）
@@ -302,7 +307,7 @@ py scripts/compare_deck_shadow.py --status   # 只看进度与差异
 **正式账本 = 单个 JSON 文件**：`.scratch/dsa-strategy-validation/compare_strategies.json`（schema v3）。
 
 - 唯一写入方：`scripts/compare_deck_runner.py`（整文件重写 + 临时文件原子替换；另有 `.bak` 回退，任务 00）。
-- 只读消费方：`compare_deck_audit.py`（`json.loads` 后跑 8 项检查）、`compare_deck_cohort.py`（归档 + 开账）、
+- 只读消费方：`compare_deck_audit.py`（`json.loads` 后跑 30+ 项检查）、`compare_deck_cohort.py`（归档 + 开账）、
   `compare_deck_shadow.py`（dry 运行 + **前后 sha256 一致**判定只读性）。
 - **为什么是 JSON**：封存清单（`ledger-seal-manifest.json`）、归档 sha256、影子前后哈希校验都以
   "同一状态 → 同一字节"为前提——等价于内容寻址的审计链；JSON 可读、可 diff、可哈希。
