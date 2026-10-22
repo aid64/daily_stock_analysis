@@ -187,7 +187,7 @@ def test_m_cyq_failure_skips_candidate_explicitly(monkeypatch):
 
 
 def test_m_missing_stock_basic_fails_closed(monkeypatch):
-    """stock_basic 不可用 → 候选置空(不降级 ST/板块过滤)。"""
+    """stock_basic 不可用 → 显式失败(不降级 ST/板块过滤，也不登记为无候选)。"""
     def call(api, **kw):
         if api == "stk_holdernumber":
             end = kw["enddate"]
@@ -197,7 +197,8 @@ def test_m_missing_stock_basic_fails_closed(monkeypatch):
         return None
 
     monkeypatch.setattr(mod, "ts_client", lambda: SimpleNamespace(call=call))
-    assert mod.holder_concentration_universe(top=8) == []
+    with pytest.raises(RuntimeError, match="stock_basic"):
+        mod.holder_concentration_universe(top=8)
 
 
 # ---------------------------------------------------------------- O: 排序/窗口/版本/成员

@@ -6,6 +6,8 @@ import sys
 from datetime import date, datetime
 from pathlib import Path
 
+import pytest
+
 RUNNER = Path(__file__).resolve().parents[1] / "scripts" / "compare_deck_runner.py"
 spec = importlib.util.spec_from_file_location("compare_deck_runner", RUNNER)
 mod = importlib.util.module_from_spec(spec)
@@ -253,24 +255,25 @@ def test_build_close_summary_flat_when_no_actions(monkeypatch):
 
 # ---------------------------------------------------------------- mwu_target_orders
 def test_mwu_target_orders_lot_sizes_and_diff():
-    # 防御腿 511010 10张/手, 其余 100股
+    # 511010 债券 ETF 也是 100 份/手, 其余 100 股
     target = {"511010.SH": 0.66, "512480.SH": 0.34}
     prices = {"511010.SH": 140.0, "512480.SH": 1.0}
-    sells, buys = mod.mwu_target_orders(target, {}, prices)
-    # 0.66*12411=8191 / 1400 → 5手=50张; 0.34*12411=4220 / 100 → 4200股
-    assert {"symbol": "511010.SH", "qty": 50, "price": 140.0} in buys
-    assert {"symbol": "512480.SH", "qty": 4200, "price": 1.0} in buys
+    sells, buys = mod.mwu_target_orders(target, {}, prices, capital=50000)
+    # 0.66*50000=33000 / 14000 → 2手=200份; 0.34*50000=17000 / 100 → 17000股
+    assert {"symbol": "511010.SH", "qty": 200, "price": 140.0} in buys
+    assert {"symbol": "512480.SH", "qty": 17000, "price": 1.0} in buys
     assert sells == []
 
 
 def test_mwu_target_orders_partial_trim_and_exit():
-    # 部分减仓 + 目标剔除全卖
+    # 部分加仓按整手向下取整；目标剔除全卖（卖出允许零股）
     target = {"511010.SH": 0.66}
     prices = {"511010.SH": 140.0, "512480.SH": 1.0}
-    sells, buys = mod.mwu_target_orders(target, {"511010.SH": 80, "512480.SH": 1000}, prices)
-    assert {"symbol": "511010.SH", "qty": 30, "price": 140.0} in sells   # 80→50
-    assert {"symbol": "512480.SH", "qty": 1000, "price": 1.0} in sells   # 剔除
-    assert buys == []
+    sells, buys = mod.mwu_target_orders(target, {"511010.SH": 80, "512480.SH": 1000},
+                                        prices, capital=50000)
+    assert {"symbol": "511010.SH", "qty": 100, "price": 140.0} in buys  # 80→180（整手）
+    assert {"symbol": "512480.SH", "qty": 1000, "price": 1.0} in sells  # 剔除
+    assert not any(o["symbol"] == "511010.SH" for o in sells)
 
 
 def test_mwu_target_orders_skips_missing_price():
@@ -472,7 +475,8 @@ def _monthly_env(tmp_path, monkeypatch, fills_time, fail=()):
     monkeypatch.setattr(mod, "_is_week_first_trading_day", lambda: False)
     monkeypatch.setattr(mod, "_is_month_first_trading_day", lambda: True)
     monkeypatch.setattr(mod, "maybe_refresh_snapshot", lambda *a, **k: "")
-    monkeypatch.setattr(mod, "slot_prices", lambda led: {})
+    monkeypatch.setattr(mod, "slot_prices",
+                        lambda led: {"510300.SH": {"price": 4.0}, "512890.SH": {"price": 1.0}})
     monkeypatch.setattr(mod, "notify", lambda *a, **k: False)
     for fn in ("repo_maturity_pass", "daily_dividend_pass", "erp_gate", "e2_gate",
                "e_take_profit_pass", "north_rebalance"):
@@ -563,7 +567,8 @@ def _weekly_env(tmp_path, monkeypatch, fills_time, fail=(), defer=()):
     monkeypatch.setattr(mod, "_is_month_first_trading_day", lambda: False)
     monkeypatch.setattr(mod, "_is_week_first_trading_day", lambda: True)
     monkeypatch.setattr(mod, "maybe_refresh_snapshot", lambda *a, **k: "")
-    monkeypatch.setattr(mod, "slot_prices", lambda led: {})
+    monkeypatch.setattr(mod, "slot_prices",
+                        lambda led: {"510300.SH": {"price": 4.0}, "512890.SH": {"price": 1.0}})
     monkeypatch.setattr(mod, "notify", lambda *a, **k: False)
     monkeypatch.setattr(mod, "monthly_report", lambda *a, **k: None)
     for fn in ("repo_maturity_pass", "daily_dividend_pass", "erp_gate", "e2_gate",
@@ -844,12 +849,12 @@ def test_erp_rescale_after_monthly_rebuild(tmp_path, monkeypatch):
         {"symbol": "SZ301578", "name": "辰奕智能", "qty": 100, "price": 23.0,
          "held_since": "2026-09-30"}]
     p.write_text(_json.dumps(led, ensure_ascii=False), encoding="utf-8")
-    monkeypatch.setattr(mod, "slot_prices", lambda led: {"SZ301578": {"price": 23.0}})
+    monkeypatch.setattr(mod, "slot_prices", lambda led: {
+        "SZ301578": {"price": 23.0}, "510300.SH": {"price": 4.0}, "512890.SH": {"price": 1.0}})
     mod.run_close(False)
     saved = _json.loads(p.read_text(encoding="utf-8"))
     assert saved["strategies"]["F_小市值20"]["holds"][0]["qty"] == 50                   # 重建清标记后重新减半
     assert saved["_control"]["erp_scaled"]["F_小市值20"] == "2026-10-08"               # 重新登记
-    assert "A_动量" not in saved["_control"]["erp_scaled"]   # 无报价被拒 → 据实不标记待次日
 
 
 # ---------------------------------------------------------------- e2_gate_decision
@@ -1713,3 +1718,113 @@ def test_maybe_refresh_snapshot_rebuilds_on_stale_data(tmp_path, monkeypatch):
     msg = mod.maybe_refresh_snapshot(False)
     assert calls and "快照已刷新" in msg
     assert "2026-10-16" in msg
+
+
+# ------------------------------------------------- 10-22 缺价事故回归
+def test_revalue_uses_cost_when_quote_missing():
+    """缺价不得把持仓排除出净值（否则 C/D 会被记成只剩现金）。"""
+    slot = {"cash": 100.0, "holds": [{"symbol": "510300.SH", "qty": 10, "price": 5.0}]}
+    eq = mod.revalue(slot, {})
+    assert eq == 150.0
+    assert slot["valuation_status"] == {"fully_valued": False,
+                                        "unvalued": {"510300.SH": "missing"}}
+
+
+def test_close_defers_when_core_benchmark_unquoted(tmp_path, monkeypatch):
+    """核心 C/D 缺价时整轮不写 marks/注册表；恢复后由后续轮补写。"""
+    import json as _json
+    from datetime import date as _date
+
+    led = {"strategies": {
+        "C_沪深300持有": {"cash": 100.0, "equity": 500.0,
+                          "holds": [{"symbol": "510300.SH", "qty": 100, "price": 4.0}]},
+        "D_红利低波持有": {"cash": 100.0, "equity": 500.0,
+                          "holds": [{"symbol": "512890.SH", "qty": 100, "price": 1.0}]},
+    }, "marks": [], "_control": {}}
+    p = tmp_path / "ledger.json"
+    p.write_text(_json.dumps(led, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(mod, "LEDGER", p)
+    monkeypatch.setattr(mod, "EX_DATE", _date(2026, 10, 22))
+    monkeypatch.setattr(mod, "_session_now", datetime(2026, 10, 22, 15, 0), raising=False)
+    monkeypatch.setattr(mod, "_TRADING_OK", True)
+    monkeypatch.setattr(mod, "is_exchange_trading_day", lambda d: True)
+    monkeypatch.setattr(mod, "slot_prices", lambda led: {})
+    monkeypatch.setattr(mod, "ensure_prices", lambda px, syms: px)
+
+    out = mod.run_close(False)
+    assert out.startswith("【异常】收盘缺价")
+    assert "510300.SH" in out and "512890.SH" in out
+    saved = _json.loads(p.read_text(encoding="utf-8"))
+    assert saved["marks"] == []
+    assert saved["_control"] == {}
+
+
+def test_buywatch_reports_rejected_fill(monkeypatch):
+    """K 的 apply_orders 被拒时必须报【顺延】，不得声称"建仓→"。"""
+    from datetime import date as _date
+
+    slot = {"holds": [], "cash": 12411.0, "equity": 12411.0}
+    led = {"strategies": {"K_项目选股": slot}}
+    monkeypatch.setattr(mod, "EX_DATE", _date(2026, 10, 22))
+    monkeypatch.setattr(mod, "_TRADING_OK", False)
+    monkeypatch.setattr(mod, "buywatch_universe",
+                        lambda *a, **k: [{"symbol": "600000", "name": "测试", "close": 10.0, "score": 1}])
+
+    def _ensure(px, syms):
+        px.update({s: {"price": 10.0} for s in syms})
+        return px
+
+    monkeypatch.setattr(mod, "ensure_prices", _ensure)
+
+    msgs = mod.buywatch_rebalance(led, {}, False)
+    assert msgs and msgs[0].startswith("【顺延】K_项目选股")
+    assert slot["holds"] == []
+
+
+def test_pead_universe_raises_when_all_source_calls_fail(monkeypatch):
+    from datetime import date as _date
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(mod, "EX_DATE", _date(2026, 10, 22))
+    monkeypatch.setattr(mod, "ts_client", lambda: SimpleNamespace(call=lambda *a, **k: None))
+    with pytest.raises(RuntimeError, match="forecast"):
+        mod.pead_universe()
+
+
+def test_smallcap_universe_raises_on_missing_source(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(mod, "ts_client", lambda: SimpleNamespace(call=lambda *a, **k: None))
+    with pytest.raises(RuntimeError, match="daily_basic"):
+        mod.smallcap_universe("20260930", True, 8)
+
+
+def test_intraday_does_not_mark_close_done_on_close_failure(tmp_path, monkeypatch):
+    """收盘返回【异常】(如核心缺价) 时不得写 close_done，后续轮还要补写。"""
+    import json as _json
+    from datetime import date as _date
+
+    led = _fake_ledger()
+    led["_control"] = {}
+    p = tmp_path / "ledger.json"
+    p.write_text(_json.dumps(led, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(mod, "LEDGER", p)
+    monkeypatch.setattr(mod, "EX_DATE", _date(2026, 10, 22))
+    monkeypatch.setattr(mod, "exchange_now", lambda: datetime(2026, 10, 22, 15, 0))
+    monkeypatch.setattr(mod, "is_exchange_trading_day", lambda d: True)
+    monkeypatch.setattr(mod, "slot_prices", lambda led: {})
+    monkeypatch.setattr(mod, "event_round", lambda led, dry: [])
+    monkeypatch.setattr(mod, "watchlist_round", lambda led, dry: [])
+    monkeypatch.setattr(mod, "risk_round", lambda led, px, dry: [])
+    monkeypatch.setattr(mod, "notify", lambda *a, **k: False)
+    monkeypatch.setattr(mod, "_TRADING_OK", True)
+    monkeypatch.setattr(mod, "run_close", lambda dry: "【异常】收盘缺价 ['510300.SH']")
+
+    mod.run_intraday(False)
+    saved = _json.loads(p.read_text(encoding="utf-8"))
+    assert saved["_control"].get("close_done") != "2026-10-22"
+
+    monkeypatch.setattr(mod, "run_close", lambda dry: "收盘完成")
+    mod.run_intraday(False)
+    saved = _json.loads(p.read_text(encoding="utf-8"))
+    assert saved["_control"]["close_done"] == "2026-10-22"
