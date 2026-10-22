@@ -125,8 +125,8 @@ py scripts/backup_offsite.py --destination E:\DSA-Backup --include-env
 ## 四、边界与已知限制
 
 - **默认只做本机备份**，不外传；离机需显式运行 `backup_offsite.py` 到你指定的第二存储（默认排除 `.env`）。抗盘坏需你实际配置目标。
-- **备份时点**：每日 08:30 的备份早于 15:00 收盘；收盘后的台账状态要到次日 08:30 才进入完整备份。首建仓/大调仓后建议手动 `py scripts/backup_ledger.py --verify`，并尽快配置离机目标；当前未注册收盘后备份任务。
-- **审计任务不检查备份**：`DSA_Deck_Audit` 只做对比盘状态审计，不检查备份新鲜度/备份任务/离机目标；备份失败需看 `logs/backup_task.log` 与任务 `LastTaskResult`。
+- **备份时点**：每日 08:30 的完整备份早于 15:00 收盘；收盘后的**台账**由 17:30 `DSA_Deck_Audit` 快照到 `.scratch/dsa-strategy-validation/postclose/`（保留 30 份），但 **DB/`.env` 等完整备份**仍要到次日 08:30，且快照与 live 同盘。首建仓/大调仓后建议手动 `py scripts/backup_ledger.py --verify`，并尽快配置离机目标。
+- **审计检查范围**：`DSA_Deck_Audit` 会检查备份新鲜度、当日收盘台账快照和 `DSA_Ledger_Backup` 结果；但**不检查离机目标或审计任务自身**，审计 FAIL 只落 `LastTaskResult`/日志、不额外推送。备份失败仍需看 `logs/backup_task.log`。
 - 备份是**只增**的（滚动删旧），恢复是覆盖式，无回滚需求。
 - 跨项目契约 `quant_research/output/paper_tracking/current_plan.json` 是**运行时生成**的
   （由 `run_paper_tracking.py`），未纳入备份——丢失时重跑管线即可再生，不属账户真源。
