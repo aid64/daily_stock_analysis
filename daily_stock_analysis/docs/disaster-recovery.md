@@ -61,6 +61,31 @@ schtasks /Run /TN "DSA_Ledger_Backup"             # 计划任务上下文验证�
 > 再把 `data/backups/` 定期同步到第二块盘或网盘（本脚本不做外部上传，避免把
 > 账本/凭据推到三方——需要时由你显式配置同步工具）。
 
+### 2.1 离机同步（第二存储）
+
+`scripts/backup_offsite.py` 把**最新一份**每日备份复制到用户指定的第二存储
+（外置盘/网盘同步目录），逐文件 sha256 校验并写 `OFFSITE_MANIFEST.txt`：
+
+```bash
+# 先预览，再执行；--date 可选，默认最新日期
+py scripts/backup_offsite.py --destination E:\DSA-Backup --dry-run
+py scripts/backup_offsite.py --destination E:\DSA-Backup
+py scripts/backup_offsite.py --destination E:\DSA-Backup --retention 8
+
+# 仅当目标是加密存储时，才把 .env 一并同步
+py scripts/backup_offsite.py --destination E:\DSA-Backup --include-env
+```
+
+- 默认布局：`<destination>/daily_stock_analysis/<YYYY-MM-DD>/`；默认保留最近 14 份，
+  只清理本脚本管理的日期目录，不触碰目标里的其他文件。
+- **默认跳过 `.env`**（含飞书/LLM/数据源凭据）；目标未加密时不要把明文凭据复制过去。
+  完整还原需要 `.env` 时，用 `--include-env` 并确保目标是加密盘/加密卷，或把 `.env`
+  单独保存在密码管理器。默认模式会删除目标同日目录里上次遗留的 `.env`。
+- 脚本拒绝把目标放在 `data/backups/` 内（那不是离机）；也不做任何自动上传/云 API。
+- 计划任务：目标确定后可每周手动或注册一次；本脚本不自动注册任务。
+- 还原：把 `<destination>/daily_stock_analysis/<date>/` 复制回
+  `data/backups/<date>/`，再按场景 A/B/C 执行；若未同步 `.env`，从密码管理器恢复。
+
 ## 三、崩了怎么还原
 
 ### 场景 A：账本损坏/误删（最常见）
@@ -99,7 +124,7 @@ schtasks /Run /TN "DSA_Ledger_Backup"             # 计划任务上下文验证�
 
 ## 四、边界与已知限制
 
-- **本脚本只做本机备份**，不外传（不把账本/凭据推到三方，符合安全边界）。抗盘坏需你另配盘/网盘同步。
+- **默认只做本机备份**，不外传；离机需显式运行 `backup_offsite.py` 到你指定的第二存储（默认排除 `.env`）。抗盘坏需你实际配置目标。
 - 备份是**只增**的（滚动删旧），恢复是覆盖式，无回滚需求。
 - 跨项目契约 `quant_research/output/paper_tracking/current_plan.json` 是**运行时生成**的
   （由 `run_paper_tracking.py`），未纳入备份——丢失时重跑管线即可再生，不属账户真源。
