@@ -1816,13 +1816,15 @@ def test_intraday_does_not_mark_close_done_on_close_failure(tmp_path, monkeypatc
     monkeypatch.setattr(mod, "event_round", lambda led, dry: [])
     monkeypatch.setattr(mod, "watchlist_round", lambda led, dry: [])
     monkeypatch.setattr(mod, "risk_round", lambda led, px, dry: [])
-    monkeypatch.setattr(mod, "notify", lambda *a, **k: False)
+    notified = []
+    monkeypatch.setattr(mod, "notify", lambda msg, **k: notified.append(msg) or False)
     monkeypatch.setattr(mod, "_TRADING_OK", True)
     monkeypatch.setattr(mod, "run_close", lambda dry: "【异常】收盘缺价 ['510300.SH']")
 
     mod.run_intraday(False)
     saved = _json.loads(p.read_text(encoding="utf-8"))
     assert saved["_control"].get("close_done") != "2026-10-22"
+    assert any(m.startswith("【异常】收盘缺价") for m in notified)
 
     monkeypatch.setattr(mod, "run_close", lambda dry: "收盘完成")
     mod.run_intraday(False)

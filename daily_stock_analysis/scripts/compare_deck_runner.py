@@ -1670,8 +1670,10 @@ def run_intraday(dry: bool) -> str:
             close_out = run_close(dry)
             out += " | " + close_out
             # 核心基准缺价的【异常】收盘不得写 close_done：后续行情恢复的轮次
-            # 还要补写当日 marks。
-            if not dry and not close_out.startswith("【异常】"):
+            # 还要补写当日 marks。顺延原因推送一次，避免再次静默失败。
+            if not dry and close_out.startswith("【异常】"):
+                notify(close_out, dedup_key=f"deck_close_error_{EX_DATE:%Y%m%d}")
+            elif not dry:
                 led2 = load_ledger()
                 led2.setdefault("_control", {})["close_done"] = done_key
                 save_ledger(led2)
