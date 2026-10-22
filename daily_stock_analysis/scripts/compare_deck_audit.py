@@ -17,13 +17,14 @@ import json
 import re
 import subprocess
 import sys
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib import request as urlrequest
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 LEDGER = PROJECT_DIR.parent / ".scratch" / "dsa-strategy-validation" / "compare_strategies.json"
 TASK_LOG = PROJECT_DIR / "logs" / "compare_deck_task.log"
+BACKUP_ROOT = PROJECT_DIR / "data" / "backups"
 CAPITAL = 12411.0
 
 results: list[dict] = []
@@ -265,7 +266,8 @@ def main() -> int:
         except Exception:
             return None
 
-    task_results = {n: _last_result(n) for n in ("DSA_Deck_Intraday", "DSA_Deck_Close")}
+    task_results = {n: _last_result(n) for n in
+                    ("DSA_Deck_Intraday", "DSA_Deck_Close", "DSA_Ledger_Backup")}
     missing_results = [n for n, v in task_results.items() if v is None]
     bad_results = [f"{n}={v}" for n, v in task_results.items() if v not in (None, 0)]
     if missing_results:
@@ -273,7 +275,39 @@ def main() -> int:
     elif bad_results:
         check("任务结果", "WARN", f"非零: {', '.join(bad_results)}")
     else:
-        check("任务结果", "PASS", "DSA_Deck_Intraday / DSA_Deck_Close 均 0")
+        check("任务结果", "PASS", "Intraday / Close / Ledger_Backup 均 0")
+
+    # 3d. 备份与收盘台账快照（数据耐久性）
+    today = datetime.now().date()
+    backup_dirs = []
+    try:
+        for p in BACKUP_ROOT.iterdir():
+            try:
+                backup_dirs.append((date.fromisoformat(p.name), p))
+            except ValueError:
+                continue
+    except OSError:
+        pass
+    if not backup_dirs:
+        check("备份", "WARN", f"无日期备份目录: {BACKUP_ROOT}")
+    else:
+        latest, _ = max(backup_dirs, key=lambda x: x[0])
+        age = (today - latest).days
+        if age <= 0:
+            check("备份", "PASS", f"今日备份 {latest}")
+        elif age <= 2:
+            check("备份", "WARN", f"最新备份 {latest}（{age} 天前）")
+        else:
+            check("备份", "FAIL", f"最新备份 {latest}（{age} 天前），超过 2 天")
+
+    snapshot = LEDGER.parent / "postclose" / f"compare_strategies.{today:%Y%m%d}.json"
+    try:
+        json.loads(snapshot.read_text(encoding="utf-8"))
+        check("收盘快照", "PASS", snapshot.name)
+    except FileNotFoundError:
+        check("收盘快照", "WARN", f"今日无快照: {snapshot.name}（审计任务 17:30 生成）")
+    except Exception as exc:
+        check("收盘快照", "FAIL", f"快照无法解析: {exc!r:.80}")
 
     # 4. 抽样净值
     samples = []
@@ -343,8 +377,8 @@ def _emit() -> None:
     # 三态结论: 有 FAIL → 异常; 核心证据任一非 PASS → 样本不足;
     # 其余 WARN 属提醒项不阻断判定。注册表/主动槽/任务结果/唤醒任务都是首次全建仓
     # 的必要证据，不能让"只成交 C/D"或任务非零结果被"正常"掩盖。
-    core = ("marks 最新", "执行日志", "抽样净值", "注册表",
-            "主动槽覆盖", "任务结果", "唤醒任务")
+    core = ("marks 最新", "执行日志", "抽样净值", "注册表", "主动槽覆盖",
+            "任务结果", "唤醒任务", "备份", "收盘快照")
     if n_fail:
         verdict = f"【异常】{n_fail} 项 FAIL"
     elif any(r["status"] != "PASS" and r["check"] in core for r in results):
