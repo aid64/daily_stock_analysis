@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [chore] 新增 Dependabot（`daily_stock_analysis`/`quant_research` pip + GitHub Actions，周更、分组、限 5 个 PR）与 CodeQL（Python `security-extended`，main push、内部 PR 与周扫；fork PR 跳过 SARIF 上传）；仅仓库自动化，无运行时改动。
 - [改进] 新增 `scripts/backup_offsite.py`：把最新每日备份同步到用户指定的第二存储，逐文件 sha256 校验并写 `OFFSITE_MANIFEST.txt`；默认保留 14 份、**默认排除 `.env`**（`--include-env` 仅用于加密目标），拒绝目标位于本机 `data/backups` 内；同步 `disaster-recovery.md` §2.1 与 `strategy-compare-deck.md` §5。补 6 条离线回归。
 - [改进] 每日备份纳入**对比盘台账**：`backup_ledger.py` 现备份 `.scratch/dsa-strategy-validation/compare_strategies.json` 及 `archive/cohort-manifest.jsonl`（如存在），`MANIFEST.txt` 记录台账大小与 sha256；`--verify` 增加台账可解析且含 `strategies`/`marks`/`_control` 的校验（干净检出缺失时不阻断账户备份）。补 3 条备份回归，同步 `disaster-recovery.md`/`strategy-compare-deck.md`。
 - [修复] 对比盘**首建仓成交闸二次取时**：`_main_inner` 未把入口捕获的会话时间暴露为全局，`run_close` 的周/月/建仓注册表与 A/B/G/H 在建仓/引擎行情预取数十秒后再次 `exchange_now()`；10-21 首次收盘轮因此只有 C/D 成交、周/月均登记 `[]`、主动槽全现金。现入口捕获 `_session_now`，`run_close` 启动即计算 `fills_ok` 并贯穿全部注册表与交易槽，不再二次取时；补入口→close 与慢行情回归。
