@@ -174,7 +174,7 @@ longbridge==0.2.74; platform_system == "Linux" and python_version < "3.12"
 
 
 
-longbridge>=4.0.5,<5; platform_system != "Linux" or python_version >= "3.12"
+longbridge>=5.2.2,<6; platform_system != "Linux" or python_version >= "3.12"
 
 
 
