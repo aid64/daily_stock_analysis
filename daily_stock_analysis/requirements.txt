@@ -190,7 +190,7 @@ tickflow>=0.1.24           # TickFlow official SDK; 0.1.24 verified for klines/g
 
 
 
-futu-api==10.8.6808        # Futu OpenAPI SDK for read-only --portfolio futu holdings import
+futu-api==10.11.7108        # Futu OpenAPI SDK for read-only --portfolio futu holdings import
 
 
 
