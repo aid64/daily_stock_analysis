@@ -126,11 +126,11 @@
 ## 5. 状态与审计
 
 - 台账：`.scratch/dsa-strategy-validation/compare_strategies.json`（原子写 + 写前 `.json.bak` 滚动备份）；每日 08:30 `DSA_Ledger_Backup` 已纳入台账与 `archive/cohort-manifest.jsonl`，`--verify` 校验三块容器；离机同步见 `docs/disaster-recovery.md` §2.1
-- 每日 17:45 `DSA_Ledger_CloseBackup`：独立全量收盘备份到 `data/backups_close/<日期>/`（DB/.env/策略/决策快照/操作单/台账），与 08:30 的 `data/backups/` 分离、保留 14 份、`--verify` 校验；不覆盖早上备份
+- 每日 17:25 `DSA_Ledger_CloseBackup`：独立全量收盘备份到 `data/backups_close/<日期>/`（DB/.env/策略/决策快照/操作单/台账），与 08:30 的 `data/backups/` 分离、保留 14 份、`--verify` 校验；不覆盖早上备份
 - 控制键 `_control`：`close_done`（收盘幂等）/ `event_scan_last`（事件扫描每半天一次；**仅扫描未返回【异常】时写键**，失败下一轮重试；键按交易所时间而非墙钟）/ `rebalance_done`（月度登记：全部成功 `"all"`，部分成功为已成功标签列表，每日撮合窗续做至齐备；非撮合时段顺延不执行）/ `week_rebalance_done`（周度同构，同周后续交易日续做）/ `bootstrap_done`（C/D 一次性建仓，`"all"` 或已成功标签列表）/ `erp_scaled`（PE 分位总闸已缩放槽登记；槽位周度/月度重建成功后清除，同轮 `erp_scale_pass` 重新应用）/ `e2_state`、`erp`、`crash_state` 等风控状态 / `_actions`（当日动作，盘中+收盘合并）
 - 执行日志：`logs/compare_deck_task.log`（start/exit + runner 输出）
 - 每日 **17:30 与 20:00**（两次）`DSA_Deck_Audit`：先生成收盘台账快照 `.scratch/dsa-strategy-validation/postclose/compare_strategies.YYYYMMDD.json`（临时文件校验后原子替换，保留最近 30 份），再只读运行 `compare_deck_audit.py`，追加 `logs/compare_deck_audit.log`（含 start/exit）；不写 live 台账。审计 FAIL 时 best-effort 推送飞书（`dedup_key=deck_audit_fail_YYYYMMDD`），不改变审计退出码；任务 `LastTaskResult` 为审计退出码。监控边界见 §13
-- 每日 17:45 `DSA_Ledger_CloseBackup`：独立全量收盘备份（见 §5），审计在 20:00 能检查到当日 `收盘备份`
+- 每日 17:25 `DSA_Ledger_CloseBackup`：独立全量收盘备份（见 §5），审计在 17:30/20:00 能检查到当日 `收盘备份`
 - 病历制：槽位停跑/清仓 → `.scratch/dsa-strategy-validation/{槽位}_postmortem.md`
 
 ## 6. 回滚
@@ -255,7 +255,7 @@ powercfg -setactive SCHEME_CURRENT
 - **N 槽不可在干净克隆复现**：驱动 `quant_research/vendor/Sequoia-X/n_slot_driver.py`（vendored 第三方仓库，~299MB）与其回填行情数据均**不入库**（`.gitignore` 已忽略 `quant_research/vendor/`）。上表 N 行的"已激活"仅对本机工作区成立；干净克隆下 `sequoia_ready` 闸为假、N 槽**条件式跳过**（不报错、不参与调仓）。复现需自行 vendored Sequoia-X 并回填行情数据。
 - **运行在线依赖**：收盘轮/撮合窗要求交易日本机在 15:00-16:13 保持运行；休眠时由 `DSA_Deck_Close`（WakeToRun）唤醒，整机关机仍无法唤醒。若 15:00:30 唤醒后网络未就绪：核心 C/D 缺价会整轮顺延且不写 `close_done`，15:02/15:22/后续轮（交易所戳仍为 15:00:00）可补成交/补写 marks；若整日不可用，当日无成交且可能有 marks 缺口，注册表续做至下一窗口。不得用历史价回填。
 - **A/B 数据 as-of 差异**：B 走 `feeds_snapshot_v*.pkl`，文件 mtime 超 7 天**或末端数据日早于上一交易日**时重建；A/G/H 走 tushare loader。B 重建后数据源仍滞后时消息标注实际末端（如 `至 2026-10-16`）。解读 A/B 排名时需知悉该差异。
-- **收盘后备份**：每日 08:30 的 `DSA_Ledger_Backup` 仍早于收盘；17:45 `DSA_Ledger_CloseBackup` 已提供独立的收盘全量备份（`data/backups_close/<日期>`，DB/.env/台账，保留 14 份），17:30/20:00 审计会检查 `收盘备份` 目录。**仍与 live 同盘、未离机**；离机目标尚未配置，抗盘坏仍需第二存储。
+- **收盘后备份**：每日 08:30 的 `DSA_Ledger_Backup` 仍早于收盘；17:25 `DSA_Ledger_CloseBackup` 已提供独立的收盘全量备份（`data/backups_close/<日期>`，DB/.env/台账，保留 14 份），17:30/20:00 审计会检查 `收盘备份` 目录。**仍与 live 同盘、未离机**；离机目标尚未配置，抗盘坏仍需第二存储。
 - **收盘快照**：17:30/20:00 审计前生成 `postclose/compare_strategies.YYYYMMDD.json`；审计要求快照与 live 台账**字节 sha 一致**且时间在 15:00 后，否则 WARN（避免盘前快照误判）。快照不是完整备份。
 - **评估窗口起点**：2026-10-22 主动槽 0/13，未形成全量建仓；60 日评估窗口应从首个主动槽实际建仓日（而不是 10-22）起算，确认前不改 `prereg`。
 - **审计监控边界**：`DSA_Deck_Audit` 每日 17:30/20:00 检查 marks/执行日志/抽样净值/注册表/主动槽/任务结果/唤醒任务，**并检查 08:30 备份、收盘备份、收盘快照（sha+15:00 时点）与 `DSA_Ledger_Backup` 结果**；审计 FAIL 会 best-effort 推送飞书（失败不改变退出码）。仍**不检查**离机目标或审计任务自身。收盘快照只含台账，不含 DB/`.env`。
