@@ -8,6 +8,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -26,13 +27,27 @@ def _ledger(marks_dates, strategies=None):
             "_control": {}}
 
 
-def _run_audit(monkeypatch, tmp_path, ledger_dict, log_text, live=None, last_result="0"):
+def _run_audit(monkeypatch, tmp_path, ledger_dict, log_text, live=None, last_result="0",
+               backup=True, snapshot=True, close_backup=True):
     led = tmp_path / "ledger.json"
     led.write_text(json.dumps(ledger_dict, ensure_ascii=False), encoding="utf-8")
     log = tmp_path / "task.log"
     log.write_text(log_text, encoding="utf-8")
     monkeypatch.setattr(mod, "LEDGER", led)
     monkeypatch.setattr(mod, "TASK_LOG", log)
+    monkeypatch.setattr(mod, "BACKUP_ROOT", tmp_path / "backups")
+    monkeypatch.setattr(mod, "CLOSE_BACKUP_ROOT", tmp_path / "backups_close")
+    if backup:
+        (tmp_path / "backups" / _today()).mkdir(parents=True)
+    if close_backup:
+        (tmp_path / "backups_close" / _today()).mkdir(parents=True)
+    if snapshot:
+        post = tmp_path / "postclose"
+        post.mkdir()
+        snap = post / f"compare_strategies.{_today().replace('-', '')}.json"
+        snap.write_text(json.dumps(ledger_dict, ensure_ascii=False), encoding="utf-8")
+        after_close = datetime.now().replace(hour=16, minute=0, second=0, microsecond=0)
+        os.utime(snap, (after_close.timestamp(), after_close.timestamp()))
     monkeypatch.setattr(mod, "tencent_live", lambda codes: dict(live or {}))
     monkeypatch.setattr(mod, "exchange_stamp", lambda: "")
     close_xml = ('<Task><RegistrationInfo><URI>DSA_Deck_Close</URI></RegistrationInfo>'
@@ -131,6 +146,20 @@ def test_audit_verdict_normal_when_all_core_pass(monkeypatch, tmp_path):
     assert _row(rows, "任务结果")["status"] == "PASS"
     assert _row(rows, "唤醒任务")["status"] == "PASS"
     assert "结论: 正常" in out
+    assert rc == 0
+
+
+def test_audit_warns_missing_backup_and_snapshot(monkeypatch, tmp_path):
+    """备份/收盘快照缺失属于核心证据缺口，不得宣称正常。"""
+    led = _ledger([_today()])
+    rc, out, rows = _run_audit(monkeypatch, tmp_path, led,
+                               f"{_today()}T09:00:00 intraday start\n{_today()}T09:00:01 intraday exit=0\n",
+                               backup=False, snapshot=False, close_backup=False)
+    assert _row(rows, "备份")["status"] == "WARN"
+    assert _row(rows, "收盘备份")["status"] == "WARN"
+    assert _row(rows, "收盘快照")["status"] == "WARN"
+    assert "样本不足" in out
+    assert "结论: 正常" not in out
     assert rc == 0
 
 

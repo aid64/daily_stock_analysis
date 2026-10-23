@@ -18,6 +18,7 @@
 | 决策快照归档 | `output/decision_snapshot/` | `/操作单 历史` 的审计留痕 |
 | 历史操作单 | `output/order_sheets/` | 回填/对比依据 |
 | 对比盘台账 | `.scratch/dsa-strategy-validation/compare_strategies.json` | cohort 真源（prereg/marks/`_control`/18 槽持仓）；`archive/cohort-manifest.jsonl`（如存在）一并备份。`ledger-seal-manifest.json` 属一次性封存证据，不在每日备份内 |
+| 收盘全量备份 | `data/backups_close/<日期>/` | 17:45 `DSA_Ledger_CloseBackup` 独立全量（DB/.env/台账等），保留 14 份；与 08:30 的 `data/backups/` 分离，不覆盖早上备份 |
 
 布局：`data/backups/<YYYY-MM-DD>/…`，每份含 `MANIFEST.txt`（备份时间/大小/源库路径；对比盘台账存在时另含 `deck_ledger_bytes` 与 `deck_ledger_sha256`）。
 `data/` 已在 `.gitignore`，备份不入库、不产生脏 diff。
@@ -125,8 +126,8 @@ py scripts/backup_offsite.py --destination E:\DSA-Backup --include-env
 ## 四、边界与已知限制
 
 - **默认只做本机备份**，不外传；离机需显式运行 `backup_offsite.py` 到你指定的第二存储（默认排除 `.env`）。抗盘坏需你实际配置目标。
-- **备份时点**：每日 08:30 的备份早于 15:00 收盘；收盘后的台账状态要到次日 08:30 才进入完整备份。首建仓/大调仓后建议手动 `py scripts/backup_ledger.py --verify`，并尽快配置离机目标；当前未注册收盘后备份任务。
-- **审计任务不检查备份**：`DSA_Deck_Audit` 只做对比盘状态审计，不检查备份新鲜度/备份任务/离机目标；备份失败需看 `logs/backup_task.log` 与任务 `LastTaskResult`。
+- **备份时点**：每日 08:30 的完整备份早于 15:00 收盘；17:45 `DSA_Ledger_CloseBackup` 另做独立收盘全量备份到 `data/backups_close/<日期>/`（DB/.env/台账，保留 14 份），不覆盖早上备份。17:30 `DSA_Deck_Audit` 另有台账快照（保留 30 份）。**这些都在本机同一磁盘，尚未离机**；抗盘坏仍需配置 `backup_offsite.py` 目标。
+- **审计检查范围**：`DSA_Deck_Audit` 会检查 08:30 备份新鲜度、当日收盘备份、收盘台账快照（与 live 台账 sha 一致且 15:00 后）和 `DSA_Ledger_Backup` 结果；但**不检查离机目标或审计任务自身**。审计 FAIL 会 best-effort 推飞书；备份失败仍需看 `logs/backup_task.log` / `logs/backup_close.log`。
 - 备份是**只增**的（滚动删旧），恢复是覆盖式，无回滚需求。
 - 跨项目契约 `quant_research/output/paper_tracking/current_plan.json` 是**运行时生成**的
   （由 `run_paper_tracking.py`），未纳入备份——丢失时重跑管线即可再生，不属账户真源。
