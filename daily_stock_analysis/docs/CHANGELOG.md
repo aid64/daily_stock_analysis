@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [改进] 审计 FAIL best-effort 飞书告警（`dedup_key=deck_audit_fail_YYYYMMDD`），不改变审计退出码；仍不检查离机副本/审计任务自身。
+- [改进] 收盘全量备份 `DSA_Ledger_CloseBackup` 每日 17:45 写入 `data/backups_close/<日期>/`（DB/.env/台账，保留 14 份，不覆盖 08:30）。
+- [改进] 收盘后台账快照与审计备份检查：`DSA_Deck_Audit` 每日 17:30/20:00 先生成 `postclose/compare_strategies.YYYYMMDD.json`（与 live sha 一致、15:00 后、保留 30 份），再只读审计；审计新增 08:30/收盘备份、收盘快照、`DSA_Ledger_Backup` 检查。
 - [改进] 对比盘收盘因核心 C/D 缺价顺延时，后续轮通过飞书推送 `【异常】收盘缺价…`（`dedup_key=deck_close_error_YYYYMMDD`），避免再次静默失败；补 run_intraday 通知回归。
 - [改进] 对比盘新增每日 **17:30 只读审计任务** `DSA_Deck_Audit`（`run_deck_audit.ps1`）：运行 `compare_deck_audit.py` 并追加 `logs/compare_deck_audit.log`（含 start/exit），不写台账、不发通知；用于无人值守时保留收盘验收证据。
 - [修复] 对比盘 **10-22 缺价事故**：15:00 轮 DNS 全断时 C/D 有持仓但无现价，旧 `revalue` 把缺价持仓排除出净值（C/D 被记成 -97.8%），且 `close_done` 仍写入导致后续轮不再补写。现核心 C/D 缺价先重拉、仍缺则整轮返回【异常】且不写 marks/注册表、不写 `close_done`；`revalue` 对非核心缺价按成本价兜底并标记 `unvalued`。补核心缺价/成本兜底/close_done 回归。
