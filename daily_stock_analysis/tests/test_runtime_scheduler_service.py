@@ -292,8 +292,15 @@ class RuntimeSchedulerServiceTestCase(unittest.TestCase):
         result = service.run_now()
 
         self.assertTrue(result["accepted"])
-        deadline = time.monotonic() + 4
-        while service.status()["last_success_at"] is None and time.monotonic() < deadline:
+        # Windows spawn cold start can exceed 4s under load; the worker's
+        # watchdog timeout is >=60s, so wait long enough for the result.
+        deadline = time.monotonic() + 30
+        # last_success_at is written by the worker before it releases the run
+        # lock; wait for both so the assertion does not race the teardown.
+        while time.monotonic() < deadline:
+            status = service.status()
+            if status["last_success_at"] is not None and not status["running"]:
+                break
             time.sleep(0.05)
         status = service.status()
         self.assertFalse(status["running"])
