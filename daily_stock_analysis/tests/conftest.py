@@ -318,6 +318,14 @@ def _restore_clean_env_at_session_start():
     os.environ.pop("ENV_FILE", None)
 
 
+_LEAK_AUDIT_KEYS = (
+    "LITELLM_MODEL",
+    "LITELLM_FALLBACK_MODELS",
+    "LLM_CHANNELS",
+    "DEEPSEEK_API_KEY",
+)
+
+
 @pytest.fixture(autouse=True)
 def _isolate_process_env():
     """每个测试恢复到"该测试开始前"的环境状态（修复跨测试污染）。
@@ -334,17 +342,17 @@ def _isolate_process_env():
     必须在类内各测试之间保持；逐测试恢复只 undo 本测试自身对环境的改动。
     collection 阶段的污染由 session 级 fixture 在首个测试前统一 undo。
     """
+    # A background thread can call Config.setup_env() between per-test
+    # snapshots and inject the real .env into os.environ. Those user keys
+    # must never be class-level fixtures; tests that need them use
+    # patch.dict/monkeypatch after this fixture starts.
+    for key in _LEAK_AUDIT_KEYS:
+        os.environ.pop(key, None)
     snapshot = dict(os.environ)
     yield
     # 泄漏审计：测试运行期间若有真实 .env 的用户配置键渗入 os.environ
     # （后台线程 setup_env 的跨线程竞态路径），立即打印并标记，随后由
     # 下方的快照恢复 undo——失败定位信息保留在输出里。
-    _LEAK_AUDIT_KEYS = (
-        "LITELLM_MODEL",
-        "LITELLM_FALLBACK_MODELS",
-        "LLM_CHANNELS",
-        "DEEPSEEK_API_KEY",
-    )
     leaked_now = {k: os.environ[k] for k in _LEAK_AUDIT_KEYS if os.environ.get(k)}
     if leaked_now:
         import warnings
