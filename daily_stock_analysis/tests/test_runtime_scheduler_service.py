@@ -455,11 +455,18 @@ class RuntimeSchedulerServiceTestCase(unittest.TestCase):
         service._analysis_timeout_seconds = lambda: 30
 
         self.assertTrue(service.run_now()["accepted"])
-        deadline = time.monotonic() + 5
-        while service.status()["last_error"] is None and time.monotonic() < deadline:
+        # Windows spawn cold start can exceed 5s under full-suite load (same
+        # class as the run-now case above). Wait for the worker to publish the
+        # result and release the run lock before asserting.
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            status = service.status()
+            if status["last_error"] is not None and not status["running"]:
+                break
             time.sleep(0.05)
 
-        self.assertTrue(service.status()["last_error"].startswith("x"))
+        status = service.status()
+        self.assertTrue(status["last_error"].startswith("x"))
 
     @unittest.skipUnless(os.name == "posix", "POSIX process-group regression")
     def test_worker_exit_without_result_terminates_remaining_process_group(self) -> None:

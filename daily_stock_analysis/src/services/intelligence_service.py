@@ -569,7 +569,12 @@ class IntelligenceService:
             socket.getaddrinfo = guarded_getaddrinfo
             try:
                 request_kwargs = dict(kwargs)
-                request_kwargs.setdefault("proxies", _DISABLE_REQUEST_PROXIES)
+                # requests merges environment proxies into the mapping it is
+                # given, in place; pass a copy so the module constant stays
+                # pristine across calls and threads.
+                request_kwargs.setdefault(
+                    "proxies", dict(_DISABLE_REQUEST_PROXIES)
+                )
                 return requests.get(raw_url, **request_kwargs)
             finally:
                 socket.getaddrinfo = original_getaddrinfo

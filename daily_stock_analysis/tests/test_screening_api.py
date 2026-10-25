@@ -49,7 +49,9 @@ def _raise_screening_unavailable() -> None:
 
 def _sleeping_constituent_source(*, symbol: str) -> pd.DataFrame:
     del symbol
-    time.sleep(5)
+    # Long enough that a correct timeout path returns far earlier, even when
+    # Windows spawn cold start is slow under full-suite load.
+    time.sleep(30)
     return pd.DataFrame()
 
 
@@ -2073,7 +2075,9 @@ class ScreeningOpportunitiesApiTestCase(unittest.TestCase):
             with self.assertRaises(TimeoutError):
                 provider._fetch_eastmoney_constituents("金融", source="concept")
 
-        self.assertLess(time.monotonic() - started, 1.0)
+        # The source sleeps 30s; returning within 10s still proves the timeout
+        # path did not wait for it, while allowing for spawn/cleanup latency.
+        self.assertLess(time.monotonic() - started, 10.0)
         self.assertFalse(any(
             process.name == "akshare-screening.stock_board_concept_cons_em"
             for process in multiprocessing.active_children()
