@@ -8,6 +8,9 @@ updates:
       time: "03:00"
       timezone: "Asia/Shanghai"
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       dsa-python-deps:
         patterns: ["*"]
@@ -20,7 +23,8 @@ updates:
       day: "monday"
       time: "03:10"
       timezone: "Asia/Shanghai"
-    open-pull-requests-limit: 5
+    # quant_research is under a feature freeze until ~2026-11-08.
+    open-pull-requests-limit: 0
     groups:
       quant-python-deps:
         patterns: ["*"]
@@ -34,6 +38,9 @@ updates:
       time: "03:30"
       timezone: "Asia/Shanghai"
     open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       dsa-web-npm:
         patterns: ["*"]
@@ -47,6 +54,9 @@ updates:
       time: "03:40"
       timezone: "Asia/Shanghai"
     open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       dsa-desktop-npm:
         patterns: ["*"]
@@ -60,6 +70,13 @@ updates:
       time: "03:50"
       timezone: "Asia/Shanghai"
     open-pull-requests-limit: 3
+    # Base-image minor/major jumps need a full packaging validation; only
+    # patch-level tags are proposed automatically.
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-major"
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -69,6 +86,9 @@ updates:
       time: "03:20"
       timezone: "Asia/Shanghai"
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       github-actions:
         patterns: ["*"]
