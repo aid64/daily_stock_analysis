@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [改进] 每日分析 GitHub Actions 失败时，若配置 `FEISHU_WEBHOOK_URL` 则推送失败告警（含 run 链接）；未配置时仅记录日志，不改变任务结论。
+- [改进] `WEBUI_HOST` 为非 loopback 地址且 `ADMIN_AUTH_ENABLED=false` 时，启动日志明确告警 API/设置页可被其他机器免认证访问。
+- [测试] API spec 静态文件与运行时 OpenAPI 增加全量 path/method/schema 集合一致性回归。
 - [改进] 审计 FAIL best-effort 飞书告警（`dedup_key=deck_audit_fail_YYYYMMDD`），不改变审计退出码；仍不检查离机副本/审计任务自身。
 - [改进] 收盘全量备份 `DSA_Ledger_CloseBackup` 每日 17:25 写入 `data/backups_close/<日期>/`（DB/.env/台账，保留 14 份，不覆盖 08:30）。
 - [改进] 收盘后台账快照与审计备份检查：`DSA_Deck_Audit` 每日 17:30/20:00 先生成 `postclose/compare_strategies.YYYYMMDD.json`（与 live sha 一致、15:00 后、保留 30 份），再只读审计；审计新增 08:30/收盘备份、收盘快照、`DSA_Ledger_Backup` 检查。
