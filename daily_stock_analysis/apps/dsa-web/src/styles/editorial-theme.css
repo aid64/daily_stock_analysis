@@ -631,3 +631,101 @@ textarea,
     top: 40px; /* 32px 标题栏 + 8px 间距 */
   }
 }
+
+/* ── 登录页主题令牌 ────────────────────────────────────────────────────── */
+/* LoginPage.tsx / Input.tsx 使用的专属令牌，映射到 Editorial Finance 调色板。 */
+:root {
+  --login-bg-main: hsl(var(--ed-bg));
+  --login-bg-card: hsl(var(--ed-elevated));
+  --login-border-card: hsl(var(--ed-border));
+  --login-text-primary: hsl(var(--ed-text));
+  --login-text-secondary: hsl(var(--ed-text-secondary));
+  --login-text-muted: hsl(var(--ed-text-tertiary));
+  --login-label-text: hsl(var(--ed-text));
+  --login-hint-text: hsl(var(--ed-text-secondary));
+  --login-accent-text: hsl(var(--ed-accent-text));
+  --login-accent-soft: hsl(var(--ed-accent-soft));
+  --login-accent-glow: hsl(var(--ed-accent) / 0.18);
+  --login-accent-border: hsl(var(--ed-accent) / 0.3);
+  --login-grid-line: hsl(var(--ed-border) / 0.3);
+  --login-grid-mask: linear-gradient(to bottom, transparent, black);
+  --login-brand-start: hsl(var(--ed-accent));
+  --login-brand-end: hsl(var(--ed-accent) / 0.8);
+  --login-brand-button-start: hsl(var(--ed-accent));
+  --login-brand-button-end: hsl(var(--ed-accent) / 0.85);
+  --login-brand-button-start-hover: hsl(var(--ed-accent) / 0.9);
+  --login-brand-button-end-hover: hsl(var(--ed-accent) / 0.75);
+  --login-button-text: hsl(var(--ed-accent-text));
+  --login-error-bg: hsl(var(--ed-danger-soft));
+  --login-error-border: hsl(var(--ed-danger) / 0.3);
+  --login-error-text: hsl(var(--ed-danger-text));
+  --login-input-surface: hsl(var(--ed-elevated));
+  --login-input-border: hsl(var(--ed-border));
+  --login-input-border-hover: hsl(var(--ed-border-hover));
+  --login-input-border-focus: hsl(var(--ed-accent) / 0.5);
+  --login-input-focus-ring: hsl(var(--ed-accent) / 0.15);
+  --login-input-text: hsl(var(--ed-text));
+  --login-input-placeholder: hsl(var(--ed-text-tertiary));
+  --login-input-caret: hsl(var(--ed-accent));
+  --login-input-fill: hsl(var(--ed-text));
+  --login-input-shadow: none;
+  --login-input-icon: hsl(var(--ed-text-secondary));
+  --login-input-toggle-bg: hsl(var(--ed-surface));
+  --login-input-toggle-border: hsl(var(--ed-border));
+  --login-input-toggle-text: hsl(var(--ed-text-secondary));
+  --login-input-toggle-border-hover: hsl(var(--ed-border-hover));
+  --login-input-toggle-bg-hover: hsl(var(--ed-border) / 0.4);
+  --login-input-toggle-text-hover: hsl(var(--ed-text));
+  --login-input-toggle-ring: hsl(var(--ed-accent) / 0.2);
+  --login-input-toggle-active-bg: hsl(var(--ed-accent-soft));
+  --login-input-toggle-active-border: hsl(var(--ed-accent) / 0.4);
+  --login-input-toggle-active-text: hsl(var(--ed-accent-text));
+}
+
+.dark {
+  --login-bg-main: hsl(var(--ed-bg));
+  --login-bg-card: hsl(var(--ed-elevated));
+  --login-border-card: hsl(var(--ed-border));
+  --login-text-primary: hsl(var(--ed-text));
+  --login-text-secondary: hsl(var(--ed-text-secondary));
+  --login-text-muted: hsl(var(--ed-text-tertiary));
+  --login-label-text: hsl(var(--ed-text));
+  --login-hint-text: hsl(var(--ed-text-secondary));
+  --login-accent-text: hsl(var(--ed-accent-text));
+  --login-accent-soft: hsl(var(--ed-accent-soft));
+  --login-accent-glow: hsl(var(--ed-accent) / 0.22);
+  --login-accent-border: hsl(var(--ed-accent) / 0.3);
+  --login-grid-line: hsl(var(--ed-border) / 0.25);
+  --login-grid-mask: linear-gradient(to bottom, transparent, black);
+  --login-brand-start: hsl(var(--ed-accent));
+  --login-brand-end: hsl(var(--ed-accent) / 0.8);
+  --login-brand-button-start: hsl(var(--ed-accent));
+  --login-brand-button-end: hsl(var(--ed-accent) / 0.85);
+  --login-brand-button-start-hover: hsl(var(--ed-accent) / 0.9);
+  --login-brand-button-end-hover: hsl(var(--ed-accent) / 0.75);
+  --login-button-text: hsl(var(--ed-accent-text));
+  --login-error-bg: hsl(var(--ed-danger-soft));
+  --login-error-border: hsl(var(--ed-danger) / 0.3);
+  --login-error-text: hsl(var(--ed-danger-text));
+  --login-input-surface: hsl(var(--ed-elevated));
+  --login-input-border: hsl(var(--ed-border));
+  --login-input-border-hover: hsl(var(--ed-border-hover));
+  --login-input-border-focus: hsl(var(--ed-accent) / 0.5);
+  --login-input-focus-ring: hsl(var(--ed-accent) / 0.15);
+  --login-input-text: hsl(var(--ed-text));
+  --login-input-placeholder: hsl(var(--ed-text-tertiary));
+  --login-input-caret: hsl(var(--ed-accent));
+  --login-input-fill: hsl(var(--ed-text));
+  --login-input-shadow: none;
+  --login-input-icon: hsl(var(--ed-text-secondary));
+  --login-input-toggle-bg: hsl(var(--ed-surface));
+  --login-input-toggle-border: hsl(var(--ed-border));
+  --login-input-toggle-text: hsl(var(--ed-text-secondary));
+  --login-input-toggle-border-hover: hsl(var(--ed-border-hover));
+  --login-input-toggle-bg-hover: hsl(var(--ed-border) / 0.4);
+  --login-input-toggle-text-hover: hsl(var(--ed-text));
+  --login-input-toggle-ring: hsl(var(--ed-accent) / 0.2);
+  --login-input-toggle-active-bg: hsl(var(--ed-accent-soft));
+  --login-input-toggle-active-border: hsl(var(--ed-accent) / 0.4);
+  --login-input-toggle-active-text: hsl(var(--ed-accent-text));
+}

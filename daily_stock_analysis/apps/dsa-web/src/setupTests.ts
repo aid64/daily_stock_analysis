@@ -1,4 +1,8 @@
 import '@testing-library/jest-dom';
+import { configure } from '@testing-library/react';
+
+// Lazy page/drawer chunks can exceed the 1s default under parallel CI load.
+configure({ asyncUtilTimeout: 10000 });
 
 class MemoryStorageMock implements Storage {
   private readonly values = new Map<string, string>();

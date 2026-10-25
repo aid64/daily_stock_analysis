@@ -8,8 +8,9 @@ describe('index.html theme bootstrap', () => {
   it('preloads dark mode before React mounts and respects stored theme values', () => {
     const indexHtml = readFileSync(resolve(__dirname, '..', 'index.html'), 'utf8');
 
-    expect(indexHtml).toContain("const storageKey = 'theme'");
-    expect(indexHtml).toContain("const theme = storedTheme === 'light' || storedTheme === 'dark' ? storedTheme : 'dark';");
+    expect(indexHtml).toContain("localStorage.getItem('dsa-theme')");
+    expect(indexHtml).toContain("stored === 'light' || stored === 'dark'");
+    expect(indexHtml).toContain("window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'");
     expect(indexHtml).toContain("root.classList.remove('light', 'dark');");
     expect(indexHtml).toContain('root.classList.add(theme);');
     expect(indexHtml).toContain('root.style.colorScheme = theme;');

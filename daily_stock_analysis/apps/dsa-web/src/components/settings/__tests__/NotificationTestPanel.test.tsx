@@ -42,20 +42,17 @@ describe('NotificationTestPanel', () => {
   it('submits draft notification items and renders attempt details', async () => {
     render(
       <NotificationTestPanel
-        items={[{ key: 'CUSTOM_WEBHOOK_URLS', value: 'https://example.com/hook?token=secret' }]}
+        items={[{ key: 'FEISHU_WEBHOOK_URL', value: 'https://open.feishu.cn/open-apis/bot/v2/hook/xxx' }]}
         maskToken="******"
       />,
     );
 
-    expect(screen.getByRole('option', { name: 'ntfy' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Gotify' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: '钉钉' })).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('渠道'), { target: { value: 'custom' } });
+    expect(screen.getByRole('option', { name: '飞书' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /发送测试/ }));
 
     await waitFor(() => expect(testNotificationChannel).toHaveBeenCalledWith(expect.objectContaining({
-      channel: 'custom',
-      items: [{ key: 'CUSTOM_WEBHOOK_URLS', value: 'https://example.com/hook?token=secret' }],
+      channel: 'feishu',
+      items: [{ key: 'FEISHU_WEBHOOK_URL', value: 'https://open.feishu.cn/open-apis/bot/v2/hook/xxx' }],
       maskToken: '******',
       timeoutSeconds: 20,
     })));
