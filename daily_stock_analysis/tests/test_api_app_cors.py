@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.app import create_app
+from api.app import _warn_if_public_bind_without_auth, create_app
 
 
 class AppCorsConfigTestCase(unittest.TestCase):
@@ -43,6 +43,31 @@ class AppCorsConfigTestCase(unittest.TestCase):
              patch("src.auth.is_auth_enabled", return_value=True), \
              patch("api.app.logger.warning") as warning:
             self._build_app()
+
+        warning.assert_not_called()
+
+    def test_public_bind_warns_when_auth_is_disabled(self):
+        with patch("src.auth.is_auth_enabled", return_value=False), \
+             patch("api.app.logger.warning") as warning:
+            _warn_if_public_bind_without_auth("0.0.0.0")
+
+        warning.assert_called_once()
+        self.assertIn("WEBUI_HOST=%s", warning.call_args.args[0])
+        self.assertEqual(warning.call_args.args[1], "0.0.0.0")
+        self.assertIn("ADMIN_AUTH_ENABLED is", warning.call_args.args[0])
+
+    def test_loopback_bind_does_not_warn_when_auth_is_disabled(self):
+        for host in ("127.0.0.1", "localhost", "::1", ""):
+            with self.subTest(host=host), \
+                 patch("src.auth.is_auth_enabled", return_value=False), \
+                 patch("api.app.logger.warning") as warning:
+                _warn_if_public_bind_without_auth(host)
+            warning.assert_not_called()
+
+    def test_public_bind_does_not_warn_when_auth_is_enabled(self):
+        with patch("src.auth.is_auth_enabled", return_value=True), \
+             patch("api.app.logger.warning") as warning:
+            _warn_if_public_bind_without_auth("0.0.0.0")
 
         warning.assert_not_called()
 

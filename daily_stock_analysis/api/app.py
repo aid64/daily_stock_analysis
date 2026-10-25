@@ -166,6 +166,35 @@ def _warn_if_open_cors_without_auth() -> None:
         "on trusted local networks or enable admin authentication."
     )
 
+
+def _is_loopback_bind(host: str) -> bool:
+    normalized = (host or "").strip().lower().strip("[]")
+    if normalized in {"", "localhost", "::1", "0:0:0:0:0:0:0:1"}:
+        return True
+    return normalized.startswith("127.")
+
+
+def _warn_if_public_bind_without_auth(host: Optional[str] = None) -> None:
+    from src.auth import is_auth_enabled
+
+    if is_auth_enabled():
+        return
+    if host is None:
+        try:
+            from src.config import get_config
+
+            host = str(getattr(get_config(), "webui_host", "") or "")
+        except Exception:  # pragma: no cover - config load failure is handled elsewhere
+            return
+    if _is_loopback_bind(host):
+        return
+    logger.warning(
+        "WEBUI_HOST=%s is not a loopback address while ADMIN_AUTH_ENABLED is "
+        "false. The API and settings pages are reachable from other machines "
+        "without authentication; bind to 127.0.0.1 or enable admin auth.",
+        host or "?",
+    )
+
 from api.v1 import api_v1_router
 from api.middlewares.auth import add_auth_middleware
 from api.middlewares.error_handler import add_error_handlers
@@ -363,6 +392,7 @@ def create_app(static_dir: Optional[Path] = None) -> FastAPI:
         version="1.0.0",
         lifespan=app_lifespan,
     )
+    _warn_if_public_bind_without_auth()
     
     # ============================================================
     # CORS 配置

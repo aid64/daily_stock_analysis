@@ -271,6 +271,29 @@ def test_decision_signal_static_api_spec_matches_runtime_paths() -> None:
     assert status_schema["enum"] == ["active", "expired", "invalidated", "closed", "archived"]
 
 
+def test_static_api_spec_covers_every_runtime_operation_and_schema() -> None:
+    static_spec_path = Path(__file__).resolve().parents[1] / "docs" / "architecture" / "api_spec.json"
+    static_spec = json.loads(static_spec_path.read_text(encoding="utf-8"))
+    runtime_spec = create_app().openapi()
+    methods = {"get", "post", "put", "delete", "patch", "options", "head", "trace"}
+
+    static_operations = {
+        (path, method)
+        for path, operations in static_spec["paths"].items()
+        for method in operations
+        if method in methods
+    }
+    runtime_operations = {
+        (path, method)
+        for path, operations in runtime_spec["paths"].items()
+        for method in operations
+        if method in methods
+    }
+
+    assert static_operations == runtime_operations
+    assert set(static_spec["components"]["schemas"]) == set(runtime_spec["components"]["schemas"])
+
+
 def test_v1_prefix_is_applied_at_app_mount_level() -> None:
     assert api_v1_router.prefix == ""
 
