@@ -304,6 +304,86 @@ os.environ["ENV_FILE"] = str(_SESSION_ENV_FILE)
 _ENV_CLEAN_BASELINE = dict(os.environ)
 
 
+def _install_repo_dotenv_guard() -> None:
+    """Keep the repository's real .env out of the test process.
+
+    A surviving background worker can call Config.setup_env() while a test
+    has temporarily removed ENV_FILE. Loading the repository .env then
+    injects real user config and a live database path into the process.
+    Tests should behave like CI, where the repository .env does not exist.
+    Explicit ENV_FILE paths are still loaded normally.
+    """
+    try:
+        import src.config as config_module
+    except Exception:  # pragma: no cover - config import failure is handled elsewhere
+        return
+
+    repo_env = (Path(__file__).resolve().parents[1] / ".env").resolve()
+    original_load_dotenv = config_module.load_dotenv
+    original_dotenv_values = config_module.dotenv_values
+
+    def _is_repo_env(path) -> bool:
+        if path is None:
+            return False
+        try:
+            return Path(path).resolve() == repo_env
+        except (OSError, TypeError, ValueError):
+            return False
+
+    def guarded_load_dotenv(*args, **kwargs):
+        dotenv_path = kwargs.get("dotenv_path")
+        if dotenv_path is None and args:
+            dotenv_path = args[0]
+        if _is_repo_env(dotenv_path):
+            return False
+        return original_load_dotenv(*args, **kwargs)
+
+    def guarded_dotenv_values(*args, **kwargs):
+        dotenv_path = kwargs.get("dotenv_path")
+        if dotenv_path is None and args:
+            dotenv_path = args[0]
+        if _is_repo_env(dotenv_path):
+            return {}
+        return original_dotenv_values(*args, **kwargs)
+
+    config_module.load_dotenv = guarded_load_dotenv
+    config_module.dotenv_values = guarded_dotenv_values
+
+    try:
+        from src.services.screening import config as screening_config
+    except Exception:  # pragma: no cover - optional module import
+        screening_config = None
+    if screening_config is not None:
+        original_read_env_values = screening_config._read_env_file_values
+
+        def guarded_read_env_values(path):
+            if _is_repo_env(path):
+                return {}
+            return original_read_env_values(path)
+
+        screening_config._read_env_file_values = guarded_read_env_values
+
+    try:
+        import main as main_module
+    except Exception:  # pragma: no cover - main import failure is handled elsewhere
+        main_module = None
+    if main_module is not None:
+        original_main_dotenv_values = main_module.dotenv_values
+
+        def guarded_main_dotenv_values(*args, **kwargs):
+            dotenv_path = kwargs.get("dotenv_path")
+            if dotenv_path is None and args:
+                dotenv_path = args[0]
+            if _is_repo_env(dotenv_path):
+                return {}
+            return original_main_dotenv_values(*args, **kwargs)
+
+        main_module.dotenv_values = guarded_main_dotenv_values
+
+
+_install_repo_dotenv_guard()
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _restore_clean_env_at_session_start():
     """会话开始（首个测试前）把 os.environ 恢复到干净基线（含默认
