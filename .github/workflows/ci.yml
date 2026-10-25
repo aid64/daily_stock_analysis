@@ -322,3 +322,8 @@ jobs:
         run: npm run lint
       - name: 🏗️ Build
         run: npm run build
+      # The suite currently has known stale/failing specs. Run it so the debt
+      # stays visible and measurable, but do not block merges until it is green.
+      - name: 🧪 Frontend unit tests (non-blocking)
+        continue-on-error: true
+        run: npm test

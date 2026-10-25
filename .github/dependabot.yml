@@ -26,6 +26,41 @@ updates:
         patterns: ["*"]
         update-types: ["minor", "patch"]
 
+  - package-ecosystem: "npm"
+    directory: "/daily_stock_analysis/apps/dsa-web"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "03:30"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 3
+    groups:
+      dsa-web-npm:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "npm"
+    directory: "/daily_stock_analysis/apps/dsa-desktop"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "03:40"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 3
+    groups:
+      dsa-desktop-npm:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "docker"
+    directory: "/daily_stock_analysis/docker"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "03:50"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 3
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

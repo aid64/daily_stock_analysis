@@ -19,11 +19,15 @@ concurrency:
 
 jobs:
   analyze:
-    name: Analyze Python
+    name: Analyze ${{ matrix.language }}
     # Fork PRs get a read-only token and cannot upload SARIF; skip those.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, javascript-typescript]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -31,7 +35,7 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
-          languages: python
+          languages: ${{ matrix.language }}
           queries: security-extended
 
       - name: Analyze
