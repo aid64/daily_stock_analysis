@@ -79,8 +79,8 @@ This document compiles common issues encountered by users and their solutions.
 2. **Secrets** (click `New repository secret`): Store sensitive information
    - `GEMINI_API_KEY`
    - `OPENAI_API_KEY`
-   - `TELEGRAM_BOT_TOKEN`
-   - Various Webhook URLs
+   - `FEISHU_APP_SECRET`
+   - `FEISHU_WEBHOOK_URL`
 3. **Variables** (click `Variables` tab): Store non-sensitive configuration
    - `STOCK_LIST`
    - `GEMINI_MODEL`
@@ -155,16 +155,13 @@ First confirm whether `LITELLM_CONFIG` or `LLM_CHANNELS` is active, because eith
 
 **Symptom**: Analysis succeeded but no notification received, log shows 400 error or `Message too long`
 
-**Cause**: Different platforms have different message length limits:
-- WeChat Work: 4KB
-- Feishu: 20KB
-- DingTalk: 20KB
+**Cause**: Feishu limits a single message to roughly 20KB (Feishu is the only supported channel).
 
 **Solution**:
-1. **Auto-chunking**: Latest version implements automatic long message splitting
+1. **Auto-chunking**: the notification service splits messages using `FEISHU_MAX_BYTES`
 2. **Single stock push mode**: Set `SINGLE_STOCK_NOTIFY=true`, push immediately after each stock analysis
 3. **Brief report**: Set `REPORT_TYPE=simple` for simplified format
-4. **Local file fallback**: Even with no notification channel configured, `SINGLE_STOCK_NOTIFY=true` still saves each stock report to `reports/report_YYYYMMDD_<stock_code>.md`
+4. **Local file fallback**: Even with no Feishu channel configured, `SINGLE_STOCK_NOTIFY=true` still saves each stock report to `reports/report_YYYYMMDD_<stock_code>.md`
 
 ---
 
@@ -178,29 +175,24 @@ First confirm whether `LITELLM_CONFIG` or `LLM_CHANNELS` is active, because eith
 **Current behavior**:
 1. CLI-triggered analysis now logs the exact failure reason for these cases
 2. Standalone non-`--serve` runs now return a non-zero exit code so workflows do not treat “no report generated” as success
-3. In single-stock push mode, local Markdown report saving still happens even when notifications are not configured
+3. In single-stock push mode, local Markdown report saving still happens even when Feishu is not configured
 
-### Q9: Not receiving Telegram push messages?
+### Q9: Not receiving Feishu push messages?
 
 **Solution**:
-1. Confirm both `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are configured
-2. How to get Chat ID:
-   - Send any message to the Bot
-   - Visit `https://api.telegram.org/bot<TOKEN>/getUpdates`
-   - Find `chat.id` in the returned JSON
-3. Ensure Bot has been added to target group (if group chat)
-4. When running locally, need to be able to access Telegram API (may need proxy)
+1. Configure either the App Bot (`FEISHU_APP_ID` / `FEISHU_APP_SECRET` / `FEISHU_CHAT_ID`) or the bot webhook (`FEISHU_WEBHOOK_URL`)
+2. For the App Bot, add the bot to the target group and verify `FEISHU_CHAT_ID`
+3. Check the Feishu response code in logs; see [Feishu handoff](feishu-handoff.md) for signing and permission issues
+4. For Stream mode, verify the long connection is alive (`feishu_stream_alive=true` in status)
 
 ---
 
-### Q10: WeChat Work Markdown format not displaying correctly?
+### Q10: Feishu card content is truncated or malformed?
 
 **Solution**:
-1. WeChat Work has limited Markdown support, try setting:
-   ```bash
-   WECHAT_MSG_TYPE=text
-   ```
-2. This will send plain text format messages
+1. A single Feishu message is limited to roughly 20KB; the service splits messages using `FEISHU_MAX_BYTES`
+2. Use `REPORT_TYPE=simple` if the report is too long
+3. Check the `msg_type` fallback records in logs (interactive → text) when card rendering fails
 
 ---
 

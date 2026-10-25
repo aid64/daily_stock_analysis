@@ -147,12 +147,13 @@ python main.py --schedule
 nohup python main.py --schedule > /dev/null 2>&1 &
 
 # 启动 Web 管理界面（云服务器需先在 .env 中设置 WEBUI_HOST=0.0.0.0）
-python main.py --webui-only
+python main.py --serve-only
 
 # 启动 Web 界面（启动时执行一次分析；需每日定时请加 --schedule 或设 SCHEDULE_ENABLED=true）
-python main.py --webui
+python main.py --serve
 ```
 
+> 公网暴露前请设置 `ADMIN_AUTH_ENABLED=true`，否则 API/设置页无需登录即可访问。
 > 不知道怎么访问？→ [云服务器 Web 界面访问指南](deploy-webui-cloud.md)
 
 ---
@@ -215,7 +216,7 @@ journalctl -u stock-analyzer -f
 |--------|------|----------|
 | `ANSPIRE_API_KEYS` / `AIHUBMIX_KEY` / `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | AI 模型至少配置一个；推荐优先 Anspire 或 AIHubMix | 对应服务商控制台 |
 | `STOCK_LIST` | 自选股列表 | 逗号分隔的股票代码 |
-| 通知渠道 | 至少配置一个，如企业微信、飞书、Telegram 或邮件 | 对应通知平台 |
+| 通知渠道 | 飞书（当前唯一支持；App Bot 或群机器人 Webhook 二选一） | 飞书开放平台 |
 
 ### 可选配置项
 
@@ -348,7 +349,7 @@ deploy:
   npm run build
   cd ../..
   # 启动服务
-  python main.py --webui-only
+  python main.py --serve-only
   ```
 
 **验证**：用浏览器开发者工具（F12 → Network）检查是否有 `/assets/index-*.js` 和 `/assets/index-*.css` 的 404 错误；如有，说明资源缺失，按上述步骤重新构建即可。
@@ -420,15 +421,10 @@ git push -u origin main
 | `ANTHROPIC_API_KEY` | Anthropic API Key | 可选 |
 | `GEMINI_API_KEY` | Gemini AI API Key | 可选 |
 | `OPENAI_API_KEY` | OpenAI 兼容 API Key | 可选 |
-| `WECHAT_WEBHOOK_URL` | 企业微信机器人 Webhook | 可选* |
-| `FEISHU_WEBHOOK_URL` | 飞书机器人 Webhook | 可选* |
-| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token | 可选* |
-| `TELEGRAM_CHAT_ID` | Telegram Chat ID | 可选* |
-| `TELEGRAM_MESSAGE_THREAD_ID` | Telegram Topic ID | 可选* |
-| `EMAIL_SENDER` | 发件人邮箱 | 可选* |
-| `EMAIL_PASSWORD` | 邮箱授权码 | 可选* |
-| `SERVERCHAN3_SENDKEY` | Server酱³ Sendkey | 可选* |
-| `CUSTOM_WEBHOOK_URLS` | 自定义 Webhook（多个逗号分隔） | 可选* |
+| `FEISHU_APP_ID` | 飞书 App Bot App ID | 推荐 |
+| `FEISHU_APP_SECRET` | 飞书 App Bot App Secret | 推荐 |
+| `FEISHU_CHAT_ID` | 飞书接收群 Chat ID | 推荐 |
+| `FEISHU_WEBHOOK_URL` | 飞书群机器人 Webhook（与 App Bot 二选一） | 可选* |
 | `STOCK_LIST` | 自选股列表，如 `600519,300750` | ✅ |
 | `SERPAPI_API_KEYS` | SerpAPI Key | 推荐 |
 | `TAVILY_API_KEYS` | Tavily 搜索 API Key | 可选 |

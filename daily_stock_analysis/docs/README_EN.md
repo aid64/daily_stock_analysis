@@ -16,7 +16,7 @@
 
 **AI-powered stock analysis system for A-shares / Hong Kong / US / Japanese / Korean / Taiwan stocks**
 
-Analyze your watchlist daily -> generate a decision dashboard -> push to Telegram / Discord / Slack / Email / WeChat Work / Feishu.
+Analyze your watchlist daily -> generate a decision dashboard -> push to Feishu.
 
 [**Product Preview**](#-product-preview) · [**Key Features**](#-key-features) · [**Quick Start**](#-quick-start) · [**Sample Output**](#-sample-output) · [**Documentation Index**](./INDEX_EN.md) · [**Full Guide**](./full-guide_EN.md)
 
@@ -48,7 +48,7 @@ English | [简体中文](../../README.md) | [繁體中文](README_CHT.md)
 | Web / desktop workspace | Manual analysis, task progress, history, full Markdown reports, backtest, portfolio, settings, and light/dark themes |
 | Agent strategy chat | Multi-turn Q&A with 15 built-in strategies across Web/Bot/API |
 | Smart import & autocomplete | Image, CSV/Excel, clipboard import; code/name/pinyin/alias autocomplete |
-| Automation & notifications | GitHub Actions, Docker, local scheduler, FastAPI service, and WeChat Work / Feishu / Telegram / Discord / Slack / Email delivery |
+| Automation & notifications | GitHub Actions, Docker, local scheduler, FastAPI service, and Feishu delivery |
 
 > Detailed fields, fundamental P0 timeout semantics, trading rules, data-source priority, Web/API behavior, and troubleshooting live in the [Full Guide](./full-guide_EN.md).
 
@@ -92,18 +92,14 @@ Start with one provider and one API key. For multi-model routing, image recognit
 
 > Ollama is better suited for local or Docker deployment. GitHub Actions is usually smoother with a cloud API.
 
-**Notification channels (configure at least one)**
+**Notification (Feishu only)**
 
 | Secret Name | Description |
 |-------------|-------------|
-| `WECHAT_WEBHOOK_URL` | WeChat Work bot |
-| `FEISHU_WEBHOOK_URL` | Feishu bot |
-| `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` | Telegram |
-| `DISCORD_WEBHOOK_URL` | Discord webhook |
-| `SLACK_BOT_TOKEN` + `SLACK_CHANNEL_ID` | Slack bot |
-| `EMAIL_SENDER` + `EMAIL_PASSWORD` | Email push |
+| `FEISHU_APP_ID` + `FEISHU_APP_SECRET` + `FEISHU_CHAT_ID` | Feishu App Bot (recommended) |
+| `FEISHU_WEBHOOK_URL` | Feishu bot webhook (alternative to App Bot) |
 
-More channels, signatures, email groups, and Markdown-to-image settings are in [Notification Configuration](./full-guide_EN.md#notification-channel-configuration).
+Feishu setup, signatures, and troubleshooting are in [Feishu handoff](feishu-handoff.md).
 
 **Watchlist (required)**
 
@@ -226,8 +222,8 @@ Full environment variables, model routing, notification channels, data-source pr
 The Web workspace supports settings, task monitoring, manual analysis, history reports, full Markdown reports, Agent strategy chat, backtest, portfolio management, smart import, and light/dark themes.
 
 ```bash
-python main.py --webui
-python main.py --webui-only
+python main.py --serve
+python main.py --serve-only
 ```
 
 Visit `http://127.0.0.1:8000`. Authentication, smart import, autocomplete, report copying, and cloud-server access are documented in [Local WebUI Management](./full-guide_EN.md#local-webui-management-interface).
