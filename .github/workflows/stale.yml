@@ -21,7 +21,7 @@ jobs:
     
     steps:
       - name: 🏷️ 标记并关闭过期内容
-        uses: actions/stale@v10
+        uses: actions/stale@v11
         with:
           # ===== Issue 配置 =====
           days-before-issue-stale: 7
