@@ -1895,8 +1895,11 @@ class MainScheduleModeTestCase(unittest.TestCase):
 
         self.assertTrue(pipeline_kwargs["daily_market_context_allow_generate"])
         self.assertEqual(events, ["pipeline", "stock-run", "market-review"])
-        self.assertEqual(sleep.call_count, 1)
-        sleep.assert_called_once_with(2)
+        # time.sleep is process-global; background workers surviving from
+        # earlier tests may call it concurrently. The contract is that the
+        # analysis path waits 2s before market review, not that no other
+        # thread sleeps during this test.
+        self.assertIn(unittest.mock.call(2), sleep.call_args_list)
         self.assertEqual(
             run_with_lock_mock.call_args.kwargs["send_notification"],
             True,

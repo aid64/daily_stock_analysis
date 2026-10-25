@@ -265,6 +265,30 @@ class IntelligenceServiceTestCase(unittest.TestCase):
         self.assertNotIn("token=secret", failures[0]["error"])
         self.assertNotIn("secret", failures[0]["error"])
 
+    def test_fetch_does_not_share_mutable_proxy_map_with_requests(self) -> None:
+        source = self.service.create_source({
+            "name": "proxy-map-feed",
+            "url": "https://feeds.example.com/rss.xml",
+            "scope_type": "market",
+        })
+        observed = []
+
+        def mutating_get(_url, **kwargs):
+            observed.append(dict(kwargs["proxies"]))
+            # requests.merge_environment_settings mutates the mapping it is
+            # given in place when NO_PROXY is set.
+            kwargs["proxies"]["no"] = "127.0.0.1,localhost"
+            return self._mock_response()
+
+        with patch.object(self.service, "_validate_url"), patch(
+            "src.services.intelligence_service.requests.get",
+            side_effect=mutating_get,
+        ):
+            self.service.fetch_source(source["id"])
+            self.service.fetch_source(source["id"])
+
+        self.assertEqual(observed, [{"http": None, "https": None}] * 2)
+
     def test_fetch_enabled_sources_paginates_all_enabled_sources(self) -> None:
         for index in range(150):
             self.service.create_source({
