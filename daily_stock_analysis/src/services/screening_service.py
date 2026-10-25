@@ -133,7 +133,7 @@ def _screening_hotspot_detail_cache_dir() -> Path:
 
 def _screening_hotspot_detail_cache_path(*, provider: str, topic: str) -> Path:
     provider_text = re.sub(r"[^A-Za-z0-9_.-]+", "_", _env_text(provider) or "akshare")
-    digest = hashlib.sha1(f"{provider_text}\0{_env_text(topic)}".encode("utf-8")).hexdigest()
+    digest = hashlib.sha1(f"{provider_text}\0{_env_text(topic)}".encode("utf-8"), usedforsecurity=False).hexdigest()
     return _screening_hotspot_detail_cache_dir() / f"{provider_text}.{digest}.json"
 
 

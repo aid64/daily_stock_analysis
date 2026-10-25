@@ -160,7 +160,7 @@ class _EventItem:
     @property
     def fingerprint(self) -> str:
         """去重指纹：URL 哈希（同一条公告跨日重复推送时 URL 稳定）。"""
-        digest = hashlib.md5(self.url.encode("utf-8")).hexdigest()
+        digest = hashlib.md5(self.url.encode("utf-8"), usedforsecurity=False).hexdigest()
         return f"{self.code}:{digest}"
 
 

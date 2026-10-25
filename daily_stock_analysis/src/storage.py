@@ -3969,7 +3969,7 @@ class DatabaseManager(metaclass=_DatabaseManagerMeta):
         """
         date_str = published_date.isoformat() if published_date else ""
         raw_key = f"{code}|{title}|{source}|{date_str}"
-        digest = hashlib.md5(raw_key.encode("utf-8")).hexdigest()
+        digest = hashlib.md5(raw_key.encode("utf-8"), usedforsecurity=False).hexdigest()
         return f"no-url:{code}:{digest}"
 
     def save_conversation_message(self, session_id: str, role: str, content: str) -> int:

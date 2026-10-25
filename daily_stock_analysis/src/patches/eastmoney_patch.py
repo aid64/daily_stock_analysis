@@ -62,16 +62,13 @@ def _get_nid(user_agent):
     # 使用线程锁确保并发安全
     with _cache.lock:
         try:
-            def generate_uuid_md5():
+            def generate_uuid_fingerprint():
                 """
-                生成 UUID 并对其进行 MD5 哈希处理
-                :return: MD5 哈希值（32位十六进制字符串）
+                生成 UUID 并对其进行 SHA-256 哈希处理
+                :return: 32 位十六进制指纹（保持原 MD5 输出长度）
                 """
-                # 生成 UUID
                 unique_id = str(uuid.uuid4())
-                # 对 UUID 进行 MD5 哈希
-                md5_hash = hashlib.md5(unique_id.encode('utf-8')).hexdigest()
-                return md5_hash
+                return hashlib.sha256(unique_id.encode('utf-8')).hexdigest()[:32]
 
             def generate_st_nvi():
                 """
@@ -113,10 +110,10 @@ def _get_nid(user_agent):
                 "webDeviceInfo": {
                     "screenResolution": screen_resolution,
                     "userAgent": user_agent,
-                    "canvasKey": generate_uuid_md5(),
-                    "webglKey": generate_uuid_md5(),
-                    "fontKey": generate_uuid_md5(),
-                    "audioKey": generate_uuid_md5()
+                    "canvasKey": generate_uuid_fingerprint(),
+                    "webglKey": generate_uuid_fingerprint(),
+                    "fontKey": generate_uuid_fingerprint(),
+                    "audioKey": generate_uuid_fingerprint()
                 }
             })
             headers = {
