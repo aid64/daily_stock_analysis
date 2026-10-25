@@ -257,7 +257,7 @@ jobs:
           cache: 'pip'
           cache-dependency-path: daily_stock_analysis/requirements.txt
       - name: 🟢 Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: 'npm'
@@ -285,7 +285,7 @@ jobs:
           cache: 'pip'
           cache-dependency-path: daily_stock_analysis/requirements.txt
       - name: 🟢 Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: 'npm'
@@ -311,7 +311,7 @@ jobs:
       - name: 📥 Checkout
         uses: actions/checkout@v5
       - name: 🟢 Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: 'npm'
