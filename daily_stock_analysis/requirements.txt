@@ -367,7 +367,7 @@ PyYAML>=6.0                 # YAML parser for LITELLM_CONFIG support
 
 
 
-tavily-python>=0.3.0        # Tavily Search API
+tavily-python>=0.8.5        # Tavily Search API
 
 
 
