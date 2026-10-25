@@ -287,7 +287,7 @@ json-repair>=0.55.1         # JSON repair
 
 
 
-orjson>=3.10,<4             # LiteLLM runtime JSON dependency; explicitly bundled in desktop builds
+orjson>=3.13.0,<4             # LiteLLM runtime JSON dependency; explicitly bundled in desktop builds
 
 
 
