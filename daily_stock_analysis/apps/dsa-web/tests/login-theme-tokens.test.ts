@@ -21,26 +21,33 @@ const REQUIRED_LOGIN_TOKENS = [
   '--login-input-toggle-active-text',
 ];
 
+function collectBlocks(css: string, pattern: RegExp): string {
+  const blocks: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(css)) !== null) {
+    blocks.push(match[1]);
+  }
+  return blocks.join('\n');
+}
+
 describe('login theme tokens', () => {
   it('defines all login-specific tokens in the light theme root block', () => {
-    const css = readFileSync(resolve(__dirname, '..', 'src', 'index.css'), 'utf8');
-    const rootMatch = css.match(/:root\s*\{([\s\S]*?)\n\}/);
+    const css = readFileSync(resolve(__dirname, '..', 'src', 'index.css'), 'utf8')
+      + readFileSync(resolve(__dirname, '..', 'src', 'styles', 'editorial-theme.css'), 'utf8');
+    const rootBlock = collectBlocks(css, /:root\s*\{([\s\S]*?)\n\}/g);
 
-    expect(rootMatch).not.toBeNull();
-    const rootBlock = rootMatch?.[1] ?? '';
-
+    expect(rootBlock).not.toBe('');
     for (const token of REQUIRED_LOGIN_TOKENS) {
       expect(rootBlock).toContain(token);
     }
   });
 
   it('defines all login-specific tokens in the dark theme block', () => {
-    const css = readFileSync(resolve(__dirname, '..', 'src', 'index.css'), 'utf8');
-    const darkMatch = css.match(/\.dark\s*\{([\s\S]*?)\n\}/);
+    const css = readFileSync(resolve(__dirname, '..', 'src', 'index.css'), 'utf8')
+      + readFileSync(resolve(__dirname, '..', 'src', 'styles', 'editorial-theme.css'), 'utf8');
+    const darkBlock = collectBlocks(css, /\.dark\s*\{([\s\S]*?)\n\}/g);
 
-    expect(darkMatch).not.toBeNull();
-    const darkBlock = darkMatch?.[1] ?? '';
-
+    expect(darkBlock).not.toBe('');
     for (const token of REQUIRED_LOGIN_TOKENS) {
       expect(darkBlock).toContain(token);
     }

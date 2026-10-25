@@ -61,7 +61,6 @@ export const DesktopTitleBar: React.FC = () => {
               className="desktop-titlebar-icon-btn"
               onClick={handleMinimize}
               aria-label="Minimize"
-              title="Minimize"
             >
               <Minus size={15} />
             </button>
@@ -70,7 +69,6 @@ export const DesktopTitleBar: React.FC = () => {
               className="desktop-titlebar-icon-btn"
               onClick={handleToggleMaximize}
               aria-label={isMaximized ? 'Restore' : 'Maximize'}
-              title={isMaximized ? 'Restore' : 'Maximize'}
             >
               {isMaximized ? <Copy size={13} /> : <Square size={13} />}
             </button>
@@ -79,7 +77,6 @@ export const DesktopTitleBar: React.FC = () => {
               className="desktop-titlebar-icon-btn desktop-titlebar-close"
               onClick={handleClose}
               aria-label="Close"
-              title="Close"
             >
               <X size={16} />
             </button>

@@ -292,6 +292,57 @@ vi.mock('../../components/settings', () => ({
   ),
 }));
 
+vi.mock('../../components/settings/AuthSettingsCard', () => ({
+  AuthSettingsCard: () => <div>认证与登录保护</div>,
+}));
+vi.mock('../../components/settings/ChangePasswordCard', () => ({
+  ChangePasswordCard: () => <div>修改密码</div>,
+}));
+vi.mock('../../components/settings/ApiTestPanel', () => ({
+  ApiTestPanel: () => <div>API 测试</div>,
+}));
+vi.mock('../../components/settings/IntelligentImport', () => ({
+  IntelligentImport: ({ onMerged }: { onMerged: (value: string) => void }) => (
+    <button type="button" onClick={() => onMerged('SZ000001,SZ000002')}>
+      merge stock list
+    </button>
+  ),
+}));
+vi.mock('../../components/settings/LLMChannelEditor', () => ({
+  LLMChannelEditor: ({
+    items,
+    onSaved,
+    onDraftItemsChange,
+  }: {
+    items: Array<{ key: string; value: string }>;
+    onSaved: (items: Array<{ key: string; value: string }>) => void;
+    onDraftItemsChange?: (items: Array<{ key: string; value: string }>) => void;
+  }) => (
+    <div>
+      <div data-testid="llm-channel-editor-items">{items.map((item) => item.key).join(',')}</div>
+      <button
+        type="button"
+        onClick={() => onDraftItemsChange?.([
+          { key: 'LLM_CHANNELS', value: 'draft,backup' },
+          { key: 'LLM_DRAFT_API_SURFACE', value: 'responses' },
+          { key: 'LITELLM_MODEL', value: 'openai/draft-model' },
+          { key: 'GENERATION_BACKEND', value: 'codex_cli' },
+        ])}
+      >
+        emit llm draft
+      </button>
+      <button type="button" onClick={() => onSaved([{ key: 'LLM_CHANNELS', value: 'primary,backup' }])}>
+        save llm channels
+      </button>
+    </div>
+  ),
+}));
+vi.mock('../../components/settings/NotificationTestPanel', () => ({
+  NotificationTestPanel: ({ items }: { items: Array<{ key: string; value: string }> }) => (
+    <div>通知测试面板:{items.map((item) => item.key).join(',')}</div>
+  ),
+}));
+
 function createDesktopRuntime(overrides: Record<string, unknown> = {}) {
   return {
     version: '3.12.0',
@@ -427,12 +478,12 @@ function buildSystemConfigState(overrides: ConfigOverride = {}) {
       ],
       notification: [
         {
-          key: 'WECHAT_WEBHOOK_URL',
-          value: 'https://qyapi.example.com/hook',
+          key: 'FEISHU_WEBHOOK_URL',
+          value: 'https://open.feishu.cn/open-apis/bot/v2/hook/xxx',
           rawValueExists: true,
           isMasked: false,
           schema: {
-            key: 'WECHAT_WEBHOOK_URL',
+            key: 'FEISHU_WEBHOOK_URL',
             category: 'notification',
             dataType: 'string',
             uiControl: 'password',
@@ -1281,7 +1332,7 @@ describe('SettingsPage', () => {
 
     renderSettingsPage();
 
-    fireEvent.click(screen.getByRole('button', { name: 'save llm channels' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'save llm channels' }));
 
     expect(refreshAfterExternalSave).toHaveBeenCalledWith(['LLM_CHANNELS']);
     expect(load).toHaveBeenCalledTimes(1);
@@ -2385,14 +2436,14 @@ describe('SettingsPage', () => {
     expect(screen.queryByTestId('settings-field-LLM_MY_PROXY_MODELS')).not.toBeInTheDocument();
   });
 
-  it('renders notification test panel before notification fields', () => {
+  it('renders notification test panel before notification fields', async () => {
     useSystemConfigMock.mockReturnValue(buildSystemConfigState({ activeCategory: 'notification' }));
 
     renderSettingsPage();
 
-    expect(screen.getByText('通知测试面板:WECHAT_WEBHOOK_URL')).toBeInTheDocument();
-    expect(screen.getByText('WECHAT_WEBHOOK_URL')).toBeInTheDocument();
-    expect(settingsPanelErrorBoundary).toHaveBeenCalledWith('通知测试');
+    expect(await screen.findByText('通知测试面板:FEISHU_WEBHOOK_URL')).toBeInTheDocument();
+    expect(await screen.findByText('FEISHU_WEBHOOK_URL')).toBeInTheDocument();
+    await waitFor(() => expect(settingsPanelErrorBoundary).toHaveBeenCalledWith('通知测试'));
     expect(settingsPanelErrorBoundary).toHaveBeenCalledWith('通知设置');
   });
 
@@ -2750,7 +2801,7 @@ describe('SettingsPage', () => {
     await waitFor(() => expect(desktopCheckForUpdates).toHaveBeenCalledTimes(1));
     expect(within(settingsCard).getByRole('button', { name: '检查中...' })).toBeDisabled();
 
-    fireEvent.click(screen.getByRole('button', { name: '桌面端更新' }));
+    fireEvent.click(screen.getByTestId('desktop-update-entry'));
     expect(screen.queryByRole('button', { name: '检查更新' })).not.toBeInTheDocument();
     fireEvent.click(within(settingsCard).getByRole('button', { name: '检查中...' }));
     expect(desktopCheckForUpdates).toHaveBeenCalledTimes(1);

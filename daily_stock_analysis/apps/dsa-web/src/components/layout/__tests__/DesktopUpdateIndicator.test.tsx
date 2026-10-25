@@ -154,8 +154,8 @@ describe('DesktopUpdateIndicator', () => {
     (window as { dsaDesktop?: unknown }).dsaDesktop = createDesktopRuntime();
     renderIndicator();
 
-    const entry = await screen.findByRole('button', { name: '桌面端更新' });
-    expect(entry).toHaveAttribute('title', expect.stringContaining('42%'));
+    const entry = await screen.findByRole('button', { name: /42%/ });
+    expect(entry).toHaveAttribute('aria-label', expect.stringContaining('42%'));
     expect(desktopCheckForUpdates).not.toHaveBeenCalled();
   });
 });

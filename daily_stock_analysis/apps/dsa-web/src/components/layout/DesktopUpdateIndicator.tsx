@@ -60,9 +60,9 @@ export const DesktopUpdateIndicator: React.FC = () => {
     return null;
   }
 
-  const tooltip = notice?.message
+  const entryLabel = notice?.message
     || notice?.title
-    || t('layout.desktopUpdateIdleHint', { version: currentVersion || t('settings.desktopLatest') });
+    || t('layout.desktopUpdateEntry');
   const canOpenRelease = Boolean(state?.releaseUrl) && (status === 'update-available' || status === 'error');
   const canInstall = status === 'update-downloaded';
   const showRecheck = !busy || status === 'error';
@@ -71,14 +71,14 @@ export const DesktopUpdateIndicator: React.FC = () => {
     <div className="relative" ref={containerRef}>
       <button
         type="button"
+        data-testid="desktop-update-entry"
         className={cn(
           'relative inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border/70 bg-card/85 text-secondary-text shadow-soft-card backdrop-blur-md transition-colors hover:bg-hover hover:text-foreground',
           open ? 'border-border text-foreground' : '',
         )}
-        aria-label={t('layout.desktopUpdateEntry')}
+        aria-label={entryLabel}
         aria-expanded={open}
         aria-haspopup="dialog"
-        title={tooltip}
         onClick={() => setOpen((current) => !current)}
       >
         {busy ? (
@@ -92,7 +92,7 @@ export const DesktopUpdateIndicator: React.FC = () => {
             pulse={status === 'update-downloaded' || status === 'update-available'}
             className="absolute right-1.5 top-1.5 h-2 w-2"
             data-testid="desktop-update-badge"
-            aria-label={notice?.title || t('layout.desktopUpdateEntry')}
+            aria-label={entryLabel}
           />
         ) : null}
       </button>

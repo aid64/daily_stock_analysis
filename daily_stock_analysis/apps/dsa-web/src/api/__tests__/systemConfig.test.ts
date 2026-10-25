@@ -136,8 +136,8 @@ describe('systemConfigApi', () => {
     expect(post).toHaveBeenCalledWith(
       '/api/v1/system/config/notification/test-channel',
       {
-        channel: 'custom',
-        items: [{ key: 'CUSTOM_WEBHOOK_URLS', value: 'https://example.com/hook?token=secret' }],
+        channel: 'feishu',
+        items: [{ key: 'FEISHU_WEBHOOK_URL', value: 'https://open.feishu.cn/open-apis/bot/v2/hook/xxx' }],
         mask_token: '******',
         title: 'hello',
         content: 'world',

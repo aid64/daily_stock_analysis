@@ -17,6 +17,10 @@ export default defineConfig({
     // CI/parallel load; keep the limit generous so timeouts signal real hangs.
     testTimeout: 20000,
     hookTimeout: 20000,
+    // Large page/drawer chunks otherwise starve each other on many-core
+    // machines and in CI, producing lazy-import timeouts.
+    maxWorkers: 4,
+    minWorkers: 1,
     exclude: [...configDefaults.exclude, 'e2e/**', 'playwright.config.ts'],
   },
 });
