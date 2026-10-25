@@ -2,6 +2,14 @@
 
 This document covers the bot module architecture, supported commands, webhook routes, and how to configure platform integrations.
 
+> **⚠ Status update (2026-10-25): historical guide.** Production bot support is
+> Feishu Stream only. DingTalk / WeCom / Telegram adapters and the generic
+> `/bot/<platform>` webhook routes described below are no longer shipped.
+> Use [bot-command.md](bot-command.md) (Chinese) as the current contract.
+>
+> Command semantics in section 4 and the `/status` diagnostics in section 5
+> remain useful reference; ignore the historical multi-platform wiring.
+
 > **Glossary:** "Enterprise bot" in this context means a chatbot that receives commands via webhook from a messaging platform (Feishu / DingTalk / WeChat Work / Telegram) and calls the analysis pipeline to reply inline.
 
 ---

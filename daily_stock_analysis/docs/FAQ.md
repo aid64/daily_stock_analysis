@@ -81,8 +81,8 @@
 2. **Secrets**（点击 `New repository secret`）：存放敏感信息
    - `GEMINI_API_KEY`
    - `OPENAI_API_KEY`
-   - `TELEGRAM_BOT_TOKEN`
-   - 各类 Webhook URL
+   - `FEISHU_APP_SECRET`
+   - `FEISHU_WEBHOOK_URL`
 3. **Variables**（点击 `Variables` 标签）：存放非敏感配置
    - `STOCK_LIST`
    - `GEMINI_MODEL`
@@ -157,16 +157,13 @@ PROXY_PORT=10809
 
 **现象**：分析成功但未收到推送，日志显示 400 错误或 `Message too long`
 
-**原因**：不同平台消息长度限制不同：
-- 企业微信：4KB
-- 飞书：20KB
-- 钉钉：20KB
+**原因**：飞书单条消息上限约 20KB（当前仅支持飞书）。
 
 **解决方案**：
-1. **自动分块**：最新版本已实现长消息自动切割
+1. **自动分块**：通知服务按 `FEISHU_MAX_BYTES` 自动分片
 2. **单股推送模式**：设置 `SINGLE_STOCK_NOTIFY=true`，每分析完一只股票立即推送
 3. **精简报告**：设置 `REPORT_TYPE=simple` 使用精简格式
-4. **仅落盘本地报告**：即使未配置任何通知渠道，`SINGLE_STOCK_NOTIFY=true` 仍会把单股报告保存到 `reports/report_YYYYMMDD_<股票代码>.md`
+4. **仅落盘本地报告**：即使未配置飞书，`SINGLE_STOCK_NOTIFY=true` 仍会把单股报告保存到 `reports/report_YYYYMMDD_<股票代码>.md`
 
 ---
 
@@ -180,29 +177,24 @@ PROXY_PORT=10809
 **现在的行为**：
 1. CLI 启动分析会对上述场景显式记录失败原因
 2. 非 `--serve` 的独立运行模式会返回非零退出码，避免工作流把“未生成报告”误判为成功
-3. 若是单股推送模式且通知未配置，仍会继续保存本地 Markdown 报告用于排查
+3. 若是单股推送模式且飞书未配置，仍会继续保存本地 Markdown 报告用于排查
 
-### Q9: Telegram 推送收不到消息？
+### Q9: 飞书推送收不到消息？
 
 **解决方案**：
-1. 确认 `TELEGRAM_BOT_TOKEN` 和 `TELEGRAM_CHAT_ID` 都已配置
-2. 获取 Chat ID 方法：
-   - 给 Bot 发送任意消息
-   - 访问 `https://api.telegram.org/bot<TOKEN>/getUpdates`
-   - 在返回的 JSON 中找到 `chat.id`
-3. 确保 Bot 已被添加到目标群组（如果是群聊）
-4. 本地运行时需要能访问 Telegram API（可能需要代理）
+1. 确认 App Bot（`FEISHU_APP_ID` / `FEISHU_APP_SECRET` / `FEISHU_CHAT_ID`）或群机器人 `FEISHU_WEBHOOK_URL` 至少配置一套
+2. App Bot 需把机器人加入目标群，并确认 `FEISHU_CHAT_ID` 正确
+3. 检查日志中的飞书返回码；签名与权限问题见 [飞书配置交接说明](feishu-handoff.md)
+4. Stream 模式还需确认长连接存活（状态中 `feishu_stream_alive=true`）
 
 ---
 
-### Q10: 企业微信 Markdown 格式显示不正常？
+### Q10: 飞书卡片内容被截断或格式异常？
 
 **解决方案**：
-1. 企业微信对 Markdown 支持有限，可尝试设置：
-   ```bash
-   WECHAT_MSG_TYPE=text
-   ```
-2. 这将发送纯文本格式的消息
+1. 飞书单条消息上限约 20KB；通知服务会按 `FEISHU_MAX_BYTES` 自动分片
+2. 报告过长时可设置 `REPORT_TYPE=simple` 精简内容
+3. 卡片渲染异常时查看日志中的 `msg_type` 回退记录（interactive → text）
 
 ---
 

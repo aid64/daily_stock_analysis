@@ -16,7 +16,7 @@
 
 **基於 AI 大模型的 A股/港股/美股/日股/韓股/台股自選股智能分析系統**
 
-每日自動分析自選股 -> 生成決策儀表盤 -> 推送到 Telegram / Discord / Slack / 郵件 / 企業微信 / 飛書。
+每日自動分析自選股 -> 生成決策儀表盤 -> 推送到飛書。
 
 [**產品預覽**](#-產品預覽) · [**功能特性**](#-功能特性) · [**快速開始**](#-快速開始) · [**推送效果**](#-推送效果) · [**文檔中心**](./INDEX.md) · [**完整指南**](./full-guide.md)
 
@@ -92,18 +92,14 @@
 
 > Ollama 更適合本地 / Docker 部署，GitHub Actions 推薦使用雲端 API。
 
-**通知渠道配置（至少配置一個）**
+**通知配置（當前僅支持飛書）**
 
 | Secret 名稱 | 說明 |
 |-------------|------|
-| `WECHAT_WEBHOOK_URL` | 企業微信機器人 |
-| `FEISHU_WEBHOOK_URL` | 飛書機器人 |
-| `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` | Telegram |
-| `DISCORD_WEBHOOK_URL` | Discord Webhook |
-| `SLACK_BOT_TOKEN` + `SLACK_CHANNEL_ID` | Slack Bot |
-| `EMAIL_SENDER` + `EMAIL_PASSWORD` | 郵件推送 |
+| `FEISHU_APP_ID` + `FEISHU_APP_SECRET` + `FEISHU_CHAT_ID` | 飛書 App Bot（推薦） |
+| `FEISHU_WEBHOOK_URL` | 飛書群機器人 Webhook（與 App Bot 二選一） |
 
-更多渠道、簽名校驗、分組郵件、Markdown 轉圖片等配置見 [通知渠道詳細配置](./full-guide.md#通知渠道详细配置)。
+飛書配置、簽名校驗與排障見 [飛書配置交接說明](feishu-handoff.md)。
 
 **自選股配置（必填）**
 
@@ -226,8 +222,8 @@ python main.py --serve-only
 Web 工作台提供配置管理、任務監控、手動分析、歷史報告、完整 Markdown 報告、Agent 問股、回測、持倉管理、智能匯入和淺色 / 深色主題。啟動方式：
 
 ```bash
-python main.py --webui
-python main.py --webui-only
+python main.py --serve
+python main.py --serve-only
 ```
 
 訪問 `http://127.0.0.1:8000` 即可使用。認證、智能匯入、搜尋補全、歷史報告複製、雲端伺服器訪問等細節見 [本地 WebUI 管理介面](./full-guide.md#本地-webui-管理界面)。

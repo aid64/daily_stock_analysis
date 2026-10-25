@@ -203,7 +203,7 @@ journalctl -u stock-analyzer -f
 |--------|------|----------|
 | `ANSPIRE_API_KEYS` / `AIHUBMIX_KEY` / `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | Configure at least one AI model key; Anspire or AIHubMix is recommended first | Provider console |
 | `STOCK_LIST` | Watchlist | Comma-separated stock codes |
-| Notification channel | Configure at least one, such as WeChat Work, Feishu, Telegram, or email | Notification provider |
+| Notification channel | Feishu (the only supported channel; configure either App Bot or webhook) | Feishu Open Platform |
 
 ### Optional Configuration
 
@@ -378,15 +378,10 @@ Add these Secrets:
 | `ANTHROPIC_API_KEY` | Anthropic API Key | Optional |
 | `GEMINI_API_KEY` | Gemini AI API Key | Optional |
 | `OPENAI_API_KEY` | OpenAI-compatible API Key | Optional |
-| `WECHAT_WEBHOOK_URL` | WeChat Work Bot Webhook | Optional* |
-| `FEISHU_WEBHOOK_URL` | Feishu Bot Webhook | Optional* |
-| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token | Optional* |
-| `TELEGRAM_CHAT_ID` | Telegram Chat ID | Optional* |
-| `TELEGRAM_MESSAGE_THREAD_ID` | Telegram Topic ID | Optional* |
-| `EMAIL_SENDER` | Sender email | Optional* |
-| `EMAIL_PASSWORD` | Email authorization code | Optional* |
-| `SERVERCHAN3_SENDKEY` | ServerChan v3 Sendkey | Optional* |
-| `CUSTOM_WEBHOOK_URLS` | Custom Webhook (comma-separated for multiple) | Optional* |
+| `FEISHU_APP_ID` | Feishu App Bot App ID | Recommended |
+| `FEISHU_APP_SECRET` | Feishu App Bot App Secret | Recommended |
+| `FEISHU_CHAT_ID` | Feishu target chat ID | Recommended |
+| `FEISHU_WEBHOOK_URL` | Feishu Bot Webhook (alternative to App Bot) | Optional* |
 | `STOCK_LIST` | Watchlist, e.g., `600519,300750` | ✅ |
 | `SERPAPI_API_KEYS` | SerpAPI Key | Recommended |
 | `TAVILY_API_KEYS` | Tavily Search API Key | Optional |

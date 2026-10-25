@@ -9,7 +9,7 @@
 | 快速了解项目能做什么 | [README](../../README.md) | [完整配置与部署指南](full-guide.md) |
 | 第一次把项目跑起来 | [小白客户端安装与配置](beginner-client-setup.md) | [完整配置与部署指南](full-guide.md) |
 | 配置大模型渠道 | [LLM 配置指南](LLM_CONFIG_GUIDE.md) | [LLM 服务商配置指南](llm-providers.md)（含 xAI Grok 直连） |
-| 配置推送通知 | [飞书配置交接说明](feishu-handoff.md) | [通知能力基线](notifications.md)（**⚠ 过时**：P5 后仅剩飞书渠道，文中多渠道内容失真，待重写）、[完整配置与部署指南](full-guide.md) |
+| 配置推送通知 | [飞书配置交接说明](feishu-handoff.md) | [通知能力基线](notifications.md)（飞书单渠道机制说明）、[完整配置与部署指南](full-guide.md) |
 | 部署到服务器或云平台 | [部署指南](DEPLOY.md) | [云端 WebUI 部署](deploy-webui-cloud.md)、[Zeabur 部署](docker/zeabur-deployment.md) |
 | 备份账本 / 崩溃恢复 | [单机灾难恢复（DR）](disaster-recovery.md) | 账本备份脚本、Windows 计划任务、三类崩溃场景还原步骤 |
 | 决策层参数为何这么定 | [在线决策层变更留痕](decision-layer-changelog.md) | 结构锚价位/破位分档/组合器三层参数、回放基线（分档过度设计、价位锚才是开关）、变更留痕规范 |
@@ -70,7 +70,7 @@
 
 | 文档 | 内容 |
 | --- | --- |
-| [Bot 命令与接入](bot-command.md) | Bot 命令、Webhook、平台接入和回调说明 |
+| [Bot 命令与接入](bot-command.md) | 飞书 Stream 接入、Bot 命令、配置与扩展说明 |
 | [Bot 平台配置](bot/) | 飞书、钉钉、Discord 等 Bot 配置截图和补充说明 |
 | [实时告警中心](alerts.md) | EventMonitor 基线、Web 规则管理、通知结果、冷却状态和 Phase 边界 |
 | [个股研究聚合 API](stock-profile-api.md) | 单一 stock-profile 契约、分块质量状态、代码归一与后续 Web 边界 |

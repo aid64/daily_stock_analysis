@@ -1,17 +1,16 @@
 # Zeabur 部署指南
 
-本指南详细介绍如何在 Zeabur 上部署 A股自选股智能分析系统，包括 WebUI 和 Discord 机器人功能。
+本指南详细介绍如何在 Zeabur 上部署 A股自选股智能分析系统，包括 WebUI 功能；通知与 Bot 当前仅支持飞书。
 
 ## 目录
 
 - [1. 部署前准备](#1-部署前准备)
 - [2. 在 Zeabur 上部署](#2-在-zeabur-上部署)
 - [3. 配置启动命令](#3-配置启动命令)
-- [4. Discord 机器人部署](#4-discord-机器人部署)
-- [5. 环境变量配置](#5-环境变量配置)
-- [6. 挂载配置](#6-挂载配置)
-- [7. 健康检查](#7-健康检查)
-- [8. 常见问题](#8-常见问题)
+- [4. 环境变量配置](#4-环境变量配置)
+- [5. 挂载配置](#5-挂载配置)
+- [6. 健康检查](#6-健康检查)
+- [7. 常见问题](#7-常见问题)
 
 ## 1. 部署前准备
 
@@ -19,7 +18,6 @@
 
 - Zeabur 账号
 - GitHub 账号（用于连接仓库）
-- Discord 开发者账号（如需部署机器人）
 - 相关 API 密钥（如 Gemini API Key、搜索服务 API Key 等）
 
 ### 1.2 仓库准备
@@ -100,40 +98,9 @@ Zeabur 服务建议从 `1G` 内存起步；`512M` 仅适合轻量 Web/API、单�
 5. 点击「保存」
 6. 重启服务
 
-## 4. Discord 机器人部署
+## 4. 环境变量配置
 
-### 4.1 准备工作
-
-1. 创建 Discord 应用和机器人
-   - 访问 [Discord 开发者平台](https://discord.com/developers/applications)
-   - 点击「New Application」创建新应用
-   - 在「Bot」标签页，点击「Add Bot」创建机器人
-   - 复制机器人 Token
-
-2. 配置机器人权限
-   - 在「Bot」标签页，向下滚动到「Privileged Gateway Intents」
-   - 启用「Server Members Intent」和「Message Content Intent」
-   - 在「OAuth2」→「URL Generator」中，选择「bot」范围
-   - 选择所需权限（如「Send Messages」、「Read Messages/View Channels」等）
-   - 复制生成的邀请链接，将机器人添加到你的服务器
-
-### 4.2 配置环境变量
-
-在 Zeabur 控制台的「环境变量」配置中，添加以下变量：
-
-| 变量名 | 说明 | 示例值 |
-|--------|------|--------|
-| `DISCORD_BOT_TOKEN` | Discord 机器人 Token | `MTAxMjM0NTY3ODkwMTEyMzQ1Ng.GhIjKl.MnOpQrStUvWxYz1234567890` |
-| `DISCORD_MAIN_CHANNEL_ID` | 主频道 ID | `123456789012345678` |
-| `DISCORD_WEBHOOK_URL` | Discord Webhook URL（可选） | `https://discord.com/api/webhooks/...` |
-
-### 4.3 启动机器人
-
-机器人功能默认通过配置启用，无需特殊启动命令。确保你的配置文件中包含机器人相关配置，或通过环境变量设置。
-
-## 5. 环境变量配置
-
-### 5.1 基本环境变量
+### 4.1 基本环境变量
 
 | 变量名 | 说明 | 默认值 |
 |--------|------|--------|
@@ -141,7 +108,7 @@ Zeabur 服务建议从 `1G` 内存起步；`512M` 仅适合轻量 Web/API、单�
 | `LOG_DIR` | 日志目录 | `/app/logs` |
 | `DATABASE_PATH` | 数据库路径 | `/app/data/stock_analysis.db` |
 
-### 5.2 API 服务配置
+### 4.2 API 服务配置
 
 | 变量名 | 说明 | 默认值 |
 |--------|------|--------|
@@ -150,7 +117,7 @@ Zeabur 服务建议从 `1G` 内存起步；`512M` 仅适合轻量 Web/API、单�
 
 > 旧版 `WEBUI_HOST`/`WEBUI_PORT`/`WEBUI_ENABLED` 环境变量仍兼容，会自动转发到 API 服务。
 
-### 5.3 分析相关配置
+### 4.3 分析相关配置
 
 | 变量名 | 说明 |
 |--------|------|
@@ -166,7 +133,7 @@ Zeabur 服务建议从 `1G` 内存起步；`512M` 仅适合轻量 Web/API、单�
 | `SEARXNG_BASE_URLS` | SearXNG 实例地址（逗号分隔，无配额兜底，需在 settings.yml 启用 format: json）；留空时仅在显式启用公共实例发现后使用 `searx.space` |
 | `SEARXNG_PUBLIC_INSTANCES_ENABLED` | 是否在 `SEARXNG_BASE_URLS` 为空时自动从 `searx.space` 获取公共实例（默认 `false`） |
 
-### 5.4 配置方法
+### 4.4 配置方法
 
 在 Zeabur 控制台：
 
@@ -177,9 +144,9 @@ Zeabur 服务建议从 `1G` 内存起步；`512M` 仅适合轻量 Web/API、单�
 5. 点击「保存」
 6. 重启服务
 
-## 6. 挂载配置
+## 5. 挂载配置
 
-### 6.1 支持的挂载目录
+### 5.1 支持的挂载目录
 
 | 目录 | 说明 |
 |------|------|
@@ -187,7 +154,7 @@ Zeabur 服务建议从 `1G` 内存起步；`512M` 仅适合轻量 Web/API、单�
 | `/app/logs` | 日志文件 |
 | `/app/reports` | 分析报告 |
 
-### 6.2 配置挂载
+### 5.2 配置挂载
 
 1. 在 Zeabur 控制台，进入服务页面
 2. 点击「存储」
@@ -199,66 +166,63 @@ Zeabur 服务建议从 `1G` 内存起步；`512M` 仅适合轻量 Web/API、单�
 6. 点击「保存」
 7. 对其他需要挂载的目录重复上述步骤
 
-### 6.3 注意事项
+### 5.3 注意事项
 
 - 挂载后，数据会持久化保存，不会因容器重启而丢失
 - 建议至少挂载 `/app/data` 目录，以保存数据库
 
-## 7. 健康检查
+## 6. 健康检查
 
 系统内置了健康检查机制，默认检查：
 
 - WebUI 模式：检查 `http://localhost:8000/health` 端点
 - FastAPI 模式：检查 `http://localhost:8000/api/health` 端点
-- 非服务模式：始终返回健康状态
 
 健康检查配置如下：
 
 ```dockerfile
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8000/api/health || curl -f http://localhost:8000/health \
-    || python -c "import sys; sys.exit(0)"
+    CMD curl -f http://localhost:8000/api/health || curl -f http://localhost:8000/health
 ```
 
-## 8. 常见问题
+## 7. 常见问题
 
-### 8.1 API 服务无法访问
+### 7.1 API 服务无法访问
 
 - 检查启动命令是否包含 `--serve` 或 `--serve-only` 参数
 - 检查「访问」标签页是否已配置域名
 - 检查防火墙设置
 
-### 8.2 机器人不响应
+### 7.2 机器人不响应
 
-- 检查 Discord 机器人 Token 是否正确
-- 检查机器人是否已添加到服务器
-- 检查机器人权限是否足够
+- 检查 `BOT_ENABLED` 与飞书 App 凭证是否配置
+- 检查飞书 Stream 长连接状态（`feishu_stream_alive`）
+- 检查机器人是否已加入目标群并具备消息权限
 - 检查日志文件，查看是否有错误信息
 
-### 8.3 分析任务不执行
+### 7.3 分析任务不执行
 
 - 检查定时任务配置是否正确
 - 检查 API 密钥是否有效
 - 检查日志文件，查看是否有错误信息
 
-### 8.4 数据丢失
+### 7.4 数据丢失
 
 - 确保已挂载 `/app/data` 目录
 - 检查存储卷配置是否正确
 
-## 9. 高级配置
+## 8. 高级配置
 
-### 9.1 多实例部署
+### 8.1 多实例部署
 
 你可以在 Zeabur 上部署多个实例，用于不同的功能：
 
 1. 一个实例用于 API 服务（`python main.py --serve-only`）
 2. 一个实例用于定时任务（`python main.py --schedule`）
-3. 一个实例用于机器人（`python main.py --discord-bot`）
 
 确保它们共享同一个 `/app/data` 存储卷，以共享数据库。
 
-### 9.2 自定义域名
+### 8.2 自定义域名
 
 在 Zeabur 控制台的「访问」标签页，你可以：
 
@@ -266,9 +230,9 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
 2. 绑定自定义域名
 3. 配置 HTTPS
 
-## 10. 更新部署
+## 9. 更新部署
 
-### 10.1 自动更新
+### 9.1 自动更新
 
 当你向仓库推送新代码时：
 
@@ -276,20 +240,20 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
 2. Zeabur 会检测到新镜像
 3. 你可以选择「自动部署」或手动触发部署
 
-### 10.2 手动更新
+### 9.2 手动更新
 
 1. 在 Zeabur 控制台，进入服务页面
 2. 点击「部署历史」
 3. 选择「重新部署」
 4. 或点击「更新镜像」
 
-## 11. 监控和日志
+## 10. 监控和日志
 
-### 11.1 查看日志
+### 10.1 查看日志
 
 在 Zeabur 控制台，进入服务页面，点击「日志」标签页，可以查看实时日志和历史日志。
 
-### 11.2 监控指标
+### 10.2 监控指标
 
 Zeabur 提供了基础的监控指标：
 
@@ -300,9 +264,9 @@ Zeabur 提供了基础的监控指标：
 
 在「监控」标签页查看详细指标。
 
-## 12. 故障排查
+## 11. 故障排查
 
-### 12.1 查看详细日志
+### 11.1 查看详细日志
 
 ```bash
 # 进入容器
@@ -312,28 +276,28 @@ zeabur exec <服务名> bash
 cat /app/logs/stock_analysis_20260125.log
 ```
 
-### 12.2 检查配置
+### 11.2 检查配置
 
 ```bash
 # 进入容器
 zeabur exec <服务名> bash
 
 # 检查环境变量
-printenv | grep -i discord
+printenv | grep -i feishu
 printenv | grep -i webui
 ```
 
-### 12.3 测试连接
+### 11.3 测试连接
 
 ```bash
 # 测试网络连接
-zeabur exec <服务名> curl -I https://api.discord.com
+zeabur exec <服务名> curl -I https://open.feishu.cn
 
 # 测试 API 连接
-zeabur exec <服务名> python -c "import requests; print(requests.get('https://api.discord.com').status_code)"
+zeabur exec <服务名> python -c "import requests; print(requests.get('https://open.feishu.cn').status_code)"
 ```
 
-## 13. 最佳实践
+## 12. 最佳实践
 
 1. **使用持久化存储**：始终挂载 `/app/data` 目录，以保存数据库
 2. **配置合理的健康检查**：根据实际情况调整健康检查参数
@@ -343,6 +307,6 @@ zeabur exec <服务名> python -c "import requests; print(requests.get('https://
 6. **监控服务状态**：定期检查服务状态和日志
 7. **按负载配置内存**：完整分析推荐 `1G` 起步；`512M` 低配环境设置 `MAX_WORKERS=1`，高负载场景使用 `2G+`
 
-## 14. 联系方式
+## 13. 联系方式
 
 如有问题，欢迎联系项目维护者或在 GitHub Issues 中提问。
