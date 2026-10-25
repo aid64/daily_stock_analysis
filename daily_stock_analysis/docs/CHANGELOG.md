@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [chore] 非安全用途的 MD5/SHA1 标注 `usedforsecurity=False`；CI 新增 Bandit 高危扫描并纳入 `backend-gate` 聚合。
 - [测试] 桌面端 54 个 Node 单测改为 `--test-force-exit`（Electron 模拟的常驻定时器不再挂住进程），并接入 Windows/macOS 打包 job。
 - [修复] 恢复登录页 35 个主题令牌（light/dark），修复主题重构后 LoginPage/Input 颜色回退为继承值的问题；桌面标题栏移除原生 title，更新提示改由 aria-label 承载。
 - [测试] 前端 vitest 套件恢复全绿（104 文件 / 1215 passed）并纳入 `web-gate` 阻断门禁；同步 Feishu-only 通知 payload、懒加载面板 mock、90 天时间窗口与本地化文案断言。

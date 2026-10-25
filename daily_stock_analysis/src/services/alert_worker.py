@@ -767,7 +767,7 @@ class AlertWorker:
         if not isinstance(metadata, dict):
             metadata = {}
         alert_type = self._public_alert_type(getattr(rule, "alert_type", None) or result.get("alert_type"))
-        key_hash = hashlib.sha1(str(runtime_rule.key or "").encode("utf-8")).hexdigest()
+        key_hash = hashlib.sha1(str(runtime_rule.key or "").encode("utf-8"), usedforsecurity=False).hexdigest()
         return {
             "stock_code": stock_code,
             "stock_name": getattr(rule, "stock_name", None),

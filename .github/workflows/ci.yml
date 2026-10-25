@@ -141,6 +141,24 @@ jobs:
         working-directory: daily_stock_analysis
         run: ./scripts/ci_gate.sh offline-tests
 
+  security-scan:
+    name: security-scan
+    runs-on: ubuntu-latest
+    needs: [changes, ai-governance]
+    if: needs.changes.outputs.backend == 'true'
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v5
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: 🔒 Install Bandit
+        run: python -m pip install "bandit>=1.7,<2"
+      - name: 🔒 Bandit high-severity scan
+        working-directory: daily_stock_analysis
+        run: python -m bandit -r src api bot data_provider -lll --exclude tests
+
   quant-tests:
     name: quant-tests
     runs-on: ubuntu-latest
@@ -178,7 +196,7 @@ jobs:
   backend-gate:
     name: backend-gate
     runs-on: ubuntu-latest
-    needs: [changes, ai-governance, backend-tests, quant-tests]
+    needs: [changes, ai-governance, backend-tests, quant-tests, security-scan]
     if: always()
     steps:
       - name: ✅ Summarize backend gate
@@ -189,6 +207,7 @@ jobs:
           BACKEND_TESTS_RESULT: ${{ needs.backend-tests.result }}
           QUANT_REQUIRED: ${{ needs.changes.outputs.quant }}
           QUANT_TESTS_RESULT: ${{ needs.quant-tests.result }}
+          SECURITY_SCAN_RESULT: ${{ needs.security-scan.result }}
         run: |
           if [ "$CHANGES_RESULT" != "success" ] || [ "$AI_GOVERNANCE_RESULT" != "success" ]; then
             echo "Prerequisite failed: changes=$CHANGES_RESULT ai-governance=$AI_GOVERNANCE_RESULT" >&2
@@ -202,6 +221,10 @@ jobs:
           # 无需依赖仓库级保护设置的额外登记（App token 无 Administration 写权限）。
           if [ "$QUANT_REQUIRED" = "true" ] && [ "$QUANT_TESTS_RESULT" != "success" ]; then
             echo "quant suite did not pass: $QUANT_TESTS_RESULT" >&2
+            exit 1
+          fi
+          if [ "$BACKEND_REQUIRED" = "true" ] && [ "$SECURITY_SCAN_RESULT" != "success" ]; then
+            echo "Bandit high-severity scan did not pass: $SECURITY_SCAN_RESULT" >&2
             exit 1
           fi
           echo "backend-gate passed (backend_required=$BACKEND_REQUIRED shards=$BACKEND_TESTS_RESULT quant_required=$QUANT_REQUIRED quant=$QUANT_TESTS_RESULT)"

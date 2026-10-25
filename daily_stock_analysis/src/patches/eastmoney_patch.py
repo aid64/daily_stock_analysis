@@ -70,7 +70,7 @@ def _get_nid(user_agent):
                 # 生成 UUID
                 unique_id = str(uuid.uuid4())
                 # 对 UUID 进行 MD5 哈希
-                md5_hash = hashlib.md5(unique_id.encode('utf-8')).hexdigest()
+                md5_hash = hashlib.md5(unique_id.encode('utf-8'), usedforsecurity=False).hexdigest()
                 return md5_hash
 
             def generate_st_nvi():
