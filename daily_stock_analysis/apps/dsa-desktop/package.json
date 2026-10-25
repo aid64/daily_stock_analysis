@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "electron .",
     "build": "electron-builder",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test --test-force-exit tests/main.test.js tests/preload.test.js"
   },
   "dependencies": {
     "electron-updater": "^6.8.3"
