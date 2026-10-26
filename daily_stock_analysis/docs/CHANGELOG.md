@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [改进] 对比盘新增工作日 09:31 `DSA_Deck_Open` 开盘建仓窗（paper，09:30-10:00 开盘/首笔价）：周/月注册表在 open 轮成交，15:00 收盘轮只估值、写 marks/close_done；首建仓与评估起点改由 open 轮决定。
 - [改进] 新增工作日 08:45 `DSA_Deck_Morning` 盘前检查（server/飞书 Stream/DNS/08:30 备份/台账，异常才飞书告警）；08:30/17:25 备份与 17:30/20:00 审计任务开启 `WakeToRun`，避免休眠导致证据延后。
 - [chore] 新增每周 `pip-audit` 非阻断依赖漏洞报告（artifact）与依赖治理文档，明确 major/quant 冻结/升级窗口策略。
 - [修复] `/api/v1/health/detailed` 与当前仓储、LLM 状态、飞书通知能力和数据源模块对齐，避免稳定误报 degraded；补健康检查回归。

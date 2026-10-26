@@ -526,6 +526,63 @@ def test_monthly_registry_failure_not_all_and_retry_next_day(tmp_path, monkeypat
     assert calls["cb_rebalance"] == 1   # 已成功项不重跑(仅首轮 1 次)
 
 
+def test_open_runs_due_registries_without_marks_or_close_done(tmp_path, monkeypatch):
+    """开盘窗执行月度注册表，但不写 marks/close_done；收盘轮仍负责估值。"""
+    import json as _json
+
+    p, calls = _monthly_env(tmp_path, monkeypatch, datetime(2026, 10, 8, 9, 31))
+    led = _json.loads(p.read_text(encoding="utf-8"))
+    led["_control"]["bootstrap_done"] = {"once": "all"}
+    p.write_text(_json.dumps(led, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(mod, "erp_scale_pass", lambda *a, **k: [])
+    monkeypatch.setattr(mod, "_open_fills_ok", lambda now=None: True)
+
+    out = mod.run_open(False)
+
+    saved = _json.loads(p.read_text(encoding="utf-8"))
+    assert "开盘建仓" in out
+    assert saved["_control"]["rebalance_done"]["2026-10"] == "all"
+    assert sum(calls.values()) > 0
+    assert saved["marks"] == []
+    assert saved["_control"].get("close_done") is None
+
+
+def test_open_outside_window_is_noop(tmp_path, monkeypatch):
+    import json as _json
+
+    p, calls = _monthly_env(tmp_path, monkeypatch, datetime(2026, 10, 8, 10, 30))
+    before = p.read_text(encoding="utf-8")
+    monkeypatch.setattr(mod, "_open_fills_ok", lambda now=None: False)
+
+    out = mod.run_open(False)
+
+    assert "非开盘建仓窗" in out
+    assert p.read_text(encoding="utf-8") == before
+    assert sum(calls.values()) == 0
+
+
+def test_open_is_idempotent_after_registries_complete(tmp_path, monkeypatch):
+    import json as _json
+
+    p, calls = _monthly_env(tmp_path, monkeypatch, datetime(2026, 10, 8, 9, 31))
+    led = _json.loads(p.read_text(encoding="utf-8"))
+    led["_control"]["bootstrap_done"] = {"once": "all"}
+    p.write_text(_json.dumps(led, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(mod, "erp_scale_pass", lambda *a, **k: [])
+    monkeypatch.setattr(mod, "_open_fills_ok", lambda now=None: True)
+
+    mod.run_open(False)
+    first = _json.loads(p.read_text(encoding="utf-8"))
+    first_calls = sum(calls.values())
+    second_out = mod.run_open(False)
+    second = _json.loads(p.read_text(encoding="utf-8"))
+
+    assert "无待建仓" in second_out or "无调仓" in second_out
+    assert sum(calls.values()) == first_calls
+    assert second["_control"]["rebalance_done"]["2026-10"] == "all"
+    assert second["marks"] == first["marks"]
+
+
 def test_monthly_registry_deferred_outside_fills_window(tmp_path, monkeypatch):
     """非撮合时段(15:05 补结算轮): 只顺延不执行; 空列表占位且不覆盖已有部分完成记录。"""
     import json as _json

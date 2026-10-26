@@ -319,6 +319,19 @@ def _core_missing_quotes(led: dict, px: dict) -> list[str]:
     return sorted(set(missing))
 
 
+def _open_fills_ok(now: datetime | None = None) -> bool:
+    """开盘建仓窗: 工作日 09:30-10:00（墙钟），仅用于 open 模式。
+
+    交易所时间戳在开盘初可能仍停留在上一交易日收盘，不能用于判断开盘窗；
+    open 模式因此用本机墙钟，并以交易所日历单独校验交易日。
+    """
+    current = now or datetime.now()
+    if current.weekday() >= 5:
+        return False
+    hm = current.hour * 100 + current.minute
+    return 930 <= hm <= 1000
+
+
 def _session_fills_ok() -> bool:
     """本次运行捕获的成交闸：会话闸在启动时的交易所时间 + _TRADING_OK。
 
@@ -2719,6 +2732,85 @@ def _bootstrap_tasks(led: dict, px: dict, dry: bool) -> list:
             for name, sym in BENCHMARK_BUILD]
 
 
+def _run_due_registries(led: dict, ctrl: dict, px: dict, dry: bool, fills_ok: bool) -> list[str]:
+    """执行到期的一次性/周度/月度注册表，并应用 ERP 缩放。
+
+    close 与 open 共用；仅调用方决定 fills_ok 与是否写 marks/close_done。
+    """
+    msgs: list[str] = []
+    # 基准一次性建仓: 买入持有槽 C/D 无周/月/事件/日历注册表覆盖，开账清空后必须补建，
+    # 否则 C 恒为现金 → "跑输 C 即降级"的评价纪律失效。非撮合窗顺延、后续撮合窗续做。
+    if not dry and ctrl.setdefault("bootstrap_done", {}).get("once") != "all":
+        msgs.extend(_subtask_registry_pass(
+            led, ctrl, "bootstrap_done", "once",
+            _bootstrap_tasks(led, px, dry), tag="建仓", fills_ok=fills_ok))
+    # 周度注册表: 与月度同构（同一语义单一实现 `_subtask_registry_pass`）。
+    # 门: 周首交易日启动; 非撮合窗顺延; 部分完成(列表记录)则**同周后续交易日**续做至齐备
+    #     （周频窗口只有"周首交易日"这一个，此前裸调用错过即整周丢失，且消息仍报"调仓→"）。
+    iso = EX_DATE.isocalendar()
+    week_key = f"{iso[0]}-W{int(iso[1]):02d}"
+    wdone = ctrl.setdefault("week_rebalance_done", {})
+    if (not dry and wdone.get(week_key) != "all"
+            and (_is_week_first_trading_day() or isinstance(wdone.get(week_key), list))):
+        msgs.extend(_subtask_registry_pass(
+            led, ctrl, "week_rebalance_done", week_key,
+            _weekly_tasks(led, px, dry, fills_ok), tag="周度", fills_ok=fills_ok))
+    month_key = EX_DATE.isoformat()[:7]
+    done = ctrl.setdefault("rebalance_done", {})
+    # 月度注册表: 子策略粒度幂等 + 失败重试 + 非撮合窗顺延。
+    # 门: 月首交易日启动; 部分完成(列表记录)则每日 close 续做至齐备。
+    if (not dry and done.get(month_key) != "all"
+            and (_is_month_first_trading_day() or isinstance(done.get(month_key), list))):
+        msgs.extend(_subtask_registry_pass(
+            led, ctrl, "rebalance_done", month_key,
+            _monthly_tasks(led, px, dry, fills_ok), tag="月度", fills_ok=fills_ok))
+    # ERP 缩放执行侧: 周度/月度重建之后调用(重建清标记 → 此处重新应用 ×0.5; 据实 + 被拒次日补做)
+    msgs.extend(erp_scale_pass(led, px, dry))
+    return msgs
+
+
+def run_open(dry: bool, *, force: bool = False) -> str:
+    """开盘建仓轮: 只用开盘窗执行到期注册表，不写 marks/close_done。
+
+    收盘轮仍负责估值与 marks。paper 账本按 09:30-10:00 的实时/首笔价成交，
+    是显式选择的评估口径；失败子任务保留列表记录，后续 open/close 窗续做。
+    """
+    if not is_exchange_trading_day(EX_DATE):
+        return f"休市(交易所日历 {EX_DATE})，跳过"
+    wall = datetime.now()
+    if not force and not _open_fills_ok(wall):
+        return f"非开盘建仓窗(本机 {wall:%H:%M})，跳过"
+    led = load_ledger()
+    px = slot_prices(led)
+    ctrl = led.setdefault("_control", {})
+    before = json.dumps(
+        {key: ctrl.get(key) for key in (
+            "bootstrap_done", "week_rebalance_done", "rebalance_done", "erp_scaled",
+        )},
+        sort_keys=True,
+        default=str,
+    )
+    msgs = _run_due_registries(led, ctrl, px, dry, fills_ok=True)
+    after = json.dumps(
+        {key: ctrl.get(key) for key in (
+            "bootstrap_done", "week_rebalance_done", "rebalance_done", "erp_scaled",
+        )},
+        sort_keys=True,
+        default=str,
+    )
+    changed = before != after or bool(msgs)
+    today = EX_DATE.isoformat()
+    summary = "【对比盘开盘建仓】" + chr(10) + (
+        chr(10).join(msgs) if msgs else "注册表已执行（无调仓消息）"
+    )
+    if not dry and changed:
+        acts = led.setdefault("_actions", {}).setdefault(today, [])
+        led["_actions"][today] = sorted(set(acts) | set(msgs))
+        save_ledger(led)
+        notify(summary, dedup_key=f"deck_open_{today}")
+    return summary
+
+
 def run_close(dry: bool) -> str:
     # 交易日守卫: run_intraday 内部 catch-up 会直调本函数, 15:10 后 CLI close 模式也无盘中守卫,
     # 非交易日（周末/节假日）不得补结算写 marks；接口失败时 is_exchange_trading_day 保守 True（幂等兜底）。
@@ -2756,34 +2848,7 @@ def run_close(dry: bool) -> str:
         if rep:
             notify(rep, dedup_key=f"deck_monthly_{EX_DATE:%Y-%m}")
     ctrl = led.setdefault("_control", {})
-    # 基准一次性建仓: 买入持有槽 C/D 无周/月/事件/日历注册表覆盖，开账清空后必须补建，
-    # 否则 C 恒为现金 → "跑输 C 即降级"的评价纪律失效。非撮合窗顺延、后续撮合窗续做。
-    if not dry and ctrl.setdefault("bootstrap_done", {}).get("once") != "all":
-        msgs.extend(_subtask_registry_pass(
-            led, ctrl, "bootstrap_done", "once",
-            _bootstrap_tasks(led, px, dry), tag="建仓", fills_ok=fills_ok))
-    # 周度注册表: 与月度同构（同一语义单一实现 `_subtask_registry_pass`）。
-    # 门: 周首交易日启动; 非撮合窗顺延; 部分完成(列表记录)则**同周后续交易日**续做至齐备
-    #     （周频窗口只有"周首交易日"这一个，此前裸调用错过即整周丢失，且消息仍报"调仓→"）。
-    iso = EX_DATE.isocalendar()
-    week_key = f"{iso[0]}-W{int(iso[1]):02d}"
-    wdone = ctrl.setdefault("week_rebalance_done", {})
-    if (not dry and wdone.get(week_key) != "all"
-            and (_is_week_first_trading_day() or isinstance(wdone.get(week_key), list))):
-        msgs.extend(_subtask_registry_pass(
-            led, ctrl, "week_rebalance_done", week_key,
-            _weekly_tasks(led, px, dry, fills_ok), tag="周度", fills_ok=fills_ok))
-    month_key = today[:7]
-    done = ctrl.setdefault("rebalance_done", {})
-    # 月度注册表: 子策略粒度幂等 + 失败重试 + 非撮合窗顺延。
-    # 门: 月首交易日启动; 部分完成(列表记录)则每日 close 续做至齐备。
-    if (not dry and done.get(month_key) != "all"
-            and (_is_month_first_trading_day() or isinstance(done.get(month_key), list))):
-        msgs.extend(_subtask_registry_pass(
-            led, ctrl, "rebalance_done", month_key,
-            _monthly_tasks(led, px, dry, fills_ok), tag="月度", fills_ok=fills_ok))
-    # ERP 缩放执行侧: 周度/月度重建之后调用(重建清标记 → 此处重新应用 ×0.5; 据实 + 被拒次日补做)
-    msgs.extend(erp_scale_pass(led, px, dry))
+    msgs.extend(_run_due_registries(led, ctrl, px, dry, fills_ok))
     # marks 在注册表/成交之后计算: 首日即可反映成交与费用，而不是先记全现金、拖到次日。
     marks = led.setdefault("marks", [])
     equity, ret = {}, {}
@@ -2811,7 +2876,7 @@ def run_close(dry: bool) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="多策略对比盘确定性执行器")
-    ap.add_argument("--mode", choices=["intraday", "close"], required=True)
+    ap.add_argument("--mode", choices=["intraday", "close", "open"], required=True)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--force", action="store_true", help="忽略交易时段判断(测试用)")
     args = ap.parse_args()
@@ -2855,13 +2920,19 @@ def _session_gate(stamp: datetime | None, wall: datetime, force: bool):
 
 def _main_inner(args: argparse.Namespace) -> int:
     global EX_DATE, _TRADING_OK, _session_now
-    stamp = exchange_now()
     wall = datetime.now()
-    EX_DATE, _session_now, _TRADING_OK, reject = _session_gate(stamp, wall, args.force)
-    if reject:
-        print(f"{reject} {args.mode} 轮")
-        return 0
-    out = run_intraday(args.dry_run) if args.mode == "intraday" else run_close(args.dry_run)
+    if args.mode == "open":
+        EX_DATE = wall.date()
+        _session_now = wall
+        _TRADING_OK = True
+        out = run_open(args.dry_run, force=args.force)
+    else:
+        stamp = exchange_now()
+        EX_DATE, _session_now, _TRADING_OK, reject = _session_gate(stamp, wall, args.force)
+        if reject:
+            print(f"{reject} {args.mode} 轮")
+            return 0
+        out = run_intraday(args.dry_run) if args.mode == "intraday" else run_close(args.dry_run)
     print(out)
     return 0
 
