@@ -236,6 +236,25 @@ Register-ScheduledTask -TaskName 'DSA_Deck_Morning' -Action $action -Trigger $tr
 
 **移除/回滚**：`Unregister-ScheduledTask -TaskName 'DSA_Deck_Morning' -Confirm:$false`；备份/审计任务的 `WakeToRun` 可通过 `Set-ScheduledTask -TaskName <name> -Settings` 恢复原值。
 
+### 8.3 开盘建仓任务 `DSA_Deck_Open`（2026-10-27）
+
+**口径变更（用户确认）**：首轮主动槽建仓改为 **paper 账本、09:30-10:00 开盘窗、按开盘/首笔实时价成交**；15:00 收盘轮只负责估值、marks、`close_done` 和收盘侧风控，不再承担首次建仓。评估起点从首个主动槽实际成交的交易日（预计 2026-10-27）开始。
+
+**执行**：工作日 09:31，`WakeToRun=True`，`run_hidden_sync.vbs` 隐藏等待；`compare_deck_task.ps1 -Mode open` → `run_open()`。只执行到期的 bootstrap/周度/月度注册表并应用 ERP 缩放；**不写 marks、不写 close_done、不发交易指令**。注册表沿用 `all`/列表幂等门：失败子任务保留列表，后续 open 轮或收盘轮在撮合闸内续做（若在收盘续做，该部分成交价为收盘价，需在审计中如实记录）。
+
+**注册**：
+
+```powershell
+$action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument '//B //Nologo "D:\daily_stock_analysis\daily_stock_analysis\scripts\run_hidden_sync.vbs" "powershell.exe -NoProfile -ExecutionPolicy Bypass -File D:\daily_stock_analysis\daily_stock_analysis\scripts\compare_deck_task.ps1 -Mode open"'
+$trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At ([datetime]'09:31:00')
+$settings = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 1)
+$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+Register-ScheduledTask -TaskName 'DSA_Deck_Open' -Action $action -Trigger $trigger -Settings $settings -Principal $principal
+```
+
+**边界**：open 窗只认本机墙钟 09:30-10:00（交易所时间戳开盘初可能仍是上一交易日收盘）；任务因休眠/关机晚于 10:00 时跳过，不补开盘价。收盘轮仍可在撮合闸内补做未完成注册表，但价格口径为收盘，不冒充开盘成交。回滚：`Unregister-ScheduledTask -TaskName 'DSA_Deck_Open' -Confirm:$false`；如需恢复“仅收盘建仓”，移除 open 任务并 revert 对应提交。
+
+
 ## 9. 回归保护网
 
 - `tests/test_compare_deck_runner.py` 100 项：纯函数（费用/换算/时段/价差/分位/缓冲带遗留函数/回撤）+ **10-08 月度大考端到端**（mock 时间/行情/引擎，tmp 台账全链）+ 月度/周度注册表（子任务失败/顺延次日重试）+ 空槽首建仓行情预取与按当前 equity 定仓 + 启动会话捕获（入口 → run_close，慢行情不二次取时）+ marks 后置 + F/F2 每票预算 + 快照末端重建 + 核心缺价收盘闸（不写 marks/close_done）+ 缺价成本兜底 + 511010 整手 + 任务拒绝/数据源失败诚实性 + 子进程 UTF-8 解码 + 盘中扫描失败重试/交易所 halfday + PE 分位总闸缩放 + 独占锁四分支 + 撮合窗边界；全部离线可复现（tmp 台账，不依赖生产台账与外部库）

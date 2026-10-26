@@ -6,7 +6,7 @@
 #   schtasks /Create /TN "DSA_Deck_Intraday" /TR "powershell -NoProfile -ExecutionPolicy Bypass -File D:\daily_stock_analysis\daily_stock_analysis\scripts\compare_deck_task.ps1 -Mode intraday" /SC MINUTE /MO 20 /F
 # ============================================================
 param(
-    [Parameter(Mandatory=$true)][ValidateSet("intraday","close")][string]$Mode
+    [Parameter(Mandatory=$true)][ValidateSet("intraday","close","open")][string]$Mode
 )
 $ErrorActionPreference = "Stop"
 $ProjectRoot = "D:\daily_stock_analysis\daily_stock_analysis"
