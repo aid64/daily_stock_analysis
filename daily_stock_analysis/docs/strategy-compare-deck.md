@@ -240,7 +240,7 @@ Register-ScheduledTask -TaskName 'DSA_Deck_Morning' -Action $action -Trigger $tr
 
 **口径变更（用户确认）**：首轮主动槽建仓改为 **paper 账本、09:30-10:00 开盘窗、按开盘/首笔实时价成交**；15:00 收盘轮只负责估值、marks、`close_done` 和收盘侧风控，不再承担首次建仓。评估起点从首个主动槽实际成交的交易日（预计 2026-10-27）开始。
 
-**执行**：工作日 09:31，`WakeToRun=True`，`run_hidden_sync.vbs` 隐藏等待；`compare_deck_task.ps1 -Mode open` → `run_open()`。只执行到期的 bootstrap/周度/月度注册表并应用 ERP 缩放；**不写 marks、不写 close_done、不发交易指令**。注册表沿用 `all`/列表幂等门：失败子任务保留列表，后续 open 轮或收盘轮在撮合闸内续做（若在收盘续做，该部分成交价为收盘价，需在审计中如实记录）。
+**执行**：工作日 09:31，`WakeToRun=True`，`run_hidden_sync.vbs` 隐藏等待；`compare_deck_task.ps1 -Mode open` → `run_open()`。执行前先检查/刷新 A/B 用的 `feeds_snapshot_v5.pkl`（**akshare 源**，目标为上一交易日；默认 baostock 会滞后数日），刷新后若已过 10:00 则本轮顺延。随后只执行到期的 bootstrap/周度/月度注册表并应用 ERP 缩放；**不写 marks、不写 close_done、不发交易指令**。注册表沿用 `all`/列表幂等门：失败子任务保留列表，后续 open 轮或收盘轮在撮合闸内续做（若在收盘续做，该部分成交价为收盘价，需在审计中如实记录）。
 
 **注册**：
 
