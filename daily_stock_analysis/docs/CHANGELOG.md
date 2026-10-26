@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [改进] 新增工作日 08:45 `DSA_Deck_Morning` 盘前检查（server/飞书 Stream/DNS/08:30 备份/台账，异常才飞书告警）；08:30/17:25 备份与 17:30/20:00 审计任务开启 `WakeToRun`，避免休眠导致证据延后。
 - [chore] 新增每周 `pip-audit` 非阻断依赖漏洞报告（artifact）与依赖治理文档，明确 major/quant 冻结/升级窗口策略。
 - [修复] `/api/v1/health/detailed` 与当前仓储、LLM 状态、飞书通知能力和数据源模块对齐，避免稳定误报 degraded；补健康检查回归。
 - [测试] 测试进程新增真实 `.env` 全路径隔离：`Config.setup_env` 与 screening 配置加载在 `ENV_FILE` 空窗期也不得读取仓库真实 `.env`，消除跨线程用户配置泄漏。

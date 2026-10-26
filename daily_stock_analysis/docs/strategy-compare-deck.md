@@ -212,6 +212,30 @@ powercfg -setactive SCHEME_CURRENT
 
 **移除/回滚**：`Unregister-ScheduledTask -TaskName 'DSA_Deck_Close' -Confirm:$false`；电源值恢复 AC=2/DC=0；包装脚本 revert 对应提交。
 
+### 8.2 盘前检查任务 `DSA_Deck_Morning`（2026-10-26）
+
+**目的**：把每日运行起点前移到盘前，在 15:00 收盘前就发现 server/飞书 Stream/DNS/08:30 备份/台账异常，而不是等到收盘轮失败。任务只读，不写台账、不发交易指令；正常日静默，任一关键项失败才发飞书告警（`dedup_key=deck_morning_YYYYMMDD`，每日最多一条）。
+
+**检查项**：本机 `/api/health`；`/api/v1/assistant/runtime/status` 的 `running` 与 `feishu_stream_alive`；`qt.gtimg.cn`、`push2.eastmoney.com`、`open.feishu.cn` DNS；当日 `data/backups/<date>/stock_analysis.db` 是否存在且非空；台账 `close_done`/最近 mark/主动槽数量/当前周月注册表状态（信息项，不阻断）。`close_done` 在 15:00 前已等于当日只记 WARN。
+
+**形态**：工作日 08:45，`WakeToRun=True` + `StartWhenAvailable=True`，`run_hidden_sync.vbs` 隐藏且等待子进程；包装脚本 `scripts/morning_check.ps1` 追加 `logs/morning_check_task.log`（>5MB 轮转）并透传退出码；检查脚本 `scripts/morning_check.py` 支持 `--no-notify` / `--json`。
+
+**注册（2026-10-26 实际执行）**：
+
+```powershell
+$action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument '//B //Nologo "D:\daily_stock_analysis\daily_stock_analysis\scripts\run_hidden_sync.vbs" "powershell.exe -NoProfile -ExecutionPolicy Bypass -File D:\daily_stock_analysis\daily_stock_analysis\scripts\morning_check.ps1"'
+$trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At ([datetime]'08:45:00')
+$settings = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
+$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+Register-ScheduledTask -TaskName 'DSA_Deck_Morning' -Action $action -Trigger $trigger -Settings $settings -Principal $principal
+```
+
+**验证（2026-10-26 23:44）**：手动 `Start-ScheduledTask`，`LastTaskResult=0`，日志显示 server/Stream/DNS/备份全部 PASS，主动槽 0/13 与 `close_done=2026-10-26` 仅信息/WARN。
+
+**同日相关设置**：`DSA_Ledger_Backup`（08:30）、`DSA_Ledger_CloseBackup`（17:25）、`DSA_Deck_Audit`（17:30/20:00）均已开启任务级 `WakeToRun`，避免机器休眠把收盘证据任务拖到夜间。10-26 实测 16:06 休眠导致 17:25/17:30 延后到 20:26；开启后次日生效。
+
+**移除/回滚**：`Unregister-ScheduledTask -TaskName 'DSA_Deck_Morning' -Confirm:$false`；备份/审计任务的 `WakeToRun` 可通过 `Set-ScheduledTask -TaskName <name> -Settings` 恢复原值。
+
 ## 9. 回归保护网
 
 - `tests/test_compare_deck_runner.py` 100 项：纯函数（费用/换算/时段/价差/分位/缓冲带遗留函数/回撤）+ **10-08 月度大考端到端**（mock 时间/行情/引擎，tmp 台账全链）+ 月度/周度注册表（子任务失败/顺延次日重试）+ 空槽首建仓行情预取与按当前 equity 定仓 + 启动会话捕获（入口 → run_close，慢行情不二次取时）+ marks 后置 + F/F2 每票预算 + 快照末端重建 + 核心缺价收盘闸（不写 marks/close_done）+ 缺价成本兜底 + 511010 整手 + 任务拒绝/数据源失败诚实性 + 子进程 UTF-8 解码 + 盘中扫描失败重试/交易所 halfday + PE 分位总闸缩放 + 独占锁四分支 + 撮合窗边界；全部离线可复现（tmp 台账，不依赖生产台账与外部库）
