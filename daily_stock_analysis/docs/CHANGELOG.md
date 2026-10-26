@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [chore] 新增每周 `pip-audit` 非阻断依赖漏洞报告（artifact）与依赖治理文档，明确 major/quant 冻结/升级窗口策略。
 - [修复] `/api/v1/health/detailed` 与当前仓储、LLM 状态、飞书通知能力和数据源模块对齐，避免稳定误报 degraded；补健康检查回归。
 - [测试] 测试进程新增真实 `.env` 全路径隔离：`Config.setup_env` 与 screening 配置加载在 `ENV_FILE` 空窗期也不得读取仓库真实 `.env`，消除跨线程用户配置泄漏。
 - [chore] 东方财富浏览器指纹从 MD5 改为 SHA-256（截断保持 32 位），其余非安全用途 MD5/SHA1 标注 `usedforsecurity=False`；CI 新增 Bandit 高危扫描并纳入 `backend-gate` 聚合。
