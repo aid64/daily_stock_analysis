@@ -536,11 +536,13 @@ def test_open_runs_due_registries_without_marks_or_close_done(tmp_path, monkeypa
     p.write_text(_json.dumps(led, ensure_ascii=False), encoding="utf-8")
     monkeypatch.setattr(mod, "erp_scale_pass", lambda *a, **k: [])
     monkeypatch.setattr(mod, "_open_fills_ok", lambda now=None: True)
+    monkeypatch.setattr(mod, "maybe_refresh_snapshot", lambda dry: "快照已刷新(至 2026-10-23)")
 
     out = mod.run_open(False)
 
     saved = _json.loads(p.read_text(encoding="utf-8"))
     assert "开盘建仓" in out
+    assert "快照已刷新" in out
     assert saved["_control"]["rebalance_done"]["2026-10"] == "all"
     assert sum(calls.values()) > 0
     assert saved["marks"] == []
@@ -1775,6 +1777,7 @@ def test_maybe_refresh_snapshot_rebuilds_on_stale_data(tmp_path, monkeypatch):
     msg = mod.maybe_refresh_snapshot(False)
     assert calls and "快照已刷新" in msg
     assert "2026-10-16" in msg
+    assert "--source" in calls[0] and "akshare" in calls[0]
 
 
 # ------------------------------------------------- 10-22 缺价事故回归

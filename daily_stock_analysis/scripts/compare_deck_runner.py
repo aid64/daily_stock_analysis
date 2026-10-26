@@ -594,7 +594,7 @@ def maybe_refresh_snapshot(dry: bool) -> str:
     try:
         start = (EX_DATE - __import__("datetime").timedelta(days=450)).isoformat()
         _run_cmd([sys.executable, str(PROJECT_DIR.parent / "quant_research" / "scripts" / "build_feeds_snapshot.py"),
-                  "--start", start, "--output", str(target)],
+                  "--start", start, "--source", "akshare", "--output", str(target)],
                  PROJECT_DIR.parent / "quant_research", 900)
         if target.exists():
             new_last = _snapshot_last_date(target)
@@ -2790,7 +2790,10 @@ def run_open(dry: bool, *, force: bool = False) -> str:
         sort_keys=True,
         default=str,
     )
-    msgs = _run_due_registries(led, ctrl, px, dry, fills_ok=True)
+    snap_msg = maybe_refresh_snapshot(dry)
+    if not dry and not force and not _open_fills_ok(datetime.now()):
+        return "【顺延】开盘窗已过(快照刷新耗时)，本轮不建仓"
+    registry_msgs = _run_due_registries(led, ctrl, px, dry, fills_ok=True)
     after = json.dumps(
         {key: ctrl.get(key) for key in (
             "bootstrap_done", "week_rebalance_done", "rebalance_done", "erp_scaled",
@@ -2798,7 +2801,8 @@ def run_open(dry: bool, *, force: bool = False) -> str:
         sort_keys=True,
         default=str,
     )
-    changed = before != after or bool(msgs)
+    msgs = ([snap_msg] if snap_msg else []) + registry_msgs
+    changed = before != after or bool(registry_msgs)
     today = EX_DATE.isoformat()
     summary = "【对比盘开盘建仓】" + chr(10) + (
         chr(10).join(msgs) if msgs else "注册表已执行（无调仓消息）"
