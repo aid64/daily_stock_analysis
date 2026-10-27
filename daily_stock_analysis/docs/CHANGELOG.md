@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [修复] 对比盘 open 轮周期边界：周首/月首开盘时 A/G/H 引擎缺当日 bar 会返回上一周期目标并误登记成功；现延后到 15:00 收盘重算，B/E/F 等仍开盘执行。
 - [改进] C: 第二副本新增 quant 信号输入（PIT/current_plan/feeds_snapshot/H 缓存/策略配置）与 `QUANT_MANIFEST.txt` sha 清单，恢复后可直接重放 E/H/A/B 信号。
 - [改进] 17:30/20:00 审计的“任务结果”新增 PIT 日更、H 预计算、C: 副本三个任务，任一非零即 WARN，避免新任务失败被“正常”结论掩盖。
 - [修复] `refresh_pit.ps1` / `precompute_deck.ps1` 不再把 Python stderr 日志当终止错误，避免计划任务 rc=1 空跑（10-27 07:30 PIT 任务实测）。
