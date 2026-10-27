@@ -27,6 +27,9 @@ $ES_SYSTEM_REQUIRED = [uint32]1
 
 $code = 1
 try {
+    # Python logging writes INFO to stderr; Stop would turn native stderr
+    # into a terminating NativeCommandError before $LASTEXITCODE is read.
+    $ErrorActionPreference = "Continue"
     Set-Location $ProjectRoot
     & $py $ScriptPy --strategy etf_mwu_cb `
         --strategy-config config/strategy/etf_mwu_cb_monthly.yaml --timeout 3600 2>&1 |

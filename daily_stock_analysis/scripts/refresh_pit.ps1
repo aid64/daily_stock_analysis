@@ -32,6 +32,9 @@ $ES_SYSTEM_REQUIRED = [uint32]1
 
 $code = 1
 try {
+    # Python logging writes INFO to stderr; Stop would turn native stderr
+    # into a terminating NativeCommandError before $LASTEXITCODE is read.
+    $ErrorActionPreference = "Continue"
     Set-Location $QuantRoot
     if ($Scope -eq "full") {
         & $py $TailPy --time-budget 9000 2>&1 |
