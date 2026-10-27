@@ -1706,6 +1706,74 @@ def test_mwu_rebalance_ignores_cache_from_rebalance_day(tmp_path, monkeypatch):
     assert calls == [1800]
 
 
+def test_mwu_rebalance_ignores_previous_month_cache(tmp_path, monkeypatch):
+    """月初缓存若仍只有上月 as_of，不能把旧月目标当新月目标。"""
+    from types import SimpleNamespace
+
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "etf_mwu_cb_20261102.json").write_text(json.dumps({
+        "cache_date": "2026-11-02",
+        "as_of": "2026-10-08",
+        "strategy_config": "config/strategy/etf_mwu_cb_monthly.yaml",
+        "target": {"512010.SH": 0.9},
+    }), encoding="utf-8")
+    monkeypatch.setattr(mod, "SIGNAL_CACHE_DIR", cache)
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 11, 2))
+    monkeypatch.setattr(mod, "_session_now", None, raising=False)
+    monkeypatch.setattr(mod, "realtime_quotes",
+                        lambda codes: {c: {"price": 0.5, "pct": 0.0} for c in codes})
+    calls = []
+    monkeypatch.setattr(mod, "_run_cmd", lambda cmd, cwd, timeout: (
+        calls.append(timeout) or SimpleNamespace(
+            stdout=json.dumps({"as_of": "2026-11-02", "target": {"512010.SH": 0.9}}),
+            stderr="", returncode=0)))
+    slot = {"holds": [], "cash": 12411.0, "equity": 12411.0}
+    led = {"strategies": {"H_MWU_CB融合": slot}}
+
+    mod.mwu_rebalance(led, {}, dry=False, slot_name="H_MWU_CB融合",
+                      strategy="etf_mwu_cb",
+                      strategy_config="config/strategy/etf_mwu_cb_monthly.yaml",
+                      fills_ok=True)
+
+    assert calls == [1800]
+
+
+def test_mwu_rebalance_defers_previous_week_target(monkeypatch):
+    """周首收盘数据未到时，引擎 as_of 仍是上一周：必须顺延，不能按旧目标成交。"""
+    from types import SimpleNamespace
+
+    slot = {"holds": [], "cash": 12411.0, "equity": 12411.0}
+    led = {"strategies": {"G_MWU融合": slot}}
+    engine = json.dumps({"as_of": "2026-10-19", "target": {"512010.SH": 0.9}})
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 26))
+    monkeypatch.setattr(mod, "_run_cmd",
+                        lambda cmd, cwd, timeout: SimpleNamespace(
+                            stdout=engine, stderr="", returncode=0))
+
+    msgs = mod.mwu_rebalance(led, {}, dry=False, fills_ok=True)
+
+    assert msgs[0].startswith("【顺延】")
+    assert slot["holds"] == []
+
+
+def test_momentum_signal_defers_previous_week_target(monkeypatch):
+    from types import SimpleNamespace
+
+    slot = {"holds": [], "cash": 12411.0, "equity": 12411.0}
+    led = {"strategies": {"A_动量": slot}}
+    engine = json.dumps({"as_of": "2026-10-19", "ranked": [{"symbol": "510300.SH", "score": 1.0}]})
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 26))
+    monkeypatch.setattr(mod, "_run_cmd",
+                        lambda cmd, cwd, timeout: SimpleNamespace(
+                            stdout=engine, stderr="", returncode=0))
+
+    msgs = mod.momentum_signal(led, {}, dry=False, fills_ok=True)
+
+    assert msgs[0].startswith("【顺延】")
+    assert slot["holds"] == []
+
+
 def test_benchmark_build_prefetches_quote_when_slot_empty(monkeypatch):
     slot = {"holds": [], "cash": 12411.0, "equity": 12411.0}
     led = {"strategies": {"C_沪深300持有": slot}}

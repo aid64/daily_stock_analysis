@@ -347,7 +347,27 @@ def _cached_engine_target(strategy: str, strategy_config: str) -> dict | None:
     # as_of=当天说明今天就是该策略的调仓日，强制回退收盘引擎。
     if str(payload.get("as_of")) == EX_DATE.isoformat():
         return None
+    if strategy == "etf_mwu_cb":
+        # 月初首日：若预计算仍只看到上月末（as_of 在上月），绝不能把旧月
+        # 目标当成新月目标；强制收盘引擎用当日 bar 重算。
+        try:
+            as_of = datetime.strptime(str(payload.get("as_of"))[:10], "%Y-%m-%d").date()
+        except ValueError:
+            return None
+        if (as_of.year, as_of.month) != (EX_DATE.year, EX_DATE.month):
+            return None
     return payload
+
+
+def _engine_target_is_current_period(as_of, strategy: str) -> bool:
+    """引擎 as_of 必须落在当前周（A/G）或当前月（H），否则说明新周期 bar 未到。"""
+    try:
+        d = datetime.strptime(str(as_of)[:10], "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return False
+    if strategy == "etf_mwu_cb":
+        return (d.year, d.month) == (EX_DATE.year, EX_DATE.month)
+    return d.isocalendar()[:2] == EX_DATE.isocalendar()[:2]
 
 
 def _active_hold_count(led: dict) -> int:
@@ -756,6 +776,8 @@ def momentum_signal(led: dict, px: dict, dry: bool, fills_ok: bool | None = None
              "--config", "config/default.yaml"],
             PROJECT_DIR.parent / "quant_research", 600)
         data = _parse_engine_stdout(r.stdout)
+        if not _engine_target_is_current_period(data.get("as_of"), "etf_momentum"):
+            return [f"【顺延】A_动量 引擎目标仍为 {data.get('as_of')}（未触发当前周调仓），待后续收盘重算"]
         target = momentum_target_from_engine(data)
         if not target:
             return ["【异常】A_动量 引擎输出为空, 持仓不变"]
@@ -1179,6 +1201,8 @@ def mwu_rebalance(led: dict, px: dict, dry: bool, slot_name: str = "G_MWU融合"
                  "--strategy", strategy, "--strategy-config", strategy_config, "--config", "config/default.yaml"],
                 PROJECT_DIR.parent / "quant_research", 1800)
             data = _parse_engine_stdout(r.stdout)
+        if not _engine_target_is_current_period(data.get("as_of"), strategy):
+            return [f"【顺延】{slot_name} 引擎目标仍为 {data.get('as_of')}（未触发当前周期调仓），待后续收盘重算"]
         target = {k: float(v) for k, v in (data.get("target") or {}).items()}
         cur = {h["symbol"]: h["qty"] for h in slot.get("holds", [])}
         ensure_prices(px, sorted(set(target) | set(cur)))

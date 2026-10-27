@@ -240,7 +240,7 @@ Register-ScheduledTask -TaskName 'DSA_Deck_Morning' -Action $action -Trigger $tr
 
 **口径变更（用户确认）**：首轮主动槽建仓改为 **paper 账本、09:30-10:00 开盘窗、按开盘/首笔实时价成交**；15:00 收盘轮只负责估值、marks、`close_done` 和收盘侧风控，不再承担首次建仓。评估起点从首个主动槽实际成交的交易日（预计 2026-10-27）开始。
 
-**执行**：工作日 09:31 / 09:45 / 09:55 三次触发（09:31 首次，后两次在 09:30-10:00 窗口内重试失败/顺延子任务；`MultipleInstances IgnoreNew` 防止重叠），`WakeToRun=True`，`run_hidden_sync.vbs` 隐藏等待；`compare_deck_task.ps1 -Mode open` → `run_open()`。执行前先检查/刷新 A/B 用的 `feeds_snapshot_v5.pkl`（**akshare 源**，目标为上一交易日；默认 baostock 会滞后数日），刷新后若已过 10:00 则本轮顺延。随后只执行到期的 bootstrap/周度/月度注册表并应用 ERP 缩放；**不写 marks、不写 close_done、不发交易指令**。**周期边界保护（2026-10-28 修）**：周首/月首开盘时当日 bar 尚不存在，A_动量/G_MWU融合（周）与 H_MWU_CB融合（月）的引擎会停在上一周期目标；open 轮主动跳过这三项并留到 15:00 收盘按当日 bar 重算，B/E/F/F2/I/J/K/M/O 等不依赖当日 bar 的槽仍在开盘执行。注册表沿用 `all`/列表幂等门：失败子任务保留列表，后续 open 轮或收盘轮在撮合闸内续做（若在收盘续做，该部分成交价为收盘价，需在审计中如实记录）。
+**执行**：工作日 09:31 / 09:45 / 09:55 三次触发（09:31 首次，后两次在 09:30-10:00 窗口内重试失败/顺延子任务；`MultipleInstances IgnoreNew` 防止重叠），`WakeToRun=True`，`run_hidden_sync.vbs` 隐藏等待；`compare_deck_task.ps1 -Mode open` → `run_open()`。执行前先检查/刷新 A/B 用的 `feeds_snapshot_v5.pkl`（**akshare 源**，目标为上一交易日；默认 baostock 会滞后数日），刷新后若已过 10:00 则本轮顺延。随后只执行到期的 bootstrap/周度/月度注册表并应用 ERP 缩放；**不写 marks、不写 close_done、不发交易指令**。**周期边界保护（2026-10-28 修）**：周首/月首开盘时当日 bar 尚不存在，A_动量/G_MWU融合（周）与 H_MWU_CB融合（月）的引擎会停在上一周期目标；open 轮主动跳过这三项并留到 15:00 收盘按当日 bar 重算，B/E/F/F2/I/J/K/M/O 等不依赖当日 bar 的槽仍在开盘执行。收盘引擎还会校验目标 as_of 必须在当前周/月；若数据源尚未给出新周期 bar，A/G/H 返回【顺延】而不按旧周期目标成交，待 15:30/16:00 或次日窗口重算。注册表沿用 `all`/列表幂等门：失败子任务保留列表，后续 open 轮或收盘轮在撮合闸内续做（若在收盘续做，该部分成交价为收盘价，需在审计中如实记录）。
 
 **注册**：
 
@@ -277,7 +277,7 @@ Register-ScheduledTask -TaskName 'DSA_Deck_Open' -Action $action -Trigger $trigg
 
 **问题**：H_MWU_CB 的 853 只 CB feeds 引擎提取在冷缓存下约 10 分钟；15:00 收盘轮再重算会把补建/调仓推到 15:30 之后。
 
-**机制**：工作日 13:45 运行 `scripts/precompute_deck_signals.py`，把 `extract_mwu_targets.py --strategy etf_mwu_cb` 的 JSON 写入 `output/deck_signal_cache/etf_mwu_cb_YYYYMMDD.json`；15:00 `mwu_rebalance` 读取同日缓存，跳过引擎。缓存缺失、损坏、`cache_date` 非当日、策略配置不匹配时自动回退 1800s 实时引擎。**调仓日保护**：缓存 `as_of` 等于当天（说明预计算只看到盘中不完整 bar）时也不使用，强制收盘重算。
+**机制**：工作日 13:45 运行 `scripts/precompute_deck_signals.py`，把 `extract_mwu_targets.py --strategy etf_mwu_cb` 的 JSON 写入 `output/deck_signal_cache/etf_mwu_cb_YYYYMMDD.json`；15:00 `mwu_rebalance` 读取同日缓存，跳过引擎。缓存缺失、损坏、`cache_date` 非当日、策略配置不匹配时自动回退 1800s 实时引擎。**调仓日保护**：缓存 `as_of` 等于当天（说明预计算只看到盘中不完整 bar）时也不使用；H 的 `as_of` 月份与当前月不一致（月初仍只有上月目标）时同样强制收盘重算。
 
 **任务**：`DSA_Deck_Precompute`，周一至周五 13:45，`WakeToRun=True`，隐藏启动，日志 `logs/deck_precompute.log`，执行限 60 分钟（2026-10-27 实测 853 只 CB feed 冷启动约 20 分钟，900s 不足；命中缓存后收盘 H 不再重算）。回滚：`Unregister-ScheduledTask -TaskName 'DSA_Deck_Precompute' -Confirm:$false`；移除缓存读取代码即回到纯实时引擎。
 

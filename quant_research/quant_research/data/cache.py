@@ -74,7 +74,10 @@ class ParquetCache:
         tolerance = pd.Timedelta(days=10)
         if df["date"].iloc[0] > start_dt + tolerance:
             return None
-        if df["date"].iloc[-1] < end_dt - tolerance:
+        # 末端必须严格覆盖请求终点：此前 10 天容差让 live 提取在最多 10 天
+        # 内持续命中旧缓存（A/G/H 引擎曾用 10-26 的 bars 跑 10-28 的信号）。
+        # 节假日/周末会因此多一次网络请求，但正确性优先。
+        if df["date"].iloc[-1] < end_dt:
             return None
 
         sliced = df[(df["date"] >= start_dt) & (df["date"] <= end_dt)]
