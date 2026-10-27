@@ -270,7 +270,8 @@ def main() -> int:
             return None
 
     task_results = {n: _last_result(n) for n in
-                    ("DSA_Deck_Intraday", "DSA_Deck_Close", "DSA_Ledger_Backup")}
+                    ("DSA_Deck_Intraday", "DSA_Deck_Close", "DSA_Ledger_Backup",
+                     "DSA_PIT_Daily", "DSA_Deck_Precompute", "DSA_Offsite_Copy")}
     missing_results = [n for n, v in task_results.items() if v is None]
     bad_results = [f"{n}={v}" for n, v in task_results.items() if v not in (None, 0)]
     if missing_results:
@@ -278,7 +279,8 @@ def main() -> int:
     elif bad_results:
         check("任务结果", "WARN", f"非零: {', '.join(bad_results)}")
     else:
-        check("任务结果", "PASS", "Intraday / Close / Ledger_Backup 均 0")
+        check("任务结果", "PASS",
+              "Intraday / Close / Ledger_Backup / PIT / Precompute / Offsite_Copy 均 0")
 
     # 3d. 备份与收盘台账快照（数据耐久性）
     today = datetime.now().date()
