@@ -347,6 +347,15 @@ def _cached_engine_target(strategy: str, strategy_config: str) -> dict | None:
     # as_of=当天说明今天就是该策略的调仓日，强制回退收盘引擎。
     if str(payload.get("as_of")) == EX_DATE.isoformat():
         return None
+    if strategy == "etf_mwu_cb":
+        # 月初首日：若预计算仍只看到上月末（as_of 在上月），绝不能把旧月
+        # 目标当成新月目标；强制收盘引擎用当日 bar 重算。
+        try:
+            as_of = datetime.strptime(str(payload.get("as_of"))[:10], "%Y-%m-%d").date()
+        except ValueError:
+            return None
+        if (as_of.year, as_of.month) != (EX_DATE.year, EX_DATE.month):
+            return None
     return payload
 
 

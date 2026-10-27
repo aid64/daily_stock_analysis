@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [修复] H 目标缓存新增月份一致性门：月初若缓存仍只有上月 `as_of`，收盘强制重算，避免旧月目标被当成新月目标。
 - [修复] quant parquet 缓存末端改为严格覆盖：旧 10 天容差会让 A/G/H 引擎最多使用 10 天前的 ETF bars；live 提取现强制刷新到最新交易日。
 - [修复] 对比盘 open 轮周期边界：周首/月首开盘时 A/G/H 引擎缺当日 bar 会返回上一周期目标并误登记成功；现延后到 15:00 收盘重算，B/E/F 等仍开盘执行。
 - [改进] C: 第二副本新增 quant 信号输入（PIT/current_plan/feeds_snapshot/H 缓存/策略配置）与 `QUANT_MANIFEST.txt` sha 清单，恢复后可直接重放 E/H/A/B 信号。
