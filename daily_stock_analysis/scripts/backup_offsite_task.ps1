@@ -8,6 +8,7 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = "D:\daily_stock_analysis\daily_stock_analysis"
 $LogFile     = Join-Path $ProjectRoot "logs\backup_offsite_task.log"
 $ScriptPy    = Join-Path $ProjectRoot "scripts\backup_offsite.py"
+$QuantPy     = Join-Path $ProjectRoot "scripts\backup_quant_snapshot.py"
 $Destination = "C:\DSA-Backup"
 $SourceRoot  = "data\backups_close"
 
@@ -30,6 +31,11 @@ Set-Location $ProjectRoot
     --retention 7 2>&1 |
     ForEach-Object { Add-Content -Path $LogFile -Value "$_" -Encoding UTF8 }
 $code = $LASTEXITCODE
+if ($code -eq 0) {
+    & $py $QuantPy --destination $Destination --retention 7 2>&1 |
+        ForEach-Object { Add-Content -Path $LogFile -Value "$_" -Encoding UTF8 }
+    $code = $LASTEXITCODE
+}
 
 $endStamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ss"
 Add-Content -Path $LogFile -Value "$endStamp offsite-copy exit=$code"
