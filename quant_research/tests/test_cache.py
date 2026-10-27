@@ -49,6 +49,14 @@ class TestParquetCache:
         result = cache.get_bars("600519.SH", "2024-02-01", "2024-02-28", "hfq")
         assert result is None
 
+    def test_end_not_covered_within_old_ten_day_tolerance_returns_none(self, tmp_cache_dir: Path, sample_bars_df):
+        """末端必须严格覆盖终点；旧 10 天容差会让 live 信号最多陈旧 10 天。"""
+        cache = ParquetCache(tmp_cache_dir)
+        cache.put_bars("600519.SH", sample_bars_df, "hfq")
+
+        result = cache.get_bars("600519.SH", "2024-01-01", "2024-01-05", "hfq")
+        assert result is None
+
     def test_start_not_covered_returns_none(self, tmp_cache_dir: Path, sample_bars_df):
         """请求起点早于缓存起点（预热期场景）→ miss，防止静默截断"""
         cache = ParquetCache(tmp_cache_dir)
