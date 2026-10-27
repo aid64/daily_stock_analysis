@@ -2711,7 +2711,8 @@ def _weekly_tasks(led: dict, px: dict, dry: bool, fills_ok: bool) -> list:
 
 
 def _subtask_registry_pass(led: dict, ctrl: dict, registry_key: str, key: str,
-                           tasks: list, *, tag: str, fills_ok: bool) -> list[str]:
+                           tasks: list, *, tag: str, fills_ok: bool,
+                           defer_labels: tuple[str, ...] = ()) -> list[str]:
     """子任务注册表的**唯一实现**（月频与周频共用，避免同一语义两套代码）。
 
     语义：
@@ -2733,9 +2734,14 @@ def _subtask_registry_pass(led: dict, ctrl: dict, registry_key: str, key: str,
         msgs.append(f"【{tag}调仓】非撮合时段, {tag}调仓顺延 (待撮合窗续做)")
         return msgs
     ok = list(done.get(key)) if isinstance(done.get(key), list) else []
+    deferred = tuple(label for label in defer_labels if label not in ok)
+    if deferred:
+        # 周期首日开盘时当日 bar 尚不存在，引擎会返回上一周期目标；
+        # 不登记成功，留到 15:00 收盘按当日 bar 重算。
+        msgs.append(f"【顺延】{tag}引擎派生槽 {sorted(deferred)} 待收盘 bar 计算")
     for label, slots, call in tasks:
-        if label in ok:
-            continue  # 幂等: 已完成子任务不重跑
+        if label in ok or label in deferred:
+            continue  # 幂等 / 周期首日延后: 不执行不登记
         try:
             sub = list(call() or [])
         except Exception as exc:                      # noqa: BLE001
@@ -2794,10 +2800,13 @@ def _bootstrap_tasks(led: dict, px: dict, dry: bool) -> list:
             for name, sym in BENCHMARK_BUILD]
 
 
-def _run_due_registries(led: dict, ctrl: dict, px: dict, dry: bool, fills_ok: bool) -> list[str]:
+def _run_due_registries(led: dict, ctrl: dict, px: dict, dry: bool, fills_ok: bool,
+                        *, defer_engine_on_period_start: bool = False) -> list[str]:
     """执行到期的一次性/周度/月度注册表，并应用 ERP 缩放。
 
     close 与 open 共用；仅调用方决定 fills_ok 与是否写 marks/close_done。
+    open 在周期首日传 defer_engine_on_period_start=True：A/G（周）与 H（月）
+    的引擎目标要等当日 bar 收盘才触发，开盘算会停在上一周期，必须留到收盘。
     """
     msgs: list[str] = []
     # 基准一次性建仓: 买入持有槽 C/D 无周/月/事件/日历注册表覆盖，开账清空后必须补建，
@@ -2812,20 +2821,28 @@ def _run_due_registries(led: dict, ctrl: dict, px: dict, dry: bool, fills_ok: bo
     iso = EX_DATE.isocalendar()
     week_key = f"{iso[0]}-W{int(iso[1]):02d}"
     wdone = ctrl.setdefault("week_rebalance_done", {})
+    week_first = _is_week_first_trading_day()
     if (not dry and wdone.get(week_key) != "all"
-            and (_is_week_first_trading_day() or isinstance(wdone.get(week_key), list))):
+            and (week_first or isinstance(wdone.get(week_key), list))):
+        week_defer = (("momentum", "mwu")
+                      if defer_engine_on_period_start and week_first else ())
         msgs.extend(_subtask_registry_pass(
             led, ctrl, "week_rebalance_done", week_key,
-            _weekly_tasks(led, px, dry, fills_ok), tag="周度", fills_ok=fills_ok))
+            _weekly_tasks(led, px, dry, fills_ok), tag="周度", fills_ok=fills_ok,
+            defer_labels=week_defer))
     month_key = EX_DATE.isoformat()[:7]
     done = ctrl.setdefault("rebalance_done", {})
     # 月度注册表: 子策略粒度幂等 + 失败重试 + 非撮合窗顺延。
     # 门: 月首交易日启动; 部分完成(列表记录)则每日 close 续做至齐备。
+    month_first = _is_month_first_trading_day()
     if (not dry and done.get(month_key) != "all"
-            and (_is_month_first_trading_day() or isinstance(done.get(month_key), list))):
+            and (month_first or isinstance(done.get(month_key), list))):
+        month_defer = (("mwu_cb",)
+                       if defer_engine_on_period_start and month_first else ())
         msgs.extend(_subtask_registry_pass(
             led, ctrl, "rebalance_done", month_key,
-            _monthly_tasks(led, px, dry, fills_ok), tag="月度", fills_ok=fills_ok))
+            _monthly_tasks(led, px, dry, fills_ok), tag="月度", fills_ok=fills_ok,
+            defer_labels=month_defer))
     # ERP 缩放执行侧: 周度/月度重建之后调用(重建清标记 → 此处重新应用 ×0.5; 据实 + 被拒次日补做)
     msgs.extend(erp_scale_pass(led, px, dry))
     return msgs
@@ -2855,7 +2872,8 @@ def run_open(dry: bool, *, force: bool = False) -> str:
     snap_msg = maybe_refresh_snapshot(dry)
     if not dry and not force and not _open_fills_ok(datetime.now()):
         return "【顺延】开盘窗已过(快照刷新耗时)，本轮不建仓"
-    registry_msgs = _run_due_registries(led, ctrl, px, dry, fills_ok=True)
+    registry_msgs = _run_due_registries(
+        led, ctrl, px, dry, fills_ok=True, defer_engine_on_period_start=True)
     after = json.dumps(
         {key: ctrl.get(key) for key in (
             "bootstrap_done", "week_rebalance_done", "rebalance_done", "erp_scaled",

@@ -534,7 +534,9 @@ def test_open_runs_due_registries_without_marks_or_close_done(tmp_path, monkeypa
     p, calls = _monthly_env(tmp_path, monkeypatch, datetime(2026, 10, 8, 9, 31))
     led = _json.loads(p.read_text(encoding="utf-8"))
     led["_control"]["bootstrap_done"] = {"once": "all"}
+    led["_control"]["rebalance_done"] = {"2026-10": []}
     p.write_text(_json.dumps(led, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(mod, "_is_month_first_trading_day", lambda: False)
     monkeypatch.setattr(mod, "erp_scale_pass", lambda *a, **k: [])
     monkeypatch.setattr(mod, "_open_fills_ok", lambda now=None: True)
     monkeypatch.setattr(mod, "maybe_refresh_snapshot", lambda dry: "快照已刷新(至 2026-10-23)")
@@ -570,7 +572,9 @@ def test_open_is_idempotent_after_registries_complete(tmp_path, monkeypatch):
     p, calls = _monthly_env(tmp_path, monkeypatch, datetime(2026, 10, 8, 9, 31))
     led = _json.loads(p.read_text(encoding="utf-8"))
     led["_control"]["bootstrap_done"] = {"once": "all"}
+    led["_control"]["rebalance_done"] = {"2026-10": []}
     p.write_text(_json.dumps(led, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(mod, "_is_month_first_trading_day", lambda: False)
     monkeypatch.setattr(mod, "erp_scale_pass", lambda *a, **k: [])
     monkeypatch.setattr(mod, "_open_fills_ok", lambda now=None: True)
 
@@ -584,6 +588,45 @@ def test_open_is_idempotent_after_registries_complete(tmp_path, monkeypatch):
     assert sum(calls.values()) == first_calls
     assert second["_control"]["rebalance_done"]["2026-10"] == "all"
     assert second["marks"] == first["marks"]
+
+
+def test_open_defers_engine_slots_on_period_first_day(tmp_path, monkeypatch):
+    """周首/月首开盘无当日 bar：A/G/H 的引擎目标必须留到收盘，不能登记成功。"""
+    import json as _json
+
+    p, calls = _monthly_env(tmp_path, monkeypatch, datetime(2026, 10, 8, 9, 31))
+    led = _json.loads(p.read_text(encoding="utf-8"))
+    led["_control"]["bootstrap_done"] = {"once": "all"}
+    led["_control"]["rebalance_done"] = {}
+    led["_control"]["week_rebalance_done"] = {}
+    p.write_text(_json.dumps(led, ensure_ascii=False), encoding="utf-8")
+    wcalls = {"momentum": 0, "rotation": 0}
+
+    def _momentum(*a, **k):
+        wcalls["momentum"] += 1
+        return []
+
+    def _rotation(*a, **k):
+        wcalls["rotation"] += 1
+        return []
+
+    monkeypatch.setattr(mod, "_is_week_first_trading_day", lambda: True)
+    monkeypatch.setattr(mod, "momentum_signal", _momentum)
+    monkeypatch.setattr(mod, "rotation_signal", _rotation)
+    monkeypatch.setattr(mod, "erp_scale_pass", lambda *a, **k: [])
+    monkeypatch.setattr(mod, "_open_fills_ok", lambda now=None: True)
+
+    out = mod.run_open(False)
+
+    saved = _json.loads(p.read_text(encoding="utf-8"))
+    assert "引擎派生槽" in out and "顺延" in out
+    assert calls["mwu_rebalance"] == 0          # G/H both deferred
+    assert wcalls["momentum"] == 0              # A deferred
+    assert wcalls["rotation"] == 1              # B is snapshot-based, safe at open
+    assert calls["cb_rebalance"] == 1           # E does not need today's bar
+    assert saved["_control"]["rebalance_done"]["2026-10"] != "all"
+    assert "mwu_cb" not in saved["_control"]["rebalance_done"]["2026-10"]
+    assert saved["_control"]["week_rebalance_done"]["2026-W41"] == ["rotation"]
 
 
 def test_monthly_registry_deferred_outside_fills_window(tmp_path, monkeypatch):
