@@ -90,6 +90,11 @@ py scripts/backup_offsite.py --destination E:\DSA-Backup --source-root data\back
   `DSA_Offsite_Copy`（工作日 17:40，源 `data/backups_close`，目标 `C:\DSA-Backup`，保留 7 份，
   `WakeToRun`），只防逻辑误删/文件损坏，**不防物理盘损坏，也不是离机**。接入真正外置/网络目标后，
   应把任务目标切换到该存储并保留本副本作为本地冗余。
+- **quant 信号输入副本（2026-10-28 增）**：同一任务同时调用 `backup_quant_snapshot.py`，把
+  `convertible_pit.parquet`、`paper_tracking/current_plan.json`、最新 `feeds_snapshot_v*.pkl`、
+  最新 H 目标缓存和 `etf_mwu_cb_monthly.yaml` 复制到 `C:\DSA-Backup\quant\<date>\`，逐文件
+  sha256 并写 `QUANT_MANIFEST.txt`。恢复后可直接重放 E/H/A/B 信号，无需先重建 PIT；PIT 源 raw
+  缓存仍不在副本内，若需重建历史 PIT 仍需原始缓存。
 - 计划任务：真正离机目标确定后，将 `DSA_Offsite_Copy` 的 `$Destination` 指向外置盘/网盘同步目录；
   本脚本不做自动上传/云 API。
 - 还原：把 `<destination>/daily_stock_analysis/<date>/` 复制回
