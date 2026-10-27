@@ -2,6 +2,7 @@
 """compare_deck_runner 核心交易原语单测（离线，无网络）。"""
 
 import importlib.util
+import json
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -1164,6 +1165,26 @@ def test_main_inner_exposes_captured_session_to_close(monkeypatch):
     assert mod._session_now == stamp
 
 
+def test_main_inner_open_returns_nonzero_when_all_slots_failed(monkeypatch, capsys):
+    monkeypatch.setattr(mod, "run_open",
+                        lambda dry, force=False: "【对比盘开盘建仓】\n【异常】A_动量 目标缺价")
+    monkeypatch.setattr(mod, "load_ledger", lambda: {"strategies": {}})
+    rc = mod._main_inner(
+        __import__("argparse").Namespace(force=False, mode="open", dry_run=False))
+    assert rc == 1
+    assert "【异常】" in capsys.readouterr().out
+
+
+def test_main_inner_open_partial_success_remains_zero(monkeypatch):
+    monkeypatch.setattr(mod, "run_open",
+                        lambda dry, force=False: "【对比盘开盘建仓】\n【异常】G 缺价\nE 调仓→['113062.SH']")
+    monkeypatch.setattr(mod, "load_ledger", lambda: {"strategies": {
+        "A_动量": {"holds": [{"symbol": "510300.SH", "qty": 100}]}}})
+    rc = mod._main_inner(
+        __import__("argparse").Namespace(force=False, mode="open", dry_run=False))
+    assert rc == 0
+
+
 def test_main_inner_catchup_after_1510_enters_with_gate_closed(monkeypatch):
     """15:10 后收盘补结算必须被放行进入，且 _TRADING_OK=False（内核拒绝新成交）。"""
     class _Frozen1522(_FrozenWall):
@@ -1476,6 +1497,17 @@ def test_ensure_prices_uses_tencent_for_cb(monkeypatch):
     assert px["113631.SH"]["source"] == "tencent_cb"
 
 
+def test_ensure_prices_uses_tencent_for_etf_when_chain_misses(monkeypatch):
+    """511010 在六源链实测无价；H 首建仓必须由腾讯直连兜底，否则整槽 NO_QUOTE。"""
+    monkeypatch.setattr(mod, "realtime_quotes",
+                        lambda codes: {c: {"price": 0.0, "pct": 0.0} for c in codes})
+    monkeypatch.setattr(mod, "tencent_quotes",
+                        lambda codes: {"511010": {"price": 141.176, "pct": 0.0, "name": "国债ETF"}})
+    px = mod.ensure_prices({}, ["511010.SH"])
+    assert px["511010.SH"]["price"] == 141.176
+    assert px["511010.SH"]["source"] == "tencent_direct"
+
+
 def test_slot_prices_fills_cb_holdings_via_tencent(monkeypatch):
     led = {"strategies": {"E_可转债双低": {
         "holds": [{"symbol": "113062.SH", "qty": 20, "price": 120.0}], "cash": 0.0}}}
@@ -1564,6 +1596,71 @@ def test_mwu_rebalance_prefetches_target_quotes_and_sizes_on_equity(monkeypatch)
     msgs = mod.mwu_rebalance(led, {}, dry=False)
     assert slot["holds"] and slot["holds"][0]["qty"] == 1800   # 21000×0.9/10，不是 12411×0.9/10
     assert "调仓→" in msgs[0]
+
+
+def test_mwu_rebalance_uses_fresh_signal_cache(tmp_path, monkeypatch):
+    """14:30 预计算目标命中时不得再跑 10 分钟引擎。"""
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "etf_mwu_cb_20261027.json").write_text(json.dumps({
+        "cache_date": "2026-10-27",
+        "as_of": "2026-10-08",
+        "strategy_config": "config/strategy/etf_mwu_cb_monthly.yaml",
+        "target": {"512010.SH": 0.9},
+    }), encoding="utf-8")
+    monkeypatch.setattr(mod, "SIGNAL_CACHE_DIR", cache)
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 27))
+    monkeypatch.setattr(mod, "_session_now", None, raising=False)
+    monkeypatch.setattr(mod, "realtime_quotes",
+                        lambda codes: {c: {"price": 0.5, "pct": 0.0} for c in codes})
+    slot = {"holds": [], "cash": 12411.0, "equity": 12411.0}
+    led = {"strategies": {"H_MWU_CB融合": slot}}
+
+    def _boom(*a, **k):
+        raise AssertionError("fresh cache should skip engine")
+
+    monkeypatch.setattr(mod, "_run_cmd", _boom)
+    msgs = mod.mwu_rebalance(
+        led, {}, dry=False, slot_name="H_MWU_CB融合",
+        strategy="etf_mwu_cb",
+        strategy_config="config/strategy/etf_mwu_cb_monthly.yaml",
+        fills_ok=True)
+
+    assert slot["holds"] and slot["holds"][0]["symbol"] == "512010.SH"
+    assert "调仓→" in msgs[0]
+
+
+def test_mwu_rebalance_ignores_cache_from_rebalance_day(tmp_path, monkeypatch):
+    """调仓日 14:30 缓存只含盘中不完整 bar，必须回退收盘引擎。"""
+    from types import SimpleNamespace
+
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "etf_mwu_cb_20261027.json").write_text(json.dumps({
+        "cache_date": "2026-10-27",
+        "as_of": "2026-10-27",
+        "strategy_config": "config/strategy/etf_mwu_cb_monthly.yaml",
+        "target": {"512010.SH": 0.9},
+    }), encoding="utf-8")
+    monkeypatch.setattr(mod, "SIGNAL_CACHE_DIR", cache)
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 27))
+    monkeypatch.setattr(mod, "_session_now", None, raising=False)
+    monkeypatch.setattr(mod, "realtime_quotes",
+                        lambda codes: {c: {"price": 0.5, "pct": 0.0} for c in codes})
+    calls = []
+    monkeypatch.setattr(mod, "_run_cmd", lambda cmd, cwd, timeout: (
+        calls.append(timeout) or SimpleNamespace(
+            stdout=json.dumps({"as_of": "2026-10-27", "target": {"512010.SH": 0.9}}),
+            stderr="", returncode=0)))
+    slot = {"holds": [], "cash": 12411.0, "equity": 12411.0}
+    led = {"strategies": {"H_MWU_CB融合": slot}}
+
+    mod.mwu_rebalance(led, {}, dry=False, slot_name="H_MWU_CB融合",
+                      strategy="etf_mwu_cb",
+                      strategy_config="config/strategy/etf_mwu_cb_monthly.yaml",
+                      fills_ok=True)
+
+    assert calls == [1800]
 
 
 def test_benchmark_build_prefetches_quote_when_slot_empty(monkeypatch):
@@ -1857,6 +1954,37 @@ def test_smallcap_universe_raises_on_missing_source(monkeypatch):
     monkeypatch.setattr(mod, "ts_client", lambda: SimpleNamespace(call=lambda *a, **k: None))
     with pytest.raises(RuntimeError, match="daily_basic"):
         mod.smallcap_universe("20260930", True, 8)
+
+
+def test_ok_symbol_excludes_delisting_and_st_names():
+    assert not mod._ok_symbol("元道退", "301139.SZ")
+    assert not mod._ok_symbol("*ST样本", "000001.SZ")
+    assert not mod._ok_symbol("正常股", "688001.SH")
+    assert mod._ok_symbol("天元智能", "603273.SH")
+
+
+def test_smallcap_universe_excludes_delisting_names(monkeypatch):
+    """301139 元道退仍在 list_status=L，但退市整理股不得进入小市值候选。"""
+    import pandas as pd
+    from types import SimpleNamespace
+
+    db = pd.DataFrame({
+        "ts_code": ["301139.SZ", "603273.SH"],
+        "circ_mv": [100.0, 200.0],
+        "close": [0.73, 15.0],
+    })
+    sb = pd.DataFrame({
+        "ts_code": ["301139.SZ", "603273.SH"],
+        "name": ["元道退", "天元智能"],
+        "list_date": ["20200101", "20200101"],
+    })
+
+    def _call(api, **kwargs):
+        return db if api == "daily_basic" else sb
+
+    monkeypatch.setattr(mod, "ts_client", lambda: SimpleNamespace(call=_call))
+    recs = mod.smallcap_universe("20260930", False, 8)
+    assert [r["ts_code"] for r in recs] == ["603273.SH"]
 
 
 def test_intraday_does_not_mark_close_done_on_close_failure(tmp_path, monkeypatch):

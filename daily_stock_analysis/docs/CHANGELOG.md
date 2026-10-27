@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [改进] `backup_offsite.py` 新增 `--source-root`（可同步 `data/backups_close`）；新增工作日 17:40 `DSA_Offsite_Copy`，把收盘备份复制到 `C:\DSA-Backup`（同物理盘第二分区，非离机、不防盘坏），保留 7 份、默认排除 `.env`。
+- [chore] 合并 mirror 依赖 PR #66 baostock、#64 lark-oapi、#63 tavily-python、#60 electron-updater（均 CI 全绿，minor/patch）。
+- [chore] `scripts/test.sh` 增加 `python3`→`python` 本地回退（Windows Git Bash 无 `python3` 命令），恢复本地 `ci_gate.sh deterministic` 阶段。
+- [修复] 小市值候选新增 `ST|退` 过滤：301139 元道退（退市整理股）曾进入 F 槽；2026-10-27 误买已按成本价逆回并留痕，过滤器补回归测试。
+- [修复] `DSA_Deck_Close` 任务动作从错误的 `-Mode intraday` 修正为 `-Mode close`（此前靠盘中轮 15:00 catch-up 触发收盘，属偶然路径）；17:30/20:00 审计新增 `mode_close` 校验，防止再次误注册。
+- [改进] 2026-10-27 收盘轮按收盘价补建 11/13 主动槽（B 无轮动信号、N 无形态候选保持现金），`close_done=2026-10-27`；评估起点记 10-27、`eval_basis=close_fallback`（09:31 DNS 全断）。
+- [改进] 08:45 盘前检查新增 PIT 新鲜度（末端超 7 天 FAIL 并飞书告警），在开盘前暴露转债数据断供。
+- [修复] `ensure_prices` 对六源实时链仍缺价的 ETF 增加腾讯直连兜底（511010 实测 efinance/akshare 无价），避免 C/D/H 因防御腿缺价整槽放弃。
+- [改进] 新增 `DSA_Deck_Precompute`（工作日 13:45，60 分钟限）预计算 H 目标并写入日期缓存，收盘轮优先复用；缓存缺失/损坏/调仓日/配置不匹配自动回退 1800s 实时引擎。
+- [改进] 对比盘开盘任务新增 09:45/09:55 窗口内重试；0/13 主动槽且全为异常时返回非零，避免 DNS/唤醒故障被 `exit=0` 掩盖。
+- [改进] 对比盘 H_MWU_CB 引擎提取超时 600s→1800s：853 只 CB feeds 冷启动实测约 20 分钟，收盘任务总限 2h，留出完成余量避免调仓日 H 缺建。
+- [修复] PIT 转债数据管道（10-27）：东财新增两列导致 akshare 固定列位解析自 09-18 起失败、PIT 末端停在 10-16（截面仅 17 只）；改为按字段名直连东财，增量队列改为“目标债 → 活跃券 → 陈旧券”并加滚动游标，新增 `--active-only`。
+- [改进] 新增 `DSA_PIT_Daily`（周一至周六 06:00 活跃券刷新）与 `DSA_PIT_WeeklyFull`（周日 04:00 全量），均 WakeToRun 并在刷新后 assemble，保证开盘前 PIT 截面完整；09:00 管线的 50 只增量保留为兜底。
 - [修复] 对比盘 open 轮先刷新 A/B feeds 快照并强制 akshare 源（默认 baostock 数据滞后至 10-16），避免开盘首建使用过期信号；现有 v5 快照已备份并更新至 2026-10-26。
 - [改进] 对比盘新增工作日 09:31 `DSA_Deck_Open` 开盘建仓窗（paper，09:30-10:00 开盘/首笔价）：周/月注册表在 open 轮成交，15:00 收盘轮只估值、写 marks/close_done；首建仓与评估起点改由 open 轮决定。
 - [改进] 新增工作日 08:45 `DSA_Deck_Morning` 盘前检查（server/飞书 Stream/DNS/08:30 备份/台账，异常才飞书告警）；08:30/17:25 备份与 17:30/20:00 审计任务开启 `WakeToRun`，避免休眠导致证据延后。

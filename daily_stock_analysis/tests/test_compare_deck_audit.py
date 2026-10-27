@@ -53,7 +53,7 @@ def _run_audit(monkeypatch, tmp_path, ledger_dict, log_text, live=None, last_res
     close_xml = ('<Task><RegistrationInfo><URI>DSA_Deck_Close</URI></RegistrationInfo>'
                  '<Settings><WakeToRun>true</WakeToRun></Settings>'
                  '<Triggers><StartBoundary>2026-10-21T15:00:30+08:00</StartBoundary></Triggers>'
-                 '<Actions><Exec><Arguments>run_hidden_sync.vbs</Arguments></Exec></Actions></Task>')
+                 '<Actions><Exec><Arguments>run_hidden_sync.vbs -Mode close</Arguments></Exec></Actions></Task>')
 
     def _fake_run(cmd, *a, **k):
         joined = " ".join(str(x) for x in cmd)
@@ -275,9 +275,18 @@ def test_wake_task_status_pass():
     xml = ('<Task><RegistrationInfo><URI>DSA_Deck_Close</URI></RegistrationInfo>'
            '<Settings><WakeToRun>true</WakeToRun></Settings>'
            '<Triggers><StartBoundary>2026-10-21T15:00:30+08:00</StartBoundary></Triggers>'
-           '<Actions><Exec><Arguments>run_hidden_sync.vbs</Arguments></Exec></Actions></Task>')
+           '<Actions><Exec><Arguments>run_hidden_sync.vbs -Mode close</Arguments></Exec></Actions></Task>')
     status, detail = mod.wake_task_status(xml)
     assert status == "PASS" and "sync" in detail
+
+
+def test_wake_task_status_warns_on_wrong_mode():
+    xml = ('<Task><URI>DSA_Deck_Close</URI>'
+           '<Settings><WakeToRun>true</WakeToRun></Settings>'
+           '<StartBoundary>2026-10-21T15:00:30</StartBoundary>'
+           '<Arguments>run_hidden_sync.vbs -Mode intraday</Arguments></Task>')
+    status, detail = mod.wake_task_status(xml)
+    assert status == "WARN" and "mode_close=False" in detail
 
 
 def test_wake_task_status_warns_when_disabled_or_missing_sync():

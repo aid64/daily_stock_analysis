@@ -75,6 +75,9 @@ py scripts/backup_offsite.py --destination E:\DSA-Backup --retention 8
 
 # 仅当目标是加密存储时，才把 .env 一并同步
 py scripts/backup_offsite.py --destination E:\DSA-Backup --include-env
+
+# 收盘备份（data/backups_close）作为源，同步最新收盘全量
+py scripts/backup_offsite.py --destination E:\DSA-Backup --source-root data\backups_close
 ```
 
 - 默认布局：`<destination>/daily_stock_analysis/<YYYY-MM-DD>/`；默认保留最近 14 份，
@@ -83,7 +86,12 @@ py scripts/backup_offsite.py --destination E:\DSA-Backup --include-env
   完整还原需要 `.env` 时，用 `--include-env` 并确保目标是加密盘/加密卷，或把 `.env`
   单独保存在密码管理器。默认模式会删除目标同日目录里上次遗留的 `.env`。
 - 脚本拒绝把目标放在 `data/backups/` 内（那不是离机）；也不做任何自动上传/云 API。
-- 计划任务：目标确定后可每周手动或注册一次；本脚本不自动注册任务。
+- **2026-10-27 临时第二分区副本**：本机 C:/D: 是同一块物理盘，尚无外置盘/网盘目标。已注册
+  `DSA_Offsite_Copy`（工作日 17:40，源 `data/backups_close`，目标 `C:\DSA-Backup`，保留 7 份，
+  `WakeToRun`），只防逻辑误删/文件损坏，**不防物理盘损坏，也不是离机**。接入真正外置/网络目标后，
+  应把任务目标切换到该存储并保留本副本作为本地冗余。
+- 计划任务：真正离机目标确定后，将 `DSA_Offsite_Copy` 的 `$Destination` 指向外置盘/网盘同步目录；
+  本脚本不做自动上传/云 API。
 - 还原：把 `<destination>/daily_stock_analysis/<date>/` 复制回
   `data/backups/<date>/`，再按场景 A/B/C 执行；若未同步 `.env`，从密码管理器恢复。
 

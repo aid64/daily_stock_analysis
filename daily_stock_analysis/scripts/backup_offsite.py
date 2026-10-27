@@ -86,8 +86,9 @@ def _ensure_disjoint(source: Path, destination: Path) -> None:
 
 def sync_offsite(destination: str | Path, date_str: str | None = None,
                  retention: int = RETENTION_DEFAULT, include_env: bool = False,
-                 dry_run: bool = False) -> Path:
-    source_root = _BACKUP_ROOT
+                 dry_run: bool = False,
+                 source_root: str | Path | None = None) -> Path:
+    source_root = Path(source_root) if source_root else _BACKUP_ROOT
     source = source_root / date_str if date_str else latest_backup_dir(source_root)
     if not source.is_dir():
         logger.error("备份日期目录不存在: %s", source)
@@ -166,10 +167,12 @@ def main() -> None:
     ap.add_argument("--include-env", action="store_true",
                     help="同时复制 .env（仅在目标为加密存储时使用）")
     ap.add_argument("--dry-run", action="store_true", help="只打印计划，不写目标")
+    ap.add_argument("--source-root", default=None,
+                    help="备份源根目录（默认 data/backups；收盘备份用 data/backups_close）")
     args = ap.parse_args()
     try:
         sync_offsite(args.destination, args.date, args.retention,
-                     args.include_env, args.dry_run)
+                     args.include_env, args.dry_run, args.source_root)
     except SystemExit:
         raise
     except Exception as exc:  # noqa: BLE001

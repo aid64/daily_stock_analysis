@@ -24,16 +24,17 @@ def test_akshare_etf_daily_smoke():
     assert (df["close"] > 0).all()
 
 
-def test_akshare_convertible_value_analysis_smoke():
-    """转债价值分析（PIT 增量真源，update_pit_tail 同源）：连通性 + 列契约
+def test_eastmoney_convertible_value_analysis_smoke():
+    """转债价值分析（PIT 增量真源）：连通性 + 字段契约。
 
-    注意：AkshareClient.get_convertible_bond_daily 委托给股票 API，对
-    转债代码不对口（已知局限）；本用例直接对准 PIT 增量实际消费的
-    bond_zh_cov_value_analysis 接口。
+    走 update_pit_tail._fetch_history 的东财直连路径——akshare 的
+    bond_zh_cov_value_analysis 按固定列位重命名，东财加列后会直接
+    ValueError（2026-10 实际故障）。
     """
-    import akshare as ak
+    from scripts.update_pit_tail import _fetch_history
 
-    df = ak.bond_zh_cov_value_analysis(symbol="113062")
+    df = _fetch_history("113062")
     assert df is not None and not df.empty
-    for col in ("日期", "收盘价", "转股溢价率"):
+    for col in ("date", "close", "premium_rate"):
         assert col in df.columns
+    assert (df["close"] > 0).all()
