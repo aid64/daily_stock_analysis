@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [改进] 评估窗口因 10-27 DNS 事故顺延：`prereg` 的 2026-12-31 改为中期检查，60 交易日硬复核顺延至 2027-01-31、DSR 120 交易日顺延至 2027-04-30；判定标准不变，仅保持样本长度。
 - [改进] `backup_offsite.py` 新增 `--source-root`（可同步 `data/backups_close`）；新增工作日 17:40 `DSA_Offsite_Copy`，把收盘备份复制到 `C:\DSA-Backup`（同物理盘第二分区，非离机、不防盘坏），保留 7 份、默认排除 `.env`。
 - [chore] 合并 mirror 依赖 PR #66 baostock、#64 lark-oapi、#63 tavily-python、#60 electron-updater（均 CI 全绿，minor/patch）。
 - [chore] `scripts/test.sh` 增加 `python3`→`python` 本地回退（Windows Git Bash 无 `python3` 命令），恢复本地 `ci_gate.sh deterministic` 阶段。
