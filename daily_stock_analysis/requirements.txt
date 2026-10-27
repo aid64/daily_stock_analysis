@@ -126,7 +126,7 @@ pytdx>=1.72                 # Priority 2: Tongdaxin quote servers
 
 
 
-baostock>=0.8.0             # Priority 3: Baostock data
+baostock>=0.9.4             # Priority 3: Baostock data
 
 
 
