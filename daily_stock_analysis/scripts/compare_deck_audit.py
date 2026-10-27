@@ -118,11 +118,12 @@ def wake_task_status(xml: str) -> tuple[str, str]:
     disabled = "<Enabled>false</Enabled>" in xml
     wake = "<WakeToRun>true</WakeToRun>" in xml
     sync = "run_hidden_sync.vbs" in xml
+    mode_close = "-Mode close" in xml
     boundary = "15:00:30" in xml
-    if wake and sync and not disabled and boundary:
-        return "PASS", "enabled/wake/sync/15:00:30 均就绪"
+    if wake and sync and mode_close and not disabled and boundary:
+        return "PASS", "enabled/wake/sync/mode=close/15:00:30 均就绪"
     return "WARN", (f"enabled={not disabled} wake={wake} sync={sync} "
-                    f"boundary_150030={boundary}")
+                    f"mode_close={mode_close} boundary_150030={boundary}")
 
 
 def main() -> int:

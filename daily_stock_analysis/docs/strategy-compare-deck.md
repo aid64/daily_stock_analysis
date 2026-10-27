@@ -36,7 +36,7 @@
 ## 2. 调度与时间
 
 - Windows 计划任务 `DSA_Deck_Intraday`：每 20 分钟 → `compare_deck_task.ps1 -Mode intraday`
-- Windows 计划任务 `DSA_Deck_Close`：**工作日 15:00:30 / 15:30:30 / 16:00:30（三次唤醒重试）**，每次均 `WakeToRun=True` + `StartWhenAvailable=True` → 同一 `-Mode intraday`；用于机器休眠或 15:00 网络未就绪时唤醒并在收盘后补做。`close_done` 幂等，成功后的重试轮直接跳过。与 `DSA_Deck_Intraday` 通过 runner 独占锁 + `close_done` 幂等：谁先拿到锁谁执行，另一轮打印"另一实例运行中"或"收盘轮当日已执行"后退出。
+- Windows 计划任务 `DSA_Deck_Close`：**工作日 15:00:30 / 15:30:30 / 16:00:30（三次唤醒重试）**，每次均 `WakeToRun=True` + `StartWhenAvailable=True` → 同一 `-Mode close`（2026-10-27 修正；此前误注册为 `-Mode intraday`，靠盘中轮 15:00 catch-up 才触发收盘，属偶然路径）；用于机器休眠或 15:00 网络未就绪时唤醒并在收盘后补做。`close_done` 幂等，成功后的重试轮直接跳过。与 `DSA_Deck_Intraday` 通过 runner 独占锁 + `close_done` 幂等：谁先拿到锁谁执行，另一轮打印"另一实例运行中"或"收盘轮当日已执行"后退出。
 - 收盘轮本身不挂绝对时刻：盘中轮在**交易所时间 ≥15:00** 且当日未跑过（`_control.close_done` 幂等键）时自动触发——本机时钟不可信也无影响；`DSA_Deck_Close` 只是唤醒/提前触发，不改变 15:00 撮合闸。
 - **运行窗 vs 撮合窗**：运行窗（何时进入 intraday/close 轮）= 9:30-11:30 / 13:00-15:10，15:10 后为 catch-up 补结算窗；撮合窗（何时允许新成交，`_fills_open`）= 9:30-11:30 / 13:00-**15:00**（15:00 整点含收盘集合竞价价，合法）。15:00-15:10 只结算不成交，风控动作抑制为只记录
 - 交易日历：周末前置判定（确定性、零 API 调用）；工作日接口失败保守视为交易日（marks 幂等兜底）
@@ -216,7 +216,7 @@ powercfg -setactive SCHEME_CURRENT
 
 **目的**：把每日运行起点前移到盘前，在 15:00 收盘前就发现 server/飞书 Stream/DNS/08:30 备份/台账异常，而不是等到收盘轮失败。任务只读，不写台账、不发交易指令；正常日静默，任一关键项失败才发飞书告警（`dedup_key=deck_morning_YYYYMMDD`，每日最多一条）。
 
-**检查项**：本机 `/api/health`；`/api/v1/assistant/runtime/status` 的 `running` 与 `feishu_stream_alive`；`qt.gtimg.cn`、`push2.eastmoney.com`、`open.feishu.cn` DNS；当日 `data/backups/<date>/stock_analysis.db` 是否存在且非空；台账 `close_done`/最近 mark/主动槽数量/当前周月注册表状态（信息项，不阻断）。`close_done` 在 15:00 前已等于当日只记 WARN。
+**检查项**：本机 `/api/health`；`/api/v1/assistant/runtime/status` 的 `running` 与 `feishu_stream_alive`；`qt.gtimg.cn`、`push2.eastmoney.com`、`open.feishu.cn` DNS；`quant_research/data/pit/convertible_pit.parquet` 末端距今 ≤7 天（超期 FAIL，暴露 E/H 数据断供）；当日 `data/backups/<date>/stock_analysis.db` 是否存在且非空；台账 `close_done`/最近 mark/主动槽数量/当前周月注册表状态（信息项，不阻断）。`close_done` 在 15:00 前已等于当日只记 WARN。
 
 **形态**：工作日 08:45，`WakeToRun=True` + `StartWhenAvailable=True`，`run_hidden_sync.vbs` 隐藏且等待子进程；包装脚本 `scripts/morning_check.ps1` 追加 `logs/morning_check_task.log`（>5MB 轮转）并透传退出码；检查脚本 `scripts/morning_check.py` 支持 `--no-notify` / `--json`。
 
@@ -240,20 +240,46 @@ Register-ScheduledTask -TaskName 'DSA_Deck_Morning' -Action $action -Trigger $tr
 
 **口径变更（用户确认）**：首轮主动槽建仓改为 **paper 账本、09:30-10:00 开盘窗、按开盘/首笔实时价成交**；15:00 收盘轮只负责估值、marks、`close_done` 和收盘侧风控，不再承担首次建仓。评估起点从首个主动槽实际成交的交易日（预计 2026-10-27）开始。
 
-**执行**：工作日 09:31，`WakeToRun=True`，`run_hidden_sync.vbs` 隐藏等待；`compare_deck_task.ps1 -Mode open` → `run_open()`。执行前先检查/刷新 A/B 用的 `feeds_snapshot_v5.pkl`（**akshare 源**，目标为上一交易日；默认 baostock 会滞后数日），刷新后若已过 10:00 则本轮顺延。随后只执行到期的 bootstrap/周度/月度注册表并应用 ERP 缩放；**不写 marks、不写 close_done、不发交易指令**。注册表沿用 `all`/列表幂等门：失败子任务保留列表，后续 open 轮或收盘轮在撮合闸内续做（若在收盘续做，该部分成交价为收盘价，需在审计中如实记录）。
+**执行**：工作日 09:31 / 09:45 / 09:55 三次触发（09:31 首次，后两次在 09:30-10:00 窗口内重试失败/顺延子任务；`MultipleInstances IgnoreNew` 防止重叠），`WakeToRun=True`，`run_hidden_sync.vbs` 隐藏等待；`compare_deck_task.ps1 -Mode open` → `run_open()`。执行前先检查/刷新 A/B 用的 `feeds_snapshot_v5.pkl`（**akshare 源**，目标为上一交易日；默认 baostock 会滞后数日），刷新后若已过 10:00 则本轮顺延。随后只执行到期的 bootstrap/周度/月度注册表并应用 ERP 缩放；**不写 marks、不写 close_done、不发交易指令**。注册表沿用 `all`/列表幂等门：失败子任务保留列表，后续 open 轮或收盘轮在撮合闸内续做（若在收盘续做，该部分成交价为收盘价，需在审计中如实记录）。
 
 **注册**：
 
 ```powershell
 $action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument '//B //Nologo "D:\daily_stock_analysis\daily_stock_analysis\scripts\run_hidden_sync.vbs" "powershell.exe -NoProfile -ExecutionPolicy Bypass -File D:\daily_stock_analysis\daily_stock_analysis\scripts\compare_deck_task.ps1 -Mode open"'
-$trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At ([datetime]'09:31:00')
+$triggers = @(
+  (New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At ([datetime]'09:31:00')),
+  (New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At ([datetime]'09:45:00')),
+  (New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At ([datetime]'09:55:00'))
+)
 $settings = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 1)
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
-Register-ScheduledTask -TaskName 'DSA_Deck_Open' -Action $action -Trigger $trigger -Settings $settings -Principal $principal
+Register-ScheduledTask -TaskName 'DSA_Deck_Open' -Action $action -Trigger $triggers -Settings $settings -Principal $principal
 ```
 
 **边界**：open 窗只认本机墙钟 09:30-10:00（交易所时间戳开盘初可能仍是上一交易日收盘）；任务因休眠/关机晚于 10:00 时跳过，不补开盘价。收盘轮仍可在撮合闸内补做未完成注册表，但价格口径为收盘，不冒充开盘成交。回滚：`Unregister-ScheduledTask -TaskName 'DSA_Deck_Open' -Confirm:$false`；如需恢复“仅收盘建仓”，移除 open 任务并 revert 对应提交。
 
+### 8.4 PIT 盘前刷新任务 `DSA_PIT_Daily` / `DSA_PIT_WeeklyFull`（2026-10-27）
+
+**背景（2026-10-27 实测根因）**：东财 `RPTA_WEB_KZZ_LS` 接口新增两列后，akshare `bond_zh_cov_value_analysis` 的固定列位重命名直接 `ValueError`，PIT 尾部增量自 09-18 起全部失败；`--limit 50` 又每次都从固定排序头部开始，长期卡在退市券。结果是 PIT 末端停在 10-16、当日截面仅 17 只，E/H 的转债输入严重失真。
+
+**修复**：`quant_research/scripts/update_pit_tail.py` 改为按 `DATE`/`FCLOSE`/`SWAPOR` 字段名直连东财，不再依赖 akshare 列位；增量队列改为“当前目标债 → 活跃券（120 天内，按缓存最旧优先）→ 陈旧券”，并用 `.tail_cursor.json` 滚动游标续跑；新增 `--active-only`。`build_pit_snapshot.py --assemble-only --start 2018` 仍在增量后重组。
+
+**任务**（均 `WakeToRun=True`、隐藏启动、日志 `daily_stock_analysis/logs/pit_refresh.log`）：
+
+- `DSA_PIT_Daily`：周一至周六 07:30，`-Scope active`（约 330 只，预算 2700s）→ assemble，确保开盘前全活跃池有前收盘价。
+- `DSA_PIT_WeeklyFull`：周日 04:00，`-Scope full`（914 只，预算 9000s）→ assemble，维持完整历史截面；避开 09:00 管线。
+
+09:00 的 `daily_pipeline` 仍保留 `--limit 50` 增量作为兜底，但不再承担“保证截面完整”的职责。若任务因关机未运行，09:00 管线仍会刷新目标债并 assemble；收盘/审计侧的健康检查会按 PIT 末端滞后告警。
+
+**回滚**：`Unregister-ScheduledTask -TaskName 'DSA_PIT_Daily' -Confirm:$false`（周任务同理）；`update_pit_tail.py` 的列位/游标改动可 revert 对应提交，但会恢复 akshare 列位故障与 50 只固定头部停摆。
+
+### 8.5 H 目标盘前预计算 `DSA_Deck_Precompute`（2026-10-27）
+
+**问题**：H_MWU_CB 的 853 只 CB feeds 引擎提取在冷缓存下约 10 分钟；15:00 收盘轮再重算会把补建/调仓推到 15:30 之后。
+
+**机制**：工作日 13:45 运行 `scripts/precompute_deck_signals.py`，把 `extract_mwu_targets.py --strategy etf_mwu_cb` 的 JSON 写入 `output/deck_signal_cache/etf_mwu_cb_YYYYMMDD.json`；15:00 `mwu_rebalance` 读取同日缓存，跳过引擎。缓存缺失、损坏、`cache_date` 非当日、策略配置不匹配时自动回退 1800s 实时引擎。**调仓日保护**：缓存 `as_of` 等于当天（说明预计算只看到盘中不完整 bar）时也不使用，强制收盘重算。
+
+**任务**：`DSA_Deck_Precompute`，周一至周五 13:45，`WakeToRun=True`，隐藏启动，日志 `logs/deck_precompute.log`，执行限 60 分钟（2026-10-27 实测 853 只 CB feed 冷启动约 20 分钟，900s 不足；命中缓存后收盘 H 不再重算）。回滚：`Unregister-ScheduledTask -TaskName 'DSA_Deck_Precompute' -Confirm:$false`；移除缓存读取代码即回到纯实时引擎。
 
 ## 9. 回归保护网
 
@@ -272,7 +298,7 @@ Register-ScheduledTask -TaskName 'DSA_Deck_Open' -Action $action -Trigger $trigg
 - 关键 FAIL 判据：marks 断供 >15 天 FAIL / >10 天 WARN；最近 intraday 执行日志 exit≠0 → FAIL；抽样净值偏差超阈 → FAIL
 - 时间健康 / 多源一致性（2026-10-21 修）：时间戳非当日只标注「市场已收盘」，不再把跨日旧戳误报为 7.8h 时钟偏差；多源一致性按**同一行情日**比较 baostock 与腾讯（盘中跳过），不再拿硬编码 2026-09-30 与实时价比较
 - 执行日志 start/exit 配对（2026-10-21 修）：最后一轮只有 start（任务被终止或仍在运行）显式 WARN，不再取最后一条事件或拿更早的 exit 误判；start-only 日志不再触发 IndexError
-- 唤醒任务检查（2026-10-21 增）：`DSA_Deck_Close` 的 enabled / `WakeToRun` / sync launcher / 15:00:30 触发器；任一不满足 WARN
+- 唤醒任务检查（2026-10-21 增，2026-10-27 补 mode）：`DSA_Deck_Close` 的 enabled / `WakeToRun` / sync launcher / `-Mode close` / 15:00:30 触发器；任一不满足 WARN（10-27 实测曾误注册为 `-Mode intraday`）
 - 真钱手册：`docs/real-money-playbook.md`（Y 逆回购券商操作 / X 事件套利人工复核清单 / 晋升流程）
 
 ## 11. 三项数据增强（2026-10-03 落地）
@@ -304,7 +330,9 @@ Register-ScheduledTask -TaskName 'DSA_Deck_Open' -Action $action -Trigger $trigg
 - **A/B 数据 as-of 差异**：B 走 `feeds_snapshot_v*.pkl`，文件 mtime 超 7 天**或末端数据日早于上一交易日**时重建；A/G/H 走 tushare loader。B 重建后数据源仍滞后时消息标注实际末端（如 `至 2026-10-16`）。解读 A/B 排名时需知悉该差异。
 - **收盘后备份**：每日 08:30 的 `DSA_Ledger_Backup` 仍早于收盘；17:25 `DSA_Ledger_CloseBackup` 已提供独立的收盘全量备份（`data/backups_close/<日期>`，DB/.env/台账，保留 14 份），17:30/20:00 审计会检查 `收盘备份` 目录。**仍与 live 同盘、未离机**；离机目标尚未配置，抗盘坏仍需第二存储。
 - **收盘快照**：17:30/20:00 审计前生成 `postclose/compare_strategies.YYYYMMDD.json`；审计要求快照与 live 台账**字节 sha 一致**且时间在 15:00 后，否则 WARN（避免盘前快照误判）。快照不是完整备份。
-- **评估窗口起点**：2026-10-22 主动槽 0/13，未形成全量建仓；60 日评估窗口应从首个主动槽实际建仓日（而不是 10-22）起算，确认前不改 `prereg`。
+- **评估窗口起点**：2026-10-27 首次形成主动槽持仓（11/13 有持仓；B 无轮动信号、N 无形态候选，保持现金）。因 09:31 本机唤醒时 DNS 全断，首建仓由 15:00 收盘轮按收盘价补建，`_control.eval_basis=close_fallback`；60 个交易日窗口自 10-27 起算。`prereg._meta` 已留痕：2026-12-31 改为中期检查，60 交易日硬复核顺延至 2027-01-31（≥60 交易日，节假日顺延），DSR 顺延至 2027-04-30（≥120 交易日）；不改变判定标准，只保持样本长度。
+- **H 防御腿 511010 不可执行**：511010 按 ETF 100 份/手、价格约 141 元，单槽 ¥12,411 买不起一手；H 实际持有 512010 + 现金，目标中的 511010 权重无法落地（不是缺价）。解读 H 收益时需按实际持仓/现金，不得把目标权重当成已执行。
+- **退市整理股过滤**：小市值候选来自 `stock_basic(list_status=L)`，退市整理股（如 301139 元道退）仍可能出现；2026-10-27 已加 `ST|退` 过滤并对当日误买按成本价逆回留痕。
 - **审计监控边界**：`DSA_Deck_Audit` 每日 17:30/20:00 检查 marks/执行日志/抽样净值/注册表/主动槽/任务结果/唤醒任务，**并检查 08:30 备份、收盘备份、收盘快照（sha+15:00 时点）与 `DSA_Ledger_Backup` 结果**；审计 FAIL 会 best-effort 推送飞书（失败不改变退出码）。仍**不检查**离机目标或审计任务自身。收盘快照只含台账，不含 DB/`.env`。
 
 

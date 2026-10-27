@@ -193,9 +193,17 @@ def _is_cb_symbol(symbol: str) -> bool:
         return False
 
 
-def _fill_cb_prices(px: dict, symbols: list[str]) -> dict:
-    missing = [s for s in symbols
-               if not px.get(s, {}).get("price") and _is_cb_symbol(s)]
+def _is_etf_symbol(symbol: str) -> bool:
+    try:
+        from src.core.paper_execution import AssetClass
+        from src.services import deck_registry
+        return deck_registry.classify_symbol(symbol) == AssetClass.ETF
+    except Exception:
+        return False
+
+
+def _fill_tencent_prices(px: dict, symbols: list[str], source: str = "tencent_direct") -> dict:
+    missing = [s for s in symbols if not px.get(s, {}).get("price")]
     if not missing:
         return px
     codes6 = []
@@ -208,14 +216,21 @@ def _fill_cb_prices(px: dict, symbols: list[str]) -> dict:
     for s in missing:
         info = quotes.get(str(s).split(".")[0])
         if info and info.get("price"):
-            px[s] = {**info, "source": "tencent_cb"}
+            px[s] = {**info, "source": source}
     return px
+
+
+def _fill_cb_prices(px: dict, symbols: list[str]) -> dict:
+    missing = [s for s in symbols
+               if not px.get(s, {}).get("price") and _is_cb_symbol(s)]
+    return _fill_tencent_prices(px, missing, source="tencent_cb")
 
 
 def ensure_prices(px: dict, symbols: list[str]) -> dict:
     """补齐候选标的缺失报价(新槽首建仓时 symbol 不在已持仓预热列表)——就地更新 px。
 
-    转债（E/H）不在六源实时链覆盖范围，走腾讯直连；其余走项目实时链。
+    转债（E/H）不在六源实时链覆盖范围，走腾讯直连；ETF 在六源链偶发缺价
+    （511010 实测 efinance/akshare 均无），同样用腾讯直连兜底；其余走项目实时链。
     """
     missing = [s for s in symbols if not px.get(s, {}).get("price")]
     if not missing:
@@ -226,6 +241,10 @@ def ensure_prices(px: dict, symbols: list[str]) -> dict:
         for code, info in realtime_quotes(other).items():
             if info.get("price"):
                 px[code] = info
+        etf_missing = [s for s in other
+                       if _is_etf_symbol(s) and not px.get(s, {}).get("price")]
+        if etf_missing:
+            _fill_tencent_prices(px, etf_missing, source="tencent_direct")
     if cb:
         _fill_cb_prices(px, cb)
     return px
@@ -305,6 +324,38 @@ def _fills_open(now: datetime | None) -> bool:
 
 
 _CORE_BENCHMARKS = ("C_沪深300持有", "D_红利低波持有")
+
+
+SIGNAL_CACHE_DIR = PROJECT_DIR / "output" / "deck_signal_cache"
+
+
+def _cached_engine_target(strategy: str, strategy_config: str) -> dict | None:
+    """读取当日盘前预计算的引擎目标；缺失/过期/损坏时返回 None 回退现算。"""
+    path = SIGNAL_CACHE_DIR / f"{strategy}_{EX_DATE:%Y%m%d}.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if payload.get("cache_date") != EX_DATE.isoformat():
+        return None
+    target = payload.get("target")
+    if not isinstance(target, dict) or not target:
+        return None
+    if payload.get("strategy_config") not in (None, strategy_config):
+        return None
+    # 调仓日当天的 14:30 预计算只含盘中不完整 bar，不能替代收盘目标；
+    # as_of=当天说明今天就是该策略的调仓日，强制回退收盘引擎。
+    if str(payload.get("as_of")) == EX_DATE.isoformat():
+        return None
+    return payload
+
+
+def _active_hold_count(led: dict) -> int:
+    """非基准槽中已有持仓的槽数——用于开盘全失败时的任务级失败信号。"""
+    return sum(
+        1 for name, slot in (led.get("strategies") or {}).items()
+        if not name.startswith(("C_", "D_")) and (slot or {}).get("holds")
+    )
 
 
 def _core_missing_quotes(led: dict, px: dict) -> list[str]:
@@ -797,7 +848,9 @@ def smallcap_universe(month_end: str, exclude_new: bool, top: int) -> list[dict]
     if db is None or sb is None:
         raise RuntimeError("daily_basic/stock_basic 数据源不可用")
     df = db.merge(sb, on="ts_code", how="left").dropna(subset=["circ_mv", "name"])
-    df = df[~df["name"].str.contains("ST", na=False)]
+    # 退市整理股（如 301139 元道退）仍会出现在 list_status=L 中；与 ST 同属
+    # 不可投资壳/退市风险池，必须剔除，否则小市值会把它当折价标的买入。
+    df = df[~df["name"].str.contains("ST|退", na=False, regex=True)]
     df = df[~df["ts_code"].str.startswith(("8", "4", "9", "688"))]
     df = df[df["close"] > 0]
     if exclude_new:
@@ -1081,7 +1134,7 @@ def _lot_size(symbol: str) -> int:
 
 def mwu_target_orders(target: dict[str, float], cur: dict[str, int], prices: dict[str, float],
                       capital: float = CAPITAL) -> tuple[list[dict], list[dict]]:
-    """纯函数：MWU 权重目标 → 整手 sells/buys（转债/511010 10张/手，其余 100股）。可测。"""
+    """纯函数：MWU 权重目标 → 整手 sells/buys（转债 10 张/手，ETF/股票 100 份/手）。可测。"""
     sells: list[dict] = []
     buys: list[dict] = []
     for sym, w in target.items():
@@ -1115,11 +1168,17 @@ def mwu_rebalance(led: dict, px: dict, dry: bool, slot_name: str = "G_MWU融合"
     if dry:
         return [f"{slot_name}(dry) 引擎目标提取"]
     try:
-        r = _run_cmd(
-            [sys.executable, str(PROJECT_DIR.parent / "quant_research" / "scripts" / "extract_mwu_targets.py"),
-             "--strategy", strategy, "--strategy-config", strategy_config, "--config", "config/default.yaml"],
-            PROJECT_DIR.parent / "quant_research", 600)
-        data = _parse_engine_stdout(r.stdout)
+        data = _cached_engine_target(strategy, strategy_config)
+        if data is not None:
+            log.info("%s 使用盘前预计算目标(%s)，跳过引擎重算", slot_name, data.get("as_of"))
+        else:
+            # H(853 只 CB feeds) 冷启动实测约 20 分钟；调仓日缓存被 as_of
+            # 保护拒绝时必须回退实时引擎。收盘任务总限 2h，给 1800s。
+            r = _run_cmd(
+                [sys.executable, str(PROJECT_DIR.parent / "quant_research" / "scripts" / "extract_mwu_targets.py"),
+                 "--strategy", strategy, "--strategy-config", strategy_config, "--config", "config/default.yaml"],
+                PROJECT_DIR.parent / "quant_research", 1800)
+            data = _parse_engine_stdout(r.stdout)
         target = {k: float(v) for k, v in (data.get("target") or {}).items()}
         cur = {h["symbol"]: h["qty"] for h in slot.get("holds", [])}
         ensure_prices(px, sorted(set(target) | set(cur)))
@@ -2020,7 +2079,10 @@ def _float_or_none(raw) -> float | None:
 
 
 def _ok_symbol(name: str, ts_code: str) -> bool:
-    return ("ST" not in name) and (not ts_code.startswith(("8", "4", "9", "688")))
+    # “退”覆盖退市整理股（如元道退）；它们仍可能出现在 list_status=L 与
+    # 部分候选接口中，不能作为可投资标的。
+    return (("ST" not in name) and ("退" not in name)
+            and (not ts_code.startswith(("8", "4", "9", "688"))))
 
 
 def pead_universe(days_back: int = 40, top: int = 8) -> list[dict]:
@@ -2930,6 +2992,15 @@ def _main_inner(args: argparse.Namespace) -> int:
         _session_now = wall
         _TRADING_OK = True
         out = run_open(args.dry_run, force=args.force)
+        # 0/13 且全是异常时返回非零：Task Scheduler 的 LastTaskResult 与审计
+        # 才能看到"开盘全失败"，而不是被 exit=0 掩盖（2026-10-27 DNS 事故）。
+        if not args.dry_run:
+            try:
+                if _active_hold_count(load_ledger()) == 0 and "【异常】" in out:
+                    print(out)
+                    return 1
+            except Exception:  # noqa: BLE001 - 台账读取失败不改变主输出
+                pass
     else:
         stamp = exchange_now()
         EX_DATE, _session_now, _TRADING_OK, reject = _session_gate(stamp, wall, args.force)

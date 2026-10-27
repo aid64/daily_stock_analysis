@@ -26,6 +26,7 @@ BACKUP_ROOT = PROJECT_ROOT / "data" / "backups"
 DNS_HOSTS = ("qt.gtimg.cn", "push2.eastmoney.com", "open.feishu.cn")
 HEALTH_URL = "http://127.0.0.1:8000/api/health"
 STATUS_URL = "http://127.0.0.1:8000/api/v1/assistant/runtime/status"
+PIT_PATH = REPO_ROOT / "quant_research" / "data" / "pit" / "convertible_pit.parquet"
 
 
 def _check(name: str, ok: bool, detail: str, *, critical: bool = True) -> Tuple[str, str, str]:
@@ -74,6 +75,17 @@ def collect_checks(today: date) -> List[Tuple[str, str, str]]:
     for host in DNS_HOSTS:
         resolved = _dns_ok(host)
         checks.append(_check(f"dns {host}", resolved, "resolve ok" if resolved else "resolve failed"))
+
+    try:
+        import pandas as pd
+
+        pit_end = pd.Timestamp(
+            pd.read_parquet(PIT_PATH, columns=["as_of"])["as_of"].max()).date()
+        pit_age = (today - pit_end).days
+        checks.append(_check("PIT freshness", pit_age <= 7,
+                             f"end={pit_end} age={pit_age}d"))
+    except Exception as exc:
+        checks.append(_check("PIT freshness", False, repr(exc)))
 
     backup_db = BACKUP_ROOT / today.isoformat() / "stock_analysis.db"
     if backup_db.is_file() and backup_db.stat().st_size > 0:
