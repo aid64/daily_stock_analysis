@@ -30,17 +30,16 @@ set -e
 # Windows Git Bash 通常只有 python.exe、没有 python3 命令；优先尊重
 # PYTHON_BIN，其次 python3，最后 python。函数包装让下方既有调用不变。
 PYTHON_BIN="${PYTHON_BIN:-}"
-if [ -z "$PYTHON_BIN" ]; then
-    if command -v python3 >/dev/null 2>&1; then
-        PYTHON_BIN=python3
-    elif command -v python >/dev/null 2>&1; then
-        PYTHON_BIN=python
-    fi
+if [ -n "$PYTHON_BIN" ]; then
+    PYTHON_BIN="$(command -v "$PYTHON_BIN" 2>/dev/null || true)"
+else
+    PYTHON_BIN="$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)"
 fi
 if [ -z "$PYTHON_BIN" ]; then
     echo "[ERROR] Python3 未安装" >&2
     exit 1
 fi
+# Absolute path: a function named python3 must never resolve back to itself.
 python3() { "$PYTHON_BIN" "$@"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
