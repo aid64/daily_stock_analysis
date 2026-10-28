@@ -33,10 +33,10 @@ class AuthValidationTestCase(unittest.TestCase):
         self.assertIsNotNone(auth._validate_password("   "))
 
     def test_validate_password_too_short(self) -> None:
-        self.assertIsNotNone(auth._validate_password("12345"))
+        self.assertIsNotNone(auth._validate_password("1234567"))
 
     def test_validate_password_valid(self) -> None:
-        self.assertIsNone(auth._validate_password("123456"))
+        self.assertIsNone(auth._validate_password("12345678"))
         self.assertIsNone(auth._validate_password("password123"))
 
 
