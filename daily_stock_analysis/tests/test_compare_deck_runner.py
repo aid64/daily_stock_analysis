@@ -127,6 +127,16 @@ def test_tencent_code_conversion():
     assert mod._ts_code("000001") == "000001.SZ"
 
 
+def test_tencent_ts_stale(monkeypatch):
+    from datetime import datetime as _dt, timedelta as _td
+
+    monkeypatch.setattr(mod, "EX_DATE", _dt.now().date())
+    now = _dt.now()
+    assert mod._tencent_ts_stale(now.strftime("%Y%m%d%H%M%S")) is False
+    assert mod._tencent_ts_stale((now - _td(days=1)).strftime("%Y%m%d%H%M%S")) is True
+    assert mod._tencent_ts_stale("") is None
+
+
 def test_daily_dividend_stock_uses_held_since_and_stock_api(monkeypatch):
     """股票走 dividend（仅实施、税后现金）；建仓前事件不得入账；送转调整份额。"""
     import pandas as pd

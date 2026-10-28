@@ -240,6 +240,20 @@ def _pos_float(value) -> float | None:
     return out if math.isfinite(out) and out > 0 else None
 
 
+def _tencent_ts_stale(ts_raw) -> bool | None:
+    """腾讯时间戳是否过期：跨日或 600s 未更新视为 stale（停牌/旧价）。
+
+    stale 只阻止成交；估值仍使用最后价（revalue 不看 is_stale）。
+    """
+    try:
+        ts = datetime.strptime(str(ts_raw)[:14], "%Y%m%d%H%M%S")
+    except (TypeError, ValueError):
+        return None
+    if ts.date() != EX_DATE:
+        return True
+    return (datetime.now() - ts).total_seconds() > 600
+
+
 def _fill_tencent_prices(px: dict, symbols: list[str], source: str = "tencent_direct") -> dict:
     missing = [s for s in symbols if not px.get(s, {}).get("price")]
     if not missing:
@@ -1610,6 +1624,7 @@ def tencent_quotes(codes6: list[str]) -> dict[str, dict]:
                 "limit_up": _pos_float(f[47]) if len(f) > 47 else None,
                 "limit_down": _pos_float(f[48]) if len(f) > 48 else None,
                 "ts": f[30] if len(f) > 30 else None,
+                "is_stale": _tencent_ts_stale(f[30]) if len(f) > 30 else None,
             }
     except Exception as exc:
         log.warning("腾讯直连行情失败: %r", exc)
