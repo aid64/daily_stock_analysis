@@ -10,6 +10,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+import threading
 from datetime import date
 from pathlib import Path
 
@@ -22,7 +23,7 @@ from src.core.paper_execution import (
     Quote,
     trade_fee,
 )
-from src.repositories.paper_repo import PaperStoreError
+from src.repositories.paper_repo import PaperStore, PaperStoreError
 from src.services.paper_trading_service import (
     PaperTradingService,
     build_quote,
@@ -185,6 +186,29 @@ def test_multiprocess_exactly_one_fill(tmp_path):
     final = PaperTradingService(db).load_state("P")
     assert final.cash == pytest.approx(12411.0 - 100 * 4.5 - 5.0)
     assert PaperTradingService(db).store.integrity_check()
+
+
+def test_concurrent_schema_init_is_idempotent(tmp_path):
+    """并发首开同一空库不得因 schema_version UNIQUE 竞争失败。"""
+    db = tmp_path / "race.db"
+    barrier = threading.Barrier(2)
+    errors: list[Exception] = []
+
+    def open_store() -> None:
+        barrier.wait()
+        try:
+            PaperStore(db)
+        except Exception as exc:  # noqa: BLE001 - 收集后统一断言
+            errors.append(exc)
+
+    threads = [threading.Thread(target=open_store, daemon=True) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+    assert not any(thread.is_alive() for thread in threads)
+    assert errors == []
+    assert PaperStore(db).integrity_check()
 
 
 # ---------------------------------------------------------------- 备份与运维

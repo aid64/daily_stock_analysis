@@ -141,13 +141,17 @@ class PaperStore:
         last_exc: Optional[Exception] = None
         for attempt in range(4):
             try:
-                # CREATE ... IF NOT EXISTS 与 meta 插入均幂等，锁冲突可安全重试
+                # CREATE ... IF NOT EXISTS 与 meta 插入均幂等，锁冲突可安全重试。
+                # 并发首开时两个进程可能同时看到 meta 为空：用 INSERT OR IGNORE
+                # 消除 UNIQUE(schema_version) 竞争，再重读校验版本。
                 conn.executescript(_SCHEMA)
                 row = conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
                 if row is None:
-                    conn.execute("INSERT INTO meta(key, value) VALUES('schema_version', ?)",
+                    conn.execute("INSERT OR IGNORE INTO meta(key, value) VALUES('schema_version', ?)",
                                  (str(SCHEMA_VERSION),))
-                elif int(row[0]) > SCHEMA_VERSION:
+                    row = conn.execute(
+                        "SELECT value FROM meta WHERE key='schema_version'").fetchone()
+                if row is not None and int(row[0]) > SCHEMA_VERSION:
                     raise PaperStoreError(
                         f"paper db schema v{row[0]} 高于当前支持的 v{SCHEMA_VERSION}——拒绝打开")
                 return
