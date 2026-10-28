@@ -646,9 +646,10 @@ def dividend_accrued(ts_code: str, since: str, qty: int,
                 dedup_cols.append(extra)
         df = df.drop_duplicates(subset=dedup_cols)
         total, shares, detail = 0.0, 0.0, []
+        ex_limit = EX_DATE.strftime("%Y%m%d")
         for _, row in df.iterrows():
             ex = str(row.get("ex_date") or "").replace("-", "").strip()
-            if len(ex) != 8 or not ex.isdigit() or ex <= since:
+            if len(ex) != 8 or not ex.isdigit() or ex <= since or ex > ex_limit:
                 continue
             unit = _num(row.get(cash_field))
             ratio = _num(row.get(share_field)) if share_field else 0.0
@@ -2768,7 +2769,7 @@ def daily_dividend_pass(led: dict, px: dict, dry: bool) -> list[str]:
                 continue
             if cls not in (AssetClass.STOCK, AssetClass.ETF):
                 continue
-            acct = f"{name}|{sym}"
+            acct = f"{name}|{_ts_code(sym)}"
             held_since = str(h.get("held_since") or "")[:10].replace("-", "")
             since = max(since_base, since_mark.get(acct, ""), held_since)
             key = (sym, since, h["qty"])

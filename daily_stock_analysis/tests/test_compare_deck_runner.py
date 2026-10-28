@@ -141,6 +141,7 @@ def test_daily_dividend_stock_uses_held_since_and_stock_api(monkeypatch):
                 {"ex_date": "2026-10-28", "div_proc": "实施", "cash_div": 0.3, "stk_div": 0.3},
                 {"ex_date": "2026-10-28", "div_proc": "实施", "cash_div": 0.3, "stk_div": 0.3},
                 {"ex_date": "20261028", "div_proc": "预案", "cash_div": 9.0, "stk_div": 0.0},
+                {"ex_date": "20261231", "div_proc": "实施", "cash_div": 9.9, "stk_div": 0.0},
             ])
 
     monkeypatch.setattr(mod, "ts_client", lambda: FakeClient())
@@ -179,6 +180,7 @@ def test_daily_dividend_etf_uses_fund_div(monkeypatch):
             return pd.DataFrame([
                 {"ex_date": "20261028", "div_proc": "实施", "div_cash": 0.05},
                 {"ex_date": "20261028", "div_proc": "实施", "div_cash": 0.05},
+                {"ex_date": "20261231", "div_proc": "实施", "div_cash": 9.9},
             ])
 
     monkeypatch.setattr(mod, "ts_client", lambda: FakeClient())
