@@ -3062,6 +3062,13 @@ def _main_inner(args: argparse.Namespace) -> int:
         if reject:
             print(f"{reject} {args.mode} 轮")
             return 0
+        if args.mode == "close" and not args.dry_run:
+            try:
+                if (load_ledger().get("_control") or {}).get("close_done") == EX_DATE.isoformat():
+                    print("收盘轮当日已执行, 跳过")
+                    return 0
+            except Exception:  # noqa: BLE001 - 台账读取失败不改变收盘路径
+                pass
         out = run_intraday(args.dry_run) if args.mode == "intraday" else run_close(args.dry_run)
     print(out)
     return 0
