@@ -20,6 +20,8 @@ from src.core.paper_execution import (
     execute_intents,
     merge_lots_view,
     order_key,
+    price_limit_ratio,
+    price_limits,
     trade_fee,
     value_positions,
 )
@@ -144,6 +146,33 @@ def test_limit_up_down_rejected():
     sell_q = _q("510300.SH", 4.35, limit_up=4.84, limit_down=4.36)
     sell = execute_intents(0.0, lots, [_sell("510300.SH", 100)], _quote_map(sell_q), _ctx())
     assert sell.rejections[0].reason is RejectReason.LIMIT_UP_DOWN
+
+
+def test_price_limit_ratio_board_rules():
+    assert price_limit_ratio("600000.SH", "浦发银行") == 0.10
+    assert price_limit_ratio("300750.SZ", "宁德时代") == 0.20
+    assert price_limit_ratio("688981.SH", "中芯国际") == 0.20
+    assert price_limit_ratio("830799.BJ", "艾融软件") == 0.30
+    assert price_limit_ratio("600000.SH", "ST浦发") == 0.05
+    assert price_limit_ratio("300750.SZ", "ST宁德") == 0.20      # 创业板 ST 仍 20%
+    assert price_limit_ratio("830799.BJ", "ST艾融") == 0.30      # 北交所 ST 仍 30%
+    assert price_limit_ratio("600000.SH", "退市浦发") == 0.10    # 退市整理期不是 ST 5%
+    assert price_limit_ratio("510300.SH", "", AssetClass.ETF) == 0.10
+    assert price_limit_ratio("113524.SH", "", AssetClass.CB) == 0.20
+    assert price_limit_ratio("204001.SH", "", AssetClass.REPO) == 0.0
+
+
+def test_price_limits_rounding_and_invalid_pre_close():
+    assert price_limits("600000.SH", 10.0) == (11.0, 9.0)
+    assert price_limits("600000.SH", 10.05) == (11.06, 9.05)    # 四舍五入到分
+    assert price_limits("300750.SZ", 10.0) == (12.0, 8.0)
+    assert price_limits("830799.BJ", 10.0) == (13.0, 7.0)
+    assert price_limits("600000.SH", 10.0, "ST某某") == (10.5, 9.5)
+    assert price_limits("510300.SH", 4.0, "", AssetClass.ETF) == (4.4, 3.6)
+    assert price_limits("113524.SH", 100.0, "", AssetClass.CB) == (120.0, 80.0)
+    assert price_limits("600000.SH", 0.0) == (None, None)
+    assert price_limits("600000.SH", float("nan")) == (None, None)
+    assert price_limits("600000.SH", None) == (None, None)
 
 
 # --------------------------------------------------------------- 全局闸与幂等

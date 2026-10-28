@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -202,28 +203,65 @@ def _is_cb_symbol(symbol: str) -> bool:
         return False
 
 
-def _is_etf_symbol(symbol: str) -> bool:
+def _code6(symbol: str) -> str:
+    digits = "".join(ch for ch in str(symbol or "") if ch.isdigit())
+    return digits[-6:] if len(digits) >= 6 else digits
+
+
+def _tencent_code(symbol: str) -> str:
+    """A 股 symbol → 腾讯 6 位带市场前缀代码（兼容 510300.SH 与 SZ301578）。"""
+    code = _code6(symbol)
+    upper = str(symbol or "").upper()
+    if upper.endswith(".SH") or upper.startswith("SH"):
+        return "sh" + code
+    if upper.endswith(".SZ") or upper.startswith("SZ"):
+        return "sz" + code
+    if code.startswith(("5", "6", "9", "110", "111", "113", "118")):
+        return "sh" + code
+    return "sz" + code
+
+
+def _ts_code(symbol: str) -> str:
+    """A 股 symbol → Tushare 代码（SZ301578/SH600000 → 301578.SZ/600000.SH）。"""
+    s = str(symbol or "").strip().upper()
+    if s.endswith((".SH", ".SZ")):
+        return s
+    code = _code6(s)
+    if s.startswith("SH") or code.startswith(("5", "6", "9", "110", "111", "113", "118")):
+        return f"{code}.SH"
+    return f"{code}.SZ"
+
+
+def _pos_float(value) -> float | None:
     try:
-        from src.core.paper_execution import AssetClass
-        from src.services import deck_registry
-        return deck_registry.classify_symbol(symbol) == AssetClass.ETF
-    except Exception:
-        return False
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    return out if math.isfinite(out) and out > 0 else None
+
+
+def _tencent_ts_stale(ts_raw) -> bool | None:
+    """腾讯时间戳是否过期：跨日或 600s 未更新视为 stale（停牌/旧价）。
+
+    stale 只阻止成交；估值仍使用最后价（revalue 不看 is_stale）。
+    """
+    try:
+        ts = datetime.strptime(str(ts_raw)[:14], "%Y%m%d%H%M%S")
+    except (TypeError, ValueError):
+        return None
+    if ts.date() != EX_DATE:
+        return True
+    return (datetime.now() - ts).total_seconds() > 600
 
 
 def _fill_tencent_prices(px: dict, symbols: list[str], source: str = "tencent_direct") -> dict:
     missing = [s for s in symbols if not px.get(s, {}).get("price")]
     if not missing:
         return px
-    codes6 = []
-    for s in missing:
-        code = str(s).split(".")[0]
-        prefix = "sh" if (str(s).upper().endswith(".SH")
-                          or code.startswith(("110", "111", "113", "118"))) else "sz"
-        codes6.append(prefix + code)
+    codes6 = [_tencent_code(s) for s in missing]
     quotes = tencent_quotes(codes6)
     for s in missing:
-        info = quotes.get(str(s).split(".")[0])
+        info = quotes.get(_code6(s))
         if info and info.get("price"):
             px[s] = {**info, "source": source}
     return px
@@ -250,10 +288,11 @@ def ensure_prices(px: dict, symbols: list[str]) -> dict:
         for code, info in realtime_quotes(other).items():
             if info.get("price"):
                 px[code] = info
-        etf_missing = [s for s in other
-                       if _is_etf_symbol(s) and not px.get(s, {}).get("price")]
-        if etf_missing:
-            _fill_tencent_prices(px, etf_missing, source="tencent_direct")
+        # 六源链仍缺价的标的统一走腾讯直连兜底（ETF/股票均适用）；
+        # 原实现只补 ETF，股票在新槽首建仓时缺价会直接拒绝。
+        still_missing = [s for s in other if not px.get(s, {}).get("price")]
+        if still_missing:
+            _fill_tencent_prices(px, still_missing, source="tencent_direct")
     if cb:
         _fill_cb_prices(px, cb)
     return px
@@ -301,9 +340,17 @@ def realtime_quotes(codes: list[str]) -> dict[str, dict]:
                 q = mgr.get_realtime_quote(code, log_final_failure=False)
                 if q is None or getattr(q, "price", None) in (None, 0):
                     return code, {"price": 0.0, "pct": 0.0, "source": "unavailable"}
-                return code, {"price": float(q.price), "pct": float(q.change_pct or 0.0),
-                              "source": getattr(q.source, "value", str(q.source)),
-                              "ts": getattr(q, "provider_timestamp", None)}
+                return code, {
+                    "price": float(q.price),
+                    "pct": float(q.change_pct or 0.0),
+                    "source": getattr(q.source, "value", str(q.source)),
+                    "ts": getattr(q, "provider_timestamp", None),
+                    "name": getattr(q, "name", "") or "",
+                    "pre_close": _pos_float(getattr(q, "pre_close", None)),
+                    "limit_up": _pos_float(getattr(q, "limit_up", None)),
+                    "limit_down": _pos_float(getattr(q, "limit_down", None)),
+                    "is_stale": getattr(q, "is_stale", None),
+                }
             except Exception as exc:
                 log.warning("行情失败 %s: %r", code, exc)
                 return code, {"price": 0.0, "pct": 0.0, "source": "error"}
@@ -494,7 +541,8 @@ def apply_orders(slot: dict, sells: list[dict], buys: list[dict], px: dict,
     - 现金不足 → 记录拒绝（不再静默跳过）。
     返回拒绝说明列表；成交结果直接写回 slot（cash/holds/fees_paid）。"""
     from src.core.paper_execution import (
-        ExecutionContext, Intent, Lot, Quote, execute_intents, merge_lots_view)
+        AssetClass, ExecutionContext, Intent, Lot, Quote, execute_intents,
+        merge_lots_view, price_limits)
 
     name_by_symbol = {h["symbol"]: h.get("name", "") for h in slot.get("holds", [])}
     for o in sells + buys:
@@ -516,6 +564,7 @@ def apply_orders(slot: dict, sells: list[dict], buys: list[dict], px: dict,
 
     lots = [Lot(h["symbol"], int(h["qty"]), float(h.get("price") or 0.0), _lot_buy_day(h))
             for h in slot.get("holds", [])]
+    asset_by_symbol = {i.symbol: i.asset_class for i in intents}
     quotes: dict[str, Quote] = {}
     for sym in {o["symbol"] for o in sells + buys}:
         info = px.get(sym) or {}
@@ -523,9 +572,24 @@ def apply_orders(slot: dict, sells: list[dict], buys: list[dict], px: dict,
         if raw is None:
             continue                      # 无报价 → 核心判 NO_QUOTE
         try:
-            quotes[sym] = Quote(symbol=sym, price=float(raw))
+            price = float(raw)
         except (TypeError, ValueError):
             continue                      # 非数值价 → 核心判 NO_QUOTE
+        cls = asset_by_symbol.get(sym, AssetClass.STOCK)
+        name = info.get("name") or name_by_symbol.get(sym, "")
+        limit_up = _pos_float(info.get("limit_up"))
+        limit_down = _pos_float(info.get("limit_down"))
+        # 六源链只给昨收，涨跌停由内核按板块规则计算；腾讯直连优先用其显式涨跌停。
+        if (limit_up is None or limit_down is None) and info.get("pre_close"):
+            calc_up, calc_down = price_limits(sym, info.get("pre_close"), name, cls)
+            limit_up = limit_up if limit_up is not None else calc_up
+            limit_down = limit_down if limit_down is not None else calc_down
+        stale = info.get("is_stale")
+        quotes[sym] = Quote(
+            symbol=sym, price=price,
+            is_stale=bool(stale) if stale is not None else False,
+            limit_up=limit_up, limit_down=limit_down,
+        )
 
     day_keys = slot.setdefault("_executed_keys", {}).setdefault(str(EX_DATE), [])
     ctx = ExecutionContext(slot=slot_name or "deck", trading_day=EX_DATE,
@@ -557,25 +621,67 @@ def apply_orders(slot: dict, sells: list[dict], buys: list[dict], px: dict,
     return rejects
 
 
-def dividend_accrued(ts_code: str, since: str, spot: float, qty: int) -> tuple[float, str]:
-    """tushare fund_div 查询 since 之后的基金分红, 返回 (应计现金, 描述)。失败返回 (0.0, "")。"""
+def _num(value) -> float:
     try:
-        df = ts_client().call("fund_div", ts_code=ts_code, cache_ttl_days=7)
-        if df is None or df.empty:
-            return 0.0, ""
-        df = df[df["ex_date"].astype(str) > since]
-        total, detail = 0.0, []
+        out = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return out if math.isfinite(out) else 0.0
+
+
+def dividend_accrued(ts_code: str, since: str, qty: int,
+                     asset_class=None) -> tuple[float, str, float]:
+    """查询 since(YYYYMMDD) 之后的分红/送转，返回 (现金, 描述, 每股送转比例)。
+
+    股票走 tushare dividend（仅 div_proc=实施，现金取税后 cash_div）；
+    ETF 走 fund_div。日期统一成 YYYYMMDD 比较，避免带连字符的日期被
+    字典序误判。"""
+    try:
+        from src.core.paper_execution import AssetClass
+        ts_code = _ts_code(ts_code)
+        is_stock = asset_class == AssetClass.STOCK
+        if is_stock:
+            df = ts_client().call("dividend", ts_code=ts_code, cache_ttl_days=7)
+            if df is None or df.empty:
+                return 0.0, "", 0.0
+            df = df[df["div_proc"].astype(str).str.strip() == "实施"]
+            cash_field, share_field = "cash_div", "stk_div"
+        else:
+            df = ts_client().call("fund_div", ts_code=ts_code, cache_ttl_days=7)
+            if df is None or df.empty:
+                return 0.0, "", 0.0
+            cash_field, share_field = "div_cash", None
+        # Tushare 同一分红事件会返回多行（公告批次/接口重复）：先把日期统一成
+        # YYYYMMDD，再按报告期+除息日+每单位现金/送转去重，否则会按行数重复计息。
+        df = df.copy()
+        df["_ex"] = (df["ex_date"].astype(str)
+                     .str.replace("-", "", regex=False)
+                     .str.replace(r"\.0$", "", regex=True)
+                     .str.strip())
+        df = df[df["_ex"].str.len().eq(8) & df["_ex"].str.isdigit()]
+        dedup_cols = ["_ex", cash_field] + ([share_field] if share_field else [])
+        for extra in ("end_date", "base_date"):
+            if extra in df.columns:
+                dedup_cols.append(extra)
+        df = df.drop_duplicates(subset=dedup_cols)
+        total, shares, detail = 0.0, 0.0, []
+        ex_limit = EX_DATE.strftime("%Y%m%d")
         for _, row in df.iterrows():
-            unit = float(row.get("div_cash") or 0)  # 每份分红(元)
+            ex = str(row["_ex"])
+            if ex <= since or ex > ex_limit:
+                continue
+            unit = _num(row.get(cash_field))
+            ratio = _num(row.get(share_field)) if share_field else 0.0
             if unit > 0:
                 total += unit * qty
-                detail.append(f"{row.get('ex_date')} 每份{unit}元")
-        if total > 0:
-            return round(total, 2), "; ".join(detail)
-        return 0.0, ""
+                detail.append(f"{ex} 每{'股' if is_stock else '份'}{unit}元")
+            if ratio > 0:
+                shares += ratio
+                detail.append(f"{ex} 每股送转{ratio}")
+        return (round(total, 2), "; ".join(detail), round(shares, 6))
     except Exception as exc:
         log.warning("分红查询失败 %s: %r", ts_code, exc)
-        return 0.0, ""
+        return 0.0, "", 0.0
 
 
 def repo_maturity_pass(led: dict, dry: bool) -> list[str]:
@@ -1495,7 +1601,7 @@ CREDIT_WORDS = ("下调", "回售", "违约", "兑付", "本息", "评级", "质
 
 
 def tencent_quotes(codes6: list[str]) -> dict[str, dict]:
-    """转债/指数等六源链覆盖不到的品种：腾讯直连（6位裸码）。返回 price/pct/name。"""
+    """转债/指数等六源链覆盖不到的品种：腾讯直连（6位裸码）。返回 price/pct/name/昨收/涨跌停。"""
     out: dict[str, dict] = {}
     try:
         raw = urlrequest.urlopen(urlrequest.Request(
@@ -1505,9 +1611,21 @@ def tencent_quotes(codes6: list[str]) -> dict[str, dict]:
             if "=" not in line:
                 continue
             f = line.split('="', 1)[1].rstrip('";').split("~")
-            if f[3] and float(f[3]) > 0:
-                out[f[2]] = {"price": float(f[3]), "pct": float(f[32]) if f[32] else 0.0,
-                             "name": f[1]}
+            if len(f) < 33:
+                continue
+            price = _pos_float(f[3])
+            if not price:
+                continue
+            out[f[2]] = {
+                "price": price,
+                "pct": float(f[32]) if f[32] else 0.0,
+                "name": f[1],
+                "pre_close": _pos_float(f[4]),
+                "limit_up": _pos_float(f[47]) if len(f) > 47 else None,
+                "limit_down": _pos_float(f[48]) if len(f) > 48 else None,
+                "ts": f[30] if len(f) > 30 else None,
+                "is_stale": _tencent_ts_stale(f[30]) if len(f) > 30 else None,
+            }
     except Exception as exc:
         log.warning("腾讯直连行情失败: %r", exc)
     return out
@@ -2645,11 +2763,14 @@ def build_close_summary(led: dict, px: dict) -> str:
 
 
 def daily_dividend_pass(led: dict, px: dict, dry: bool) -> list[str]:
-    """每日一次：股票/ETF 持仓的除息分红计入现金（红利策略语义=分红到账）。
+    """每日一次：股票/ETF 持仓的除息分红计入现金、送转调整份额。
 
     幂等：分红按事件入账——每 (槽位, 证券) 登记已入账事件（desc 含除息日集），
-    同事件跨日/跨进程不重复入账；起算日随入账推进到 EX_DATE，历史事件不再重复聚合。
-    缓存键 (sym, since, qty) 含持仓数量：同证券不同账户各按自身份额计。"""
+    同事件跨日/跨进程不重复入账；起算日取 max(台账起点, 已入账日, 建仓日)，
+    避免把建仓前的历史分红记到当前持仓。缓存键 (sym, since, qty) 含持仓数量。"""
+    from src.core.paper_execution import AssetClass
+    from src.services import deck_registry
+
     ctrl = led.setdefault("_control", {})
     if ctrl.get("dividend_check_last") == EX_DATE.isoformat():
         return []
@@ -2660,24 +2781,51 @@ def daily_dividend_pass(led: dict, px: dict, dry: bool) -> list[str]:
     for name, s in led["strategies"].items():
         for h in s.get("holds", []):
             sym = h["symbol"]
-            if not sym.endswith((".SH", ".SZ")) or sym.startswith(("SH204001",)):
+            if sym.startswith(("SH204001", "204001")):
                 continue
-            acct = f"{name}|{sym}"
-            since = max(since_base, since_mark.get(acct, ""))
+            try:
+                cls = deck_registry.classify_symbol(sym)
+            except ValueError:
+                continue
+            if cls not in (AssetClass.STOCK, AssetClass.ETF):
+                continue
+            acct = f"{name}|{_ts_code(sym)}"
+            held_since = str(h.get("held_since") or "")[:10].replace("-", "")
+            since = max(since_base, since_mark.get(acct, ""), held_since)
             key = (sym, since, h["qty"])
             if key not in _DIV_CACHE:
-                _DIV_CACHE[key] = dividend_accrued(sym, since, h.get("price", 0), h["qty"])
-            cash, desc = _DIV_CACHE[key]
+                _DIV_CACHE[key] = dividend_accrued(sym, since, h["qty"], cls)
+            cash, desc, ratio = _DIV_CACHE[key]
             prior = booked.get(acct)
-            if cash > 0 and prior and prior.get("desc") == desc:
+            if (cash > 0 or ratio > 0) and prior and prior.get("desc") == desc:
                 continue  # 同一分红事件已入账（跨日重复聚合），跳过
-            if cash > 0 and not dry:
-                s["cash"] = round(s.get("cash", 0) + cash, 2)
-                booked[acct] = {"since": since, "desc": desc, "amount": cash}
+            if cash <= 0 and ratio <= 0:
+                continue
+            add = int(h["qty"] * ratio) if ratio > 0 else 0
+            if cash <= 0 and add <= 0:
+                if not dry:  # 零碎送转不足 1 股：登记事件避免每日重复查询
+                    booked[acct] = {"since": since, "desc": desc, "amount": 0.0, "shares": 0}
+                    since_mark[acct] = EX_DATE.strftime("%Y%m%d")
+                continue
+            if not dry:
+                if cash > 0:
+                    s["cash"] = round(s.get("cash", 0) + cash, 2)
+                if add > 0:
+                    old_qty = int(h["qty"])
+                    new_qty = old_qty + add
+                    h["price"] = round(old_qty * float(h.get("price") or 0) / new_qty, 6)
+                    h["qty"] = new_qty
+                    h["notional"] = round(new_qty * h["price"], 2)
+                booked[acct] = {"since": since, "desc": desc, "amount": cash, "shares": add}
                 since_mark[acct] = EX_DATE.strftime("%Y%m%d")
+                changes = []
+                if cash > 0:
+                    changes.append(f"分红到账 ¥{cash}")
+                if add > 0:
+                    changes.append(f"送转 +{add}股")
                 s.setdefault("tuning", []).append(
-                    {"date": EX_DATE.isoformat(), "change": f"分红到账 ¥{cash}", "why": desc})
-                msgs.append(f"分红 {name} {h.get('name', sym)} +¥{cash} ({desc})")
+                    {"date": EX_DATE.isoformat(), "change": "；".join(changes), "why": desc})
+                msgs.append(f"{'；'.join(changes)} {name} {h.get('name', sym)} ({desc})")
     ctrl["dividend_check_last"] = EX_DATE.isoformat()
     return msgs
 
