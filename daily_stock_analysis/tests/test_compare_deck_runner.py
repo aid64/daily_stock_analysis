@@ -1641,6 +1641,30 @@ def test_mwu_rebalance_prefetches_target_quotes_and_sizes_on_equity(monkeypatch)
     assert "调仓→" in msgs[0]
 
 
+def test_mwu_rebalance_reports_unaffordable_target_as_cash(monkeypatch):
+    """511010 权重不足以买一手时，消息与 note 必须显式标注按现金，不能静默。"""
+    from types import SimpleNamespace
+
+    slot = {"holds": [], "cash": 12411.0, "equity": 12411.0}
+    led = {"strategies": {"G_MWU融合": slot}}
+    engine = json.dumps({"as_of": "2026-10-21",
+                         "target": {"511010.SH": 0.9, "512010.SH": 0.1}})
+    monkeypatch.setattr(mod, "EX_DATE", date(2026, 10, 21))
+    monkeypatch.setattr(mod, "_run_cmd",
+                        lambda cmd, cwd, timeout: SimpleNamespace(
+                            stdout=engine, stderr="", returncode=0))
+    monkeypatch.setattr(mod, "realtime_quotes",
+                        lambda codes: {"511010.SH": {"price": 141.176, "pct": 0.0},
+                                       "512010.SH": {"price": 0.5, "pct": 0.0}})
+
+    msgs = mod.mwu_rebalance(led, {}, dry=False, fills_ok=True)
+
+    assert "511010.SH 目标90.0%" in msgs[0]
+    assert "不足一手" in msgs[0] and "按现金" in msgs[0]
+    assert "不足一手" in slot["note"]
+    assert [h["symbol"] for h in slot["holds"]] == ["512010.SH"]
+
+
 def test_mwu_rebalance_uses_fresh_signal_cache(tmp_path, monkeypatch):
     """14:30 预计算目标命中时不得再跑 10 分钟引擎。"""
     cache = tmp_path / "cache"
