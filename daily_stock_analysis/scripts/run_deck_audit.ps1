@@ -33,8 +33,13 @@ try {
         New-Item -ItemType Directory -Path $SnapDir -Force | Out-Null
         $SnapTmp = "$SnapPath.tmp"
         Copy-Item -LiteralPath $Ledger -Destination $SnapTmp -Force
+        # Native stderr (invalid JSON traceback) must not become a terminating
+        # error before $LASTEXITCODE is read; log INVALID_LEDGER instead.
+        $ErrorActionPreference = "Continue"
         & C:\WINDOWS\py.exe -c "import json,sys; json.load(open(sys.argv[1],encoding='utf-8'))" $SnapTmp 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) {
+        $snapValid = ($LASTEXITCODE -eq 0)
+        $ErrorActionPreference = "Stop"
+        if ($snapValid) {
             Move-Item -LiteralPath $SnapTmp -Destination $SnapPath -Force
             $SnapHash = (Get-FileHash -Algorithm SHA256 $SnapPath).Hash.ToLower()
             Add-Content -Path $LogFile -Value "$stamp postclose snapshot=$SnapPath sha256=$SnapHash" -Encoding UTF8
