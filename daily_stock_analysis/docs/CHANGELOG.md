@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [改进] 管理员密码最小长度 6→8（仅约束新建/修改，已有密码仍可登录）；同步前端提示、后端与前端测试。
 - [修复] `DSA_Deck_Close` 直接 `-Mode close` 由 `run_close` 自己写 `close_done`；已 close_done 的直接 close 轮直接跳过，避免 15:30/16:00 重复估值与通知。
 - [改进] keepalive 重启后等待端口 8000 健康（最多60s）；失败写日志并 best-effort 飞书告警（每日去重），避免“重启已发出但 server 仍不可用”静默。
 - [修复] morning check 设置项目 cwd 并注入项目 `sys.path`，server 健康检查增加短重试；避免 keepalive 重启窗口误报 FAIL 和告警导入 `src` 失败。

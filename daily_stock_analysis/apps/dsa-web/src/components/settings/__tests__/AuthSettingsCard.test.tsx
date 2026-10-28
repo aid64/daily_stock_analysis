@@ -35,12 +35,12 @@ describe('AuthSettingsCard', () => {
     render(<AuthSettingsCard />);
 
     fireEvent.click(screen.getByRole('checkbox'));
-    fireEvent.change(screen.getByLabelText('设置管理员密码'), { target: { value: 'passwd6' } });
-    fireEvent.change(screen.getByLabelText('确认新密码'), { target: { value: 'passwd6' } });
+    fireEvent.change(screen.getByLabelText('设置管理员密码'), { target: { value: 'passwd88' } });
+    fireEvent.change(screen.getByLabelText('确认新密码'), { target: { value: 'passwd88' } });
     fireEvent.click(screen.getByRole('button', { name: '开启认证' }));
 
     await waitFor(() => {
-      expect(updateSettings).toHaveBeenCalledWith(true, 'passwd6', 'passwd6', undefined);
+      expect(updateSettings).toHaveBeenCalledWith(true, 'passwd88', 'passwd88', undefined);
     });
     expect(refreshStatus).toHaveBeenCalled();
     expect(await screen.findByText('认证设置已更新')).toBeInTheDocument();
@@ -76,11 +76,11 @@ describe('AuthSettingsCard', () => {
     render(<AuthSettingsCard />);
 
     fireEvent.click(screen.getByRole('checkbox'));
-    fireEvent.change(screen.getByLabelText('当前管理员密码'), { target: { value: 'passwd6' } });
+    fireEvent.change(screen.getByLabelText('当前管理员密码'), { target: { value: 'passwd88' } });
     fireEvent.click(screen.getByRole('button', { name: '关闭认证' }));
 
     await waitFor(() => {
-      expect(updateSettings).toHaveBeenCalledWith(false, undefined, undefined, 'passwd6');
+      expect(updateSettings).toHaveBeenCalledWith(false, undefined, undefined, 'passwd88');
     });
     expect(refreshStatus).toHaveBeenCalled();
     expect(await screen.findByText('认证已关闭')).toBeInTheDocument();

@@ -38,7 +38,7 @@ describe('LoginPage', () => {
 
     render(<LoginPage />);
 
-    fireEvent.change(screen.getByLabelText('管理员密码'), { target: { value: 'passwd6' } });
+    fireEvent.change(screen.getByLabelText('管理员密码'), { target: { value: 'passwd88' } });
     fireEvent.change(screen.getByLabelText('确认密码'), { target: { value: 'passwd7' } });
     fireEvent.click(screen.getByRole('button', { name: '完成设置并登录' }));
 
@@ -57,7 +57,7 @@ describe('LoginPage', () => {
 
     render(<LoginPage />);
 
-    fireEvent.change(screen.getByLabelText('登录密码'), { target: { value: 'passwd6' } });
+    fireEvent.change(screen.getByLabelText('登录密码'), { target: { value: 'passwd88' } });
     fireEvent.click(screen.getByRole('button', { name: '授权进入工作台' }));
 
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/settings', { replace: true }));
