@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 - [修复] `DSA_Deck_Intraday` 限制为交易日 09:20–15:20（每20分钟）并关闭 `StartWhenAvailable`，避免盘后补跑卡在行情 prefetch、占住对比盘锁（10-28 21:03 实例）。
 - [修复] `DSA_Deck_Intraday` 执行上限 72h→30min；对比盘独占锁新增 6h 锁龄硬上限，属主 pid 存活但超龄（pid 复用/任务被杀后 launcher 存活）时按残留清除，避免次日整轮静默跳过。
+- [修复] 对比盘撮合接入涨跌停与过期报价：六源昨收按板块规则计算涨跌停（主板10%/创业板科创板20%/北交所30%/主板ST5%/ETF10%/转债20%），腾讯直连优先用显式涨跌停；涨停买入、跌停卖出、`is_stale` 报价拒单；六源链缺价的股票也走腾讯直连兜底。
+- [修复] 对比盘分红：股票改用 tushare `dividend`（仅实施、税后现金），起算日纳入 `held_since`，按报告期+除息日去重（Tushare 同一事件多行），支持送转股调整份额；ETF 仍用 `fund_div`；前缀式代码（`SH600000`/`SZ301578`）同样覆盖。
 - [改进] 管理员密码最小长度 6→8（仅约束新建/修改，已有密码仍可登录）；同步前端提示、后端与前端测试。
 - [修复] `DSA_Deck_Close` 直接 `-Mode close` 由 `run_close` 自己写 `close_done`；已 close_done 的直接 close 轮直接跳过，避免 15:30/16:00 重复估值与通知。
 - [改进] keepalive 重启后等待端口 8000 健康（最多60s）；失败写日志并 best-effort 飞书告警（每日去重），避免“重启已发出但 server 仍不可用”静默。

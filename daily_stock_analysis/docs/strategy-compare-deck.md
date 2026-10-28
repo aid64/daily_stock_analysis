@@ -283,8 +283,8 @@ Register-ScheduledTask -TaskName 'DSA_Deck_Open' -Action $action -Trigger $trigg
 
 ## 9. 回归保护网
 
-- `tests/test_compare_deck_runner.py` 100 项：纯函数（费用/换算/时段/价差/分位/缓冲带遗留函数/回撤）+ **10-08 月度大考端到端**（mock 时间/行情/引擎，tmp 台账全链）+ 月度/周度注册表（子任务失败/顺延次日重试）+ 空槽首建仓行情预取与按当前 equity 定仓 + 启动会话捕获（入口 → run_close，慢行情不二次取时）+ marks 后置 + F/F2 每票预算 + 快照末端重建 + 核心缺价收盘闸（不写 marks/close_done）+ 缺价成本兜底 + 511010 整手 + 任务拒绝/数据源失败诚实性 + 子进程 UTF-8 解码 + 盘中扫描失败重试/交易所 halfday + PE 分位总闸缩放 + 独占锁四分支 + 撮合窗边界；全部离线可复现（tmp 台账，不依赖生产台账与外部库）
-- `tests/test_paper_execution.py` 21 项（任务 08 执行内核：11 拒绝码/整手/涨跌停/T+1/现金守恒）+ `tests/test_compare_deck_cohort.py` 8 项（开账/种子/容器契约）+ `tests/test_compare_deck_audit.py` 18 项（含时间健康跨日戳/收盘后不报时钟偏差/多源同日比较/执行日志 start-exit 配对/唤醒任务/注册表与主动槽覆盖/任务结果 PASS 与非零 WARN/备份与收盘快照缺口）+ `tests/test_deck_registry.py` 6 项 + `tests/test_deck_slot_contracts.py` 17 项 + `tests/test_compare_deck_shadow.py` 10 项：审计三态结论/退出码传播 + 注册表 18 槽/PE 分位总闸作用域单一真源一致性 + 槽位数据契约（含 M 数据缺失显式失败）+ 影子只读校验
+- `tests/test_compare_deck_runner.py` 120+ 项：纯函数（费用/换算/时段/价差/分位/缓冲带遗留函数/回撤）+ **10-08 月度大考端到端**（mock 时间/行情/引擎，tmp 台账全链）+ 月度/周度注册表（子任务失败/顺延次日重试）+ 空槽首建仓行情预取与按当前 equity 定仓 + 启动会话捕获（入口 → run_close，慢行情不二次取时）+ marks 后置 + F/F2 每票预算 + 快照末端重建 + 核心缺价收盘闸（不写 marks/close_done）+ 缺价成本兜底 + 511010 整手 + 任务拒绝/数据源失败诚实性 + 子进程 UTF-8 解码 + 盘中扫描失败重试/交易所 halfday + PE 分位总闸缩放 + 独占锁四分支 + 撮合窗边界；全部离线可复现（tmp 台账，不依赖生产台账与外部库）
+- `tests/test_paper_execution.py` 23 项（任务 08 执行内核：11 拒绝码/整手/涨跌停/T+1/现金守恒）+ `tests/test_compare_deck_cohort.py` 8 项（开账/种子/容器契约）+ `tests/test_compare_deck_audit.py` 18 项（含时间健康跨日戳/收盘后不报时钟偏差/多源同日比较/执行日志 start-exit 配对/唤醒任务/注册表与主动槽覆盖/任务结果 PASS 与非零 WARN/备份与收盘快照缺口）+ `tests/test_deck_registry.py` 6 项 + `tests/test_deck_slot_contracts.py` 17 项 + `tests/test_compare_deck_shadow.py` 10 项：审计三态结论/退出码传播 + 注册表 18 槽/PE 分位总闸作用域单一真源一致性 + 槽位数据契约（含 M 数据缺失显式失败）+ 影子只读校验
 - 探针提取脚本 `quant_research/scripts/extract_mwu_targets.py`（ETFMWUProbe/MomentumProbe）曾因多轮 patch 丢 `_target_portfolio`——修改探针后必须跑端到端回归
 
 ## 10. 审计与真钱
@@ -319,8 +319,9 @@ Register-ScheduledTask -TaskName 'DSA_Deck_Open' -Action $action -Trigger $trigg
 
 ## 13. 已知局限（诚实清单，改进前必读）
 
-- **分红/除息的口径**：价格序列**不做除息复权**；每日 `daily_dividend_pass` 会把数据源返回的现金分红（含 C/D 的 `fund_div`）计入对应槽现金并登记 `dividend_booked`，因此总收益近似正确，但除息日价格与现金到账存在时点差。若数据源缺事件/到账延迟，仍需人工按除息日核对并校正当期 marks；不能把“未复权价格”直接当成未计入分红。
+- **分红/除息的口径**：价格序列**不做除息复权**；每日 `daily_dividend_pass` 对股票走 tushare `dividend`（仅 `div_proc=实施`，现金取税后 `cash_div`），ETF 仍走 `fund_div`；起算日取 `max(台账起点, 已入账日, held_since)`，防止建仓前事件入账；按报告期+除息日+每单位现金/送转去重（Tushare 同一事件常返回多行，直接求和会双计）；送转股按 `stk_div` 调整份额与成本。除息日价格与现金到账仍有时点差，数据源缺事件时需人工按除息日核对并校正当期 marks；不能把“未复权价格”直接当成未计入分红。
 - **T+1 已由执行内核强制**：`src/core/paper_execution.py` 按资产类别施加策略（股票/ETF `t_plus_1=True`、转债/逆回购豁免），超额卖出返回 `T_PLUS_1` 拒绝码（任务 08 内核）；残余差异仅"卖出资金当日可用"这一账户现金流语义，低频（周/月）调仓下影响可忽略。
+- **涨跌停/过期报价已接入撮合**：六源链只提供昨收时，`apply_orders` 会按板块规则计算涨跌停（主板 10%、创业板/科创板 20%、北交所 30%、主板 ST 5%、ETF 10%、转债 20%），腾讯直连优先使用其显式涨跌停；涨停买入、跌停卖出、`is_stale` 报价均返回拒绝码。六源链仍缺价的股票也会走腾讯直连兜底（原仅 ETF/转债）。
 - **佣金假设**：万 0.845 + 最低 5 元为 quant_research 研究假设，未与真实券商账户费率核对——晋升真钱前必须核对。
 - **Y 槽打新未自动跟踪**：中签回填依赖人工；转债打新收益未计提。
 - **盘后行情污染**：收盘后六源链个别源返回异常价（实测 tickflow 盘后 512890=1.196 vs 收盘 1.180）。成交仍受 `_fills_open`/交易所戳约束；`StartWhenAvailable` 可能触发盘后补跑，`risk_round` 在非交易时段只记录、不迁移状态，但仍可能基于污染价产生告警文本，需人工判断。

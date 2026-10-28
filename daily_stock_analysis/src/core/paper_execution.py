@@ -188,6 +188,52 @@ def trade_fee(asset_class: AssetClass, side: str, notional: float,
     return round(fee, 2)
 
 
+def _symbol_code6(symbol: str) -> str:
+    digits = "".join(ch for ch in str(symbol or "") if ch.isdigit())
+    return digits[-6:] if len(digits) >= 6 else digits
+
+
+def price_limit_ratio(symbol: str, name: str = "",
+                      asset_class: AssetClass = AssetClass.STOCK) -> float:
+    """单日涨跌幅限制比例。
+
+    A 股主板 10%、创业板/科创板 20%、北交所 30%、主板 ST 5%；
+    ETF 10%、转债 20%（上市首日更宽，纸面按常规日处理）。
+    """
+    if asset_class == AssetClass.CB:
+        return 0.20
+    if asset_class == AssetClass.ETF:
+        return 0.10
+    if asset_class == AssetClass.REPO:
+        return 0.0
+    code = _symbol_code6(symbol)
+    if code.startswith(("300", "301", "688", "689")):
+        return 0.20
+    if code.startswith(("4", "8", "92")):
+        return 0.30
+    if "ST" in str(name).upper():
+        return 0.05
+    return 0.10
+
+
+def price_limits(symbol: str, pre_close: float, name: str = "",
+                 asset_class: AssetClass = AssetClass.STOCK,
+                 ) -> tuple[Optional[float], Optional[float]]:
+    """按昨收计算涨跌停价（交易所口径四舍五入到分）；昨收无效时返回 (None, None)。"""
+    try:
+        pc = float(pre_close)
+    except (TypeError, ValueError):
+        return (None, None)
+    if not math.isfinite(pc) or pc <= 0:
+        return (None, None)
+    ratio = price_limit_ratio(symbol, name, asset_class)
+    if ratio <= 0:
+        return (None, None)
+    up = math.floor(pc * (1 + ratio) * 100 + 0.5) / 100
+    down = math.floor(pc * (1 - ratio) * 100 + 0.5) / 100
+    return (round(up, 2), round(down, 2))
+
+
 def _quote_rejection_reason(q: Optional[Quote], intent: Intent, ctx: ExecutionContext) -> Optional[Rejection]:
     if q is None:
         return Rejection(intent.symbol, intent.side, intent.qty, RejectReason.NO_QUOTE,

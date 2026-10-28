@@ -80,6 +80,124 @@ def test_apply_orders_replaces_position():
     assert slot["holds"] == []
 
 
+def test_apply_orders_limit_up_from_pre_close_rejected():
+    """六源链只给昨收时，内核仍应拦住涨停买入（创业板 20%）。"""
+    slot = _slot(cash=12411.0)
+    rejects = mod.apply_orders(
+        slot, sells=[],
+        buys=[{"symbol": "300750.SZ", "qty": 100, "price": 12.0}],
+        px={"300750.SZ": {"price": 12.0, "pre_close": 10.0, "name": "宁德时代"}},
+    )
+    assert slot["holds"] == []
+    assert slot["cash"] == 12411.0
+    assert any("limit_up_down" in r for r in rejects)
+
+
+def test_apply_orders_limit_down_sell_rejected():
+    slot = _slot(cash=0.0, holds=[{"symbol": "600000.SH", "name": "浦发银行", "qty": 100,
+                                   "price": 10.0, "notional": 1000.0,
+                                   "held_since": "2026-10-27"}])
+    rejects = mod.apply_orders(
+        slot, sells=[{"symbol": "600000.SH", "qty": 100, "price": 9.0}], buys=[],
+        px={"600000.SH": {"price": 9.0, "pre_close": 10.0, "name": "浦发银行"}},
+    )
+    assert len(slot["holds"]) == 1 and slot["holds"][0]["qty"] == 100
+    assert any("limit_up_down" in r for r in rejects)
+
+
+def test_apply_orders_stale_quote_rejected():
+    slot = _slot(cash=12411.0)
+    rejects = mod.apply_orders(
+        slot, sells=[], buys=[{"symbol": "510300.SH", "qty": 100, "price": 4.4}],
+        px={"510300.SH": {"price": 4.4, "is_stale": True}},
+    )
+    assert slot["holds"] == []
+    assert any("stale_quote" in r for r in rejects)
+
+
+def test_tencent_code_conversion():
+    assert mod._code6("SZ301578") == "301578"
+    assert mod._tencent_code("510300.SH") == "sh510300"
+    assert mod._tencent_code("SZ301578") == "sz301578"
+    assert mod._tencent_code("113524.SH") == "sh113524"
+    assert mod._tencent_code("123456.SZ") == "sz123456"
+    assert mod._ts_code("SZ301578") == "301578.SZ"
+    assert mod._ts_code("SH600000") == "600000.SH"
+    assert mod._ts_code("600000.SH") == "600000.SH"
+    assert mod._ts_code("000001") == "000001.SZ"
+
+
+def test_daily_dividend_stock_uses_held_since_and_stock_api(monkeypatch):
+    """股票走 dividend（仅实施、税后现金）；建仓前事件不得入账；送转调整份额。"""
+    import pandas as pd
+    from datetime import date as _date
+
+    class FakeClient:
+        def call(self, api, **kw):
+            assert api == "dividend"
+            assert kw["ts_code"] == "600000.SH"    # 前缀式持仓需归一化
+            return pd.DataFrame([
+                {"ex_date": "20261020", "div_proc": "实施", "cash_div": 0.5, "stk_div": 0.0},
+                {"ex_date": "2026-10-28", "div_proc": "实施", "cash_div": 0.3, "stk_div": 0.3},
+                {"ex_date": "2026-10-28", "div_proc": "实施", "cash_div": 0.3, "stk_div": 0.3},
+                {"ex_date": "20261028", "div_proc": "预案", "cash_div": 9.0, "stk_div": 0.0},
+            ])
+
+    monkeypatch.setattr(mod, "ts_client", lambda: FakeClient())
+    monkeypatch.setattr(mod, "EX_DATE", _date(2026, 10, 29))
+    mod._DIV_CACHE.clear()
+    led = {
+        "start_date": "2026-09-28",
+        "strategies": {"F_测试": {"cash": 100.0, "holds": [{
+            "symbol": "SH600000", "name": "测试", "qty": 100, "price": 10.0,
+            "notional": 1000.0, "held_since": "2026-10-27"}]}},
+        "_control": {},
+    }
+    msgs = mod.daily_dividend_pass(led, {}, False)
+    slot = led["strategies"]["F_测试"]
+    h = slot["holds"][0]
+    assert slot["cash"] == 130.0              # 仅 10-28 的 0.3×100
+    assert h["qty"] == 130                    # 送转 0.3×100
+    assert h["price"] == round(1000.0 / 130, 6)
+    assert h["notional"] == round(130 * h["price"], 2)
+    assert "送转" in msgs[0] and "分红" in msgs[0]
+    assert "20261020" not in msgs[0]          # 建仓前事件被 held_since 排除
+
+    led["_control"]["dividend_check_last"] = None
+    mod._DIV_CACHE.clear()
+    assert mod.daily_dividend_pass(led, {}, False) == []
+    assert slot["cash"] == 130.0 and h["qty"] == 130
+
+
+def test_daily_dividend_etf_uses_fund_div(monkeypatch):
+    import pandas as pd
+    from datetime import date as _date
+
+    class FakeClient:
+        def call(self, api, **kw):
+            assert api == "fund_div"
+            return pd.DataFrame([
+                {"ex_date": "20261028", "div_proc": "实施", "div_cash": 0.05},
+                {"ex_date": "20261028", "div_proc": "实施", "div_cash": 0.05},
+            ])
+
+    monkeypatch.setattr(mod, "ts_client", lambda: FakeClient())
+    monkeypatch.setattr(mod, "EX_DATE", _date(2026, 10, 29))
+    mod._DIV_CACHE.clear()
+    led = {
+        "start_date": "2026-09-28",
+        "strategies": {"C_测试": {"cash": 0.0, "holds": [{
+            "symbol": "510300.SH", "name": "沪深300ETF", "qty": 1000, "price": 4.0,
+            "notional": 4000.0, "held_since": "2026-10-14"}]}},
+        "_control": {},
+    }
+    msgs = mod.daily_dividend_pass(led, {}, False)
+    slot = led["strategies"]["C_测试"]
+    assert slot["cash"] == 50.0
+    assert slot["holds"][0]["qty"] == 1000   # 基金分红不改份额
+    assert "分红" in msgs[0]
+
+
 # ------------------------------------------------------- apply_orders 新约束
 def test_apply_orders_trading_gate_blocks_all(monkeypatch):
     """反例: _TRADING_OK=False 仍买入100。适配器下闸关闭→该批全部拒绝。"""
