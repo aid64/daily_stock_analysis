@@ -631,16 +631,21 @@ def dividend_accrued(ts_code: str, since: str, qty: int,
             if df is None or df.empty:
                 return 0.0, "", 0.0
             df = df[df["div_proc"].astype(str).str.strip() == "实施"]
-            df = df[df["ex_date"].notna()]
             cash_field, share_field = "cash_div", "stk_div"
         else:
             df = ts_client().call("fund_div", ts_code=ts_code, cache_ttl_days=7)
             if df is None or df.empty:
                 return 0.0, "", 0.0
             cash_field, share_field = "div_cash", None
-        # Tushare 同一分红事件会返回多行（公告批次/接口重复）：按
-        # 报告期+除息日+每单位现金/送转去重，否则会按行数重复计息。
-        dedup_cols = ["ex_date", cash_field] + ([share_field] if share_field else [])
+        # Tushare 同一分红事件会返回多行（公告批次/接口重复）：先把日期统一成
+        # YYYYMMDD，再按报告期+除息日+每单位现金/送转去重，否则会按行数重复计息。
+        df = df.copy()
+        df["_ex"] = (df["ex_date"].astype(str)
+                     .str.replace("-", "", regex=False)
+                     .str.replace(r"\.0$", "", regex=True)
+                     .str.strip())
+        df = df[df["_ex"].str.len().eq(8) & df["_ex"].str.isdigit()]
+        dedup_cols = ["_ex", cash_field] + ([share_field] if share_field else [])
         for extra in ("end_date", "base_date"):
             if extra in df.columns:
                 dedup_cols.append(extra)
@@ -648,8 +653,8 @@ def dividend_accrued(ts_code: str, since: str, qty: int,
         total, shares, detail = 0.0, 0.0, []
         ex_limit = EX_DATE.strftime("%Y%m%d")
         for _, row in df.iterrows():
-            ex = str(row.get("ex_date") or "").replace("-", "").strip()
-            if len(ex) != 8 or not ex.isdigit() or ex <= since or ex > ex_limit:
+            ex = str(row["_ex"])
+            if ex <= since or ex > ex_limit:
                 continue
             unit = _num(row.get(cash_field))
             ratio = _num(row.get(share_field)) if share_field else 0.0
