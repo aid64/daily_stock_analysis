@@ -201,11 +201,12 @@ def test_concurrent_schema_init_is_idempotent(tmp_path):
         except Exception as exc:  # noqa: BLE001 - 收集后统一断言
             errors.append(exc)
 
-    threads = [threading.Thread(target=open_store) for _ in range(2)]
+    threads = [threading.Thread(target=open_store, daemon=True) for _ in range(2)]
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join()
+        thread.join(timeout=30)
+    assert not any(thread.is_alive() for thread in threads)
     assert errors == []
     assert PaperStore(db).integrity_check()
 
