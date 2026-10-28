@@ -12,6 +12,7 @@ import argparse
 import json
 import socket
 import sys
+import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
@@ -20,6 +21,8 @@ from typing import Any, Dict, List, Tuple
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = PROJECT_ROOT.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 LEDGER_PATH = REPO_ROOT / ".scratch" / "dsa-strategy-validation" / "compare_strategies.json"
 BACKUP_ROOT = PROJECT_ROOT / "data" / "backups"
 
@@ -56,20 +59,35 @@ def _load_ledger() -> Dict[str, Any]:
 def collect_checks(today: date) -> List[Tuple[str, str, str]]:
     checks: List[Tuple[str, str, str]] = []
 
-    try:
-        health = _http_json(HEALTH_URL)
+    # Keepalive 可能在 08:45 前后重启 server；短暂重试避免把重启窗口误报 FAIL。
+    health, health_exc = None, None
+    for _ in range(3):
+        try:
+            health = _http_json(HEALTH_URL)
+            break
+        except Exception as exc:  # noqa: BLE001
+            health_exc = exc
+            time.sleep(5)
+    if health is not None:
         checks.append(_check("server health", health.get("status") == "ok", str(health.get("status"))))
-    except Exception as exc:
-        checks.append(_check("server health", False, repr(exc)))
+    else:
+        checks.append(_check("server health", False, repr(health_exc)))
 
-    try:
-        status = _http_json(STATUS_URL)
+    status, status_exc = None, None
+    for _ in range(3):
+        try:
+            status = _http_json(STATUS_URL)
+            break
+        except Exception as exc:  # noqa: BLE001
+            status_exc = exc
+            time.sleep(5)
+    if status is not None:
         running = bool(status.get("running"))
         stream = bool(status.get("feishu_stream_alive"))
         checks.append(_check("server running", running, f"uptime={status.get('uptime_seconds')}"))
         checks.append(_check("feishu stream", stream, f"alive={stream}"))
-    except Exception as exc:
-        checks.append(_check("server status", False, repr(exc)))
+    else:
+        checks.append(_check("server status", False, repr(status_exc)))
         checks.append(_check("feishu stream", False, "status endpoint unavailable"))
 
     for host in DNS_HOSTS:

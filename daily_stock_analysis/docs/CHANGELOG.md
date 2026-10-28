@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [修复] morning check 设置项目 cwd 并注入项目 `sys.path`，server 健康检查增加短重试；避免 keepalive 重启窗口误报 FAIL 和告警导入 `src` 失败。
 - [改进] G/H 调仓消息与台账 note 显式标注 511010 目标权重不足一手、按现金处理，避免把未执行目标当成已执行。
 - [修复] 引擎派生槽增加当前周期门：A/G 的 as_of 不在当前周、H 不在当前月时顺延，不按旧周期目标成交、不误登记成功；收盘数据延迟时等后续窗口重算。
 - [修复] H 目标缓存新增月份一致性门：月初若缓存仍只有上月 `as_of`，收盘强制重算，避免旧月目标被当成新月目标。

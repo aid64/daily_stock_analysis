@@ -17,6 +17,7 @@ New-Item -ItemType Directory -Force -Path (Split-Path $LogFile) | Out-Null
 Add-Content -Path $LogFile -Value "$stamp morning-check start"
 
 $ErrorActionPreference = "Continue"
+Set-Location $ProjectRoot
 $env:PYTHONIOENCODING = "utf-8"
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 $py = "C:\WINDOWS\py.exe"
