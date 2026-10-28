@@ -36,7 +36,7 @@
 ## 2. 调度与时间
 
 - Windows 计划任务 `DSA_Deck_Intraday`：每 20 分钟 → `compare_deck_task.ps1 -Mode intraday`
-- Windows 计划任务 `DSA_Deck_Close`：**工作日 15:00:30 / 15:30:30 / 16:00:30（三次唤醒重试）**，每次均 `WakeToRun=True` + `StartWhenAvailable=True` → 同一 `-Mode close`（2026-10-27 修正；此前误注册为 `-Mode intraday`，靠盘中轮 15:00 catch-up 才触发收盘，属偶然路径）；用于机器休眠或 15:00 网络未就绪时唤醒并在收盘后补做。`close_done` 幂等，成功后的重试轮直接跳过。与 `DSA_Deck_Intraday` 通过 runner 独占锁 + `close_done` 幂等：谁先拿到锁谁执行，另一轮打印"另一实例运行中"或"收盘轮当日已执行"后退出。
+- Windows 计划任务 `DSA_Deck_Close`：**工作日 15:00:30 / 15:30:30 / 16:00:30（三次唤醒重试）**，每次均 `WakeToRun=True` + `StartWhenAvailable=True` → 同一 `-Mode close`（2026-10-27 修正；此前误注册为 `-Mode intraday`，靠盘中轮 15:00 catch-up 才触发收盘，属偶然路径）；用于机器休眠或 15:00 网络未就绪时唤醒并在收盘后补做。`close_done` 幂等，成功后的重试轮直接跳过。与 `DSA_Deck_Intraday` 通过 runner 独占锁 + `close_done` 幂等：谁先拿到锁谁执行，另一轮打印"另一实例运行中"或"收盘轮当日已执行"后退出。`run_close` 成功写 marks 时同步写 `close_done`；直接 `-Mode close` 在当日已 close_done 时跳过（2026-10-28 修）。
 - 收盘轮本身不挂绝对时刻：盘中轮在**交易所时间 ≥15:00** 且当日未跑过（`_control.close_done` 幂等键）时自动触发——本机时钟不可信也无影响；`DSA_Deck_Close` 只是唤醒/提前触发，不改变 15:00 撮合闸。
 - **运行窗 vs 撮合窗**：运行窗（何时进入 intraday/close 轮）= 9:30-11:30 / 13:00-15:10，15:10 后为 catch-up 补结算窗；撮合窗（何时允许新成交，`_fills_open`）= 9:30-11:30 / 13:00-**15:00**（15:00 整点含收盘集合竞价价，合法）。15:00-15:10 只结算不成交，风控动作抑制为只记录
 - 交易日历：周末前置判定（确定性、零 API 调用）；工作日接口失败保守视为交易日（marks 幂等兜底）
