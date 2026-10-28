@@ -41,6 +41,8 @@ Set-ScheduledTask -TaskName "DSA_Ledger_Backup" -Settings $s
 ```
 （45MB 本地拷贝允许电池态运行；错过 08:30 后唤醒即补跑。）验收=连续 3 日自然触发成功（09-27 条件修复后重新起算）。
 
+**server 自愈（`DSA_Server_Keepalive`）**：每 10 分钟探测 8000，不通则隐藏启动 `py main.py --serve`；端口等待上限 **180s**（原 60s 在 2026-10-28 23:51 实测不足，server 进程 23:51:06 已启动但端口监听被 LiteLLM import 时远程 cost map 拉取拖过 60s）。脚本显式设置 `LITELLM_LOCAL_MODEL_COST_MAP=True`，与 `.env` 默认一致；失败告警的 Python 子进程需在 `$ErrorActionPreference=Continue` 下调用，避免 stderr 被 PowerShell 当作终止错误、失败日志被 LiteLLM 警告污染。
+
 包装脚本 `scripts/backup_ledger.ps1`（2026-09-26 U4 修复引入）调用 py 脚本并把输出落到
 `logs/backup_task.log`、透传退出码给调度器。**该脚本必须保持纯 ASCII**：PowerShell 5.1
 对无 BOM 的 UTF-8 按系统 ANSI 代码页误读，行尾中文可能吞掉换行符把下一行并进注释

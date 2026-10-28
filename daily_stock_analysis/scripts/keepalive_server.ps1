@@ -10,6 +10,11 @@
 # ============================================================
 
 $ErrorActionPreference = "Stop"
+# Avoid LiteLLM's import-time remote cost-map fetch (2026-10-28 23:51: the
+# server process started immediately but did not bind port 8000 within 60s
+# because the fetch stalled on a weak network). The bundled local map is
+# sufficient for runtime pricing; set False explicitly if fresh costs matter.
+$env:LITELLM_LOCAL_MODEL_COST_MAP = "True"
 $Port = 8000
 $ProjectRoot = Split-Path -Parent $PSScriptRoot   # scripts/ 的上级 = daily_stock_analysis/
 $LogFile = Join-Path $ProjectRoot "logs\keepalive.log"
@@ -41,7 +46,7 @@ try {
         -WorkingDirectory $ProjectRoot -WindowStyle Hidden
     Add-Content -Path $LogFile -Value "$stamp restart issued (py main.py --serve)"
     $healthy = $false
-    for ($i = 0; $i -lt 30; $i++) {
+    for ($i = 0; $i -lt 90; $i++) {
         Start-Sleep -Seconds 2
         if (Test-ServerAlive) { $healthy = $true; break }
     }
@@ -49,13 +54,19 @@ try {
         Add-Content -Path $LogFile -Value "$stamp restart healthy (port $Port)"
         exit 0
     }
-    Add-Content -Path $LogFile -Value "$stamp restart FAILED: port $Port not listening after 60s"
+    Add-Content -Path $LogFile -Value "$stamp restart FAILED: port $Port not listening after 180s"
     $py = "C:\WINDOWS\py.exe"
     if (-not (Test-Path $py)) { $py = "py" }
     $dedup = "keepalive_fail_" + (Get-Date -Format "yyyyMMdd")
     $notifyCode = "import sys; sys.path.insert(0, r'" + $ProjectRoot + "'); from src.notification import NotificationService; NotificationService().send('DSA server keepalive: restart failed on port $Port', route_type='system_error', dedup_key='$dedup')"
     Set-Location $ProjectRoot
+    # Native stderr must not become a terminating NativeCommandError before
+    # the notification completes; the alert is best-effort and exit stays 1.
+    $ErrorActionPreference = "Continue"
     & $py -c $notifyCode 2>&1 | ForEach-Object { Add-Content -Path $LogFile -Value "$_" -Encoding UTF8 }
+    $notifyExit = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
+    Add-Content -Path $LogFile -Value "$stamp notify exit=$notifyExit"
     exit 1
 } catch {
     Add-Content -Path $LogFile -Value "$stamp restart FAILED: $($_.Exception.Message)"
