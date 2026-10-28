@@ -216,7 +216,7 @@ powercfg -setactive SCHEME_CURRENT
 
 **目的**：把每日运行起点前移到盘前，在 15:00 收盘前就发现 server/飞书 Stream/DNS/08:30 备份/台账异常，而不是等到收盘轮失败。任务只读，不写台账、不发交易指令；正常日静默，任一关键项失败才发飞书告警（`dedup_key=deck_morning_YYYYMMDD`，每日最多一条）。
 
-**检查项**：本机 `/api/health`；`/api/v1/assistant/runtime/status` 的 `running` 与 `feishu_stream_alive`；`qt.gtimg.cn`、`push2.eastmoney.com`、`open.feishu.cn` DNS；`quant_research/data/pit/convertible_pit.parquet` 末端距今 ≤7 天（超期 FAIL，暴露 E/H 数据断供）；当日 `data/backups/<date>/stock_analysis.db` 是否存在且非空；台账 `close_done`/最近 mark/主动槽数量/当前周月注册表状态（信息项，不阻断）。`close_done` 在 15:00 前已等于当日只记 WARN。
+**检查项**：本机 `/api/health`（keepalive 重启窗口重试 3 次×5s）；`/api/v1/assistant/runtime/status` 的 `running` 与 `feishu_stream_alive`；`qt.gtimg.cn`、`push2.eastmoney.com`、`open.feishu.cn` DNS；`quant_research/data/pit/convertible_pit.parquet` 末端距今 ≤7 天（超期 FAIL，暴露 E/H 数据断供）；当日 `data/backups/<date>/stock_analysis.db` 是否存在且非空；台账 `close_done`/最近 mark/主动槽数量/当前周月注册表状态（信息项，不阻断）。`close_done` 在 15:00 前已等于当日只记 WARN。
 
 **形态**：工作日 08:45，`WakeToRun=True` + `StartWhenAvailable=True`，`run_hidden_sync.vbs` 隐藏且等待子进程；包装脚本 `scripts/morning_check.ps1` 追加 `logs/morning_check_task.log`（>5MB 轮转）并透传退出码；检查脚本 `scripts/morning_check.py` 支持 `--no-notify` / `--json`。
 
