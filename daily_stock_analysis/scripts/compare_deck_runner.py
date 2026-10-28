@@ -1210,9 +1210,21 @@ def mwu_rebalance(led: dict, px: dict, dry: bool, slot_name: str = "G_MWU融合"
         missing = [s for s in target if not prices.get(s)]
         if missing:
             return [f"【异常】{slot_name} 目标缺价 {missing}, 持仓不变"]
-        sells, buys = mwu_target_orders(target, cur, prices, capital=slot_equity(slot, px))
+        capital = slot_equity(slot, px)
+        sells, buys = mwu_target_orders(target, cur, prices, capital=capital)
         for o in sells + buys:
             o["is_stock"] = False
+        buy_syms = {o["symbol"] for o in buys}
+        unaffordable = []
+        for sym, weight in target.items():
+            if weight <= 0 or cur.get(sym, 0) > 0 or sym in buy_syms:
+                continue
+            price = prices.get(sym) or 0
+            if price and int(float(weight) * capital // (price * _lot_size(sym))) == 0:
+                unaffordable.append(f"{sym} 目标{float(weight) * 100:.1f}%")
+        cash_note = ("；" + "、".join(unaffordable) + " 不足一手，按现金") if unaffordable else ""
+        if unaffordable:
+            slot["note"] = "".join(unaffordable) + " 目标权重不足一手，按现金处理"
         now = globals().get("_session_now") or datetime.now()
         tradable = fills_ok if fills_ok is not None else _session_fills_ok()
         rejects: list[str] = []
@@ -1224,12 +1236,12 @@ def mwu_rebalance(led: dict, px: dict, dry: bool, slot_name: str = "G_MWU融合"
                           "target": target}
         # 消息据实: 未实际成交不得声称"调仓→"（仓库硬约束）。
         if not (sells or buys):
-            return [f"{slot_name} 目标未变(as_of {data.get('as_of')})"]
+            return [f"{slot_name} 目标未变(as_of {data.get('as_of')}){cash_note}"]
         if not tradable:
-            return [f"【顺延】{slot_name} 目标→{sorted(target)} (非撮合时段, 未成交, 待续做)"]
+            return [f"【顺延】{slot_name} 目标→{sorted(target)} (非撮合时段, 未成交, 待续做){cash_note}"]
         if rejects:
-            return [f"{slot_name} 调仓→{sorted(target)} (部分未成交: {len(rejects)} 笔被拒)"]
-        return [f"{slot_name} 调仓→{sorted(target)}"]
+            return [f"{slot_name} 调仓→{sorted(target)} (部分未成交: {len(rejects)} 笔被拒){cash_note}"]
+        return [f"{slot_name} 调仓→{sorted(target)}{cash_note}"]
     except Exception as exc:
         log.error("%s 调仓失败: %r", slot_name, exc)
         return [f"【异常】{slot_name} 引擎目标提取失败, 持仓保持不变"]
