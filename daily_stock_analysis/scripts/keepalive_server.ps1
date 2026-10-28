@@ -40,6 +40,23 @@ try {
     Start-Process -FilePath "py" -ArgumentList "main.py", "--serve" `
         -WorkingDirectory $ProjectRoot -WindowStyle Hidden
     Add-Content -Path $LogFile -Value "$stamp restart issued (py main.py --serve)"
+    $healthy = $false
+    for ($i = 0; $i -lt 30; $i++) {
+        Start-Sleep -Seconds 2
+        if (Test-ServerAlive) { $healthy = $true; break }
+    }
+    if ($healthy) {
+        Add-Content -Path $LogFile -Value "$stamp restart healthy (port $Port)"
+        exit 0
+    }
+    Add-Content -Path $LogFile -Value "$stamp restart FAILED: port $Port not listening after 60s"
+    $py = "C:\WINDOWS\py.exe"
+    if (-not (Test-Path $py)) { $py = "py" }
+    $dedup = "keepalive_fail_" + (Get-Date -Format "yyyyMMdd")
+    $notifyCode = "import sys; sys.path.insert(0, r'" + $ProjectRoot + "'); from src.notification import NotificationService; NotificationService().send('DSA server keepalive: restart failed on port $Port', route_type='system_error', dedup_key='$dedup')"
+    Set-Location $ProjectRoot
+    & $py -c $notifyCode 2>&1 | ForEach-Object { Add-Content -Path $LogFile -Value "$_" -Encoding UTF8 }
+    exit 1
 } catch {
     Add-Content -Path $LogFile -Value "$stamp restart FAILED: $($_.Exception.Message)"
     exit 1
