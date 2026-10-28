@@ -1237,6 +1237,8 @@ def test_main_inner_close_skips_after_today_close_done(monkeypatch):
     monkeypatch.setattr(mod, "datetime", _Frozen1500)
     monkeypatch.setattr(mod, "exchange_now", lambda: datetime(2026, 10, 28, 15, 0))
     monkeypatch.setattr(mod, "is_exchange_trading_day", lambda d: True)
+    monkeypatch.setattr(mod, "_session_gate",
+                        lambda stamp, wall, force: (date(2026, 10, 28), stamp, True, ""))
     monkeypatch.setattr(mod, "load_ledger", lambda: {
         "_control": {"close_done": "2026-10-28"}, "strategies": {}})
     monkeypatch.setattr(mod, "run_close", lambda dry: called.append(dry) or "x")
