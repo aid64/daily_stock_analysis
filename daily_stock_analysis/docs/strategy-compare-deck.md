@@ -93,7 +93,7 @@
 3. F/F2 改为最多 8/3 只与每票预算，避免 20×2500/5×4000 在 ¥12,411 下永远买不满（见 §1 槽位表；一手超预算的标的会跳过）。
 4. B 快照重建除 mtime 外校验**末端数据日**（`< 上一交易日` 即重建）；10-19 重建出的快照末端仅 10-16，10-22 收盘会再次重建。
 5. 审计新增**注册表完成度**（当日 `rebalance_done`/`week_rebalance_done` 非 `all` 即 WARN）、**主动槽覆盖**（主动槽全现金即 WARN）、**任务 LastTaskResult**（非 0 WARN），并纳入三态核心证据——禁止再以"只成交 C/D"宣称正常。
-6. `DSA_Deck_Intraday` 每 20 分钟仅在交易日 **09:20–15:20** 触发，`StartWhenAvailable=False`（2026-10-28 修：盘后补跑曾在 21:03 卡在行情 prefetch 并占住对比盘锁）。收盘由 15:00/15:30/16:00 `DSA_Deck_Close` 负责；`WakeToRun` 仍为 False（避免整夜唤醒）。
+6. `DSA_Deck_Intraday` 每 20 分钟仅在交易日 **09:20–15:20** 触发，`StartWhenAvailable=False`、`ExecutionTimeLimit=30min`（2026-10-28 修：盘后补跑曾在 21:03 卡在行情 prefetch 并占住对比盘锁）。收盘由 15:00/15:30/16:00 `DSA_Deck_Close` 负责；`WakeToRun` 仍为 False（避免整夜唤醒）。runner 独占锁在属主 pid 存活时增加 **6h 锁龄硬上限**（所有任务 `ExecutionTimeLimit≤2h`，真实活跃锁不可能超过 6h）：超龄视为 pid 复用/探活失真残留并清除，避免残留锁让次日整轮静默跳过。
 
 ### 2.3 10-22 缺价事故与收盘闸（2026-10-22 盘后）
 

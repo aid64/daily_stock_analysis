@@ -1095,6 +1095,25 @@ def test_acquire_lock_four_branches(tmp_path, monkeypatch):
     mod.release_lock()
 
 
+def test_acquire_lock_six_hour_ceiling(tmp_path, monkeypatch):
+    """存活属主的锁龄 ≤6h 不抢; >6h 视为 pid 复用/探活失真残留并清除。"""
+    import json as _json
+    import os as _os
+    from datetime import datetime as _dt, timedelta as _td
+    lock = tmp_path / "run.lock"
+    monkeypatch.setattr(mod, "_LOCK_PATH", lock)
+
+    fresh = (_dt.now() - _td(hours=5)).isoformat()
+    lock.write_text(_json.dumps({"pid": _os.getpid(), "started": fresh}), encoding="utf-8")
+    assert mod.acquire_lock() is False                   # 5h 活跃锁 → 不抢
+    mod.release_lock()
+
+    stale = (_dt.now() - _td(hours=7)).isoformat()
+    lock.write_text(_json.dumps({"pid": _os.getpid(), "started": stale}), encoding="utf-8")
+    assert mod.acquire_lock() is True                    # 7h > 6h 上限 → 清除重试
+    mod.release_lock()
+
+
 # ---------------------------------------------------------------- 台账备份保护
 def test_save_ledger_does_not_destroy_backup_when_main_corrupt(tmp_path, monkeypatch):
     """反例: 主文件 BROKEN、.bak 完好时，save 不得把坏主文件覆盖到唯一好备份。"""

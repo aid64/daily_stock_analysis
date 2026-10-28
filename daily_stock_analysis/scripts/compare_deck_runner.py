@@ -93,12 +93,14 @@ def acquire_lock() -> bool:
     """O_EXCL 独占锁 + JSON 属主探活（四分支）:
 
     ① 锁不存在 → 创建并写入 {"pid","started"} → True
-    ② 属主进程存活 → False（活跃长任务不得仅因运行时长被抢）
+    ② 属主进程存活且锁龄 ≤6h → False（活跃长任务不得仅因运行时长被抢）
     ③ 属主进程已退出 → 判定残留, 清除后重试
     ④ 锁内容不可解析 → 保守不抢（未知格式可能是手写/他因, 需人工清理）
 
     旧实现按 mtime 60 分钟阈值强抢, 会误杀超过 1 小时的活跃长任务（如慢数据日）;
-    属主探活替代时长阈值后, 死锁自愈仍成立(③), 且不再有 ② 的误杀。"""
+    属主探活替代时长阈值后, 死锁自愈仍成立(③), 且不再有 ② 的误杀。
+    6h 硬上限仅在 pid 复用/任务被杀后 launcher 仍存活等探活失真场景兜底:
+    所有计划任务 ExecutionTimeLimit ≤2h, 真实活跃锁不可能超过 6h。"""
     _LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
     try:
         fd = os.open(_LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
@@ -114,8 +116,15 @@ def acquire_lock() -> bool:
             log.warning("锁内容不可解析, 保守不抢(需人工清理): %s", _LOCK_PATH)
             return False
         if _pid_alive(pid):
-            return False
-        log.warning("锁属主 pid=%s 已退出, 视为残留清除", pid)
+            try:
+                age = datetime.now() - datetime.fromisoformat(str(owner["started"]))
+            except (KeyError, TypeError, ValueError):
+                return False                     # 存活但锁龄未知 → 保守不抢
+            if age <= timedelta(hours=6):
+                return False
+            log.warning("锁龄超过 6h 且属主 pid=%s 仍存活, 视为残留清除", pid)
+        else:
+            log.warning("锁属主 pid=%s 已退出, 视为残留清除", pid)
         try:
             _LOCK_PATH.unlink()
         except FileNotFoundError:
