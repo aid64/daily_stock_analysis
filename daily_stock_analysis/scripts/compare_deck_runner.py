@@ -2987,6 +2987,7 @@ def run_close(dry: bool) -> str:
         led["_actions"][today] = sorted(set(acts) | set(msgs))
     summary = build_close_summary(led, px)
     if not dry:
+        ctrl["close_done"] = today
         save_ledger(led)
         for m in msgs:
             notify(m, dedup_key=f"deck_close_{today}_{m[:12]}")
