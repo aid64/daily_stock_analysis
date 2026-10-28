@@ -1228,6 +1228,26 @@ def test_main_inner_open_partial_success_remains_zero(monkeypatch):
     assert rc == 0
 
 
+def test_main_inner_close_skips_after_today_close_done(monkeypatch):
+    """直接 -Mode close 在当日 close_done 已写时不得重复估值/通知。"""
+    class _Frozen1500(_FrozenWall):
+        _fixed = datetime(2026, 10, 28, 15, 0, 30)
+
+    called = []
+    monkeypatch.setattr(mod, "datetime", _Frozen1500)
+    monkeypatch.setattr(mod, "exchange_now", lambda: datetime(2026, 10, 28, 15, 0))
+    monkeypatch.setattr(mod, "is_exchange_trading_day", lambda d: True)
+    monkeypatch.setattr(mod, "load_ledger", lambda: {
+        "_control": {"close_done": "2026-10-28"}, "strategies": {}})
+    monkeypatch.setattr(mod, "run_close", lambda dry: called.append(dry) or "x")
+
+    rc = mod._main_inner(
+        __import__("argparse").Namespace(force=False, mode="close", dry_run=False))
+
+    assert rc == 0
+    assert called == []
+
+
 def test_main_inner_catchup_after_1510_enters_with_gate_closed(monkeypatch):
     """15:10 后收盘补结算必须被放行进入，且 _TRADING_OK=False（内核拒绝新成交）。"""
     class _Frozen1522(_FrozenWall):
