@@ -446,6 +446,19 @@ def _core_missing_quotes(led: dict, px: dict) -> list[str]:
     return sorted(set(missing))
 
 
+def _missing_hold_quotes(led: dict, px: dict) -> list[str]:
+    """所有普通持仓中缺现价的标的（固定价值/逆回购除外）。"""
+    missing = []
+    for slot in led.get("strategies", {}).values():
+        for h in slot.get("holds", []):
+            if h.get("fixed_value"):
+                continue
+            sym = h.get("symbol")
+            if sym and not (px.get(sym) or {}).get("price"):
+                missing.append(sym)
+    return sorted(set(missing))
+
+
 def _open_fills_ok(now: datetime | None = None) -> bool:
     """开盘建仓窗: 工作日 09:30-10:00（墙钟），仅用于 open 模式。
 
@@ -3097,6 +3110,16 @@ def run_close(dry: bool) -> str:
     fills_ok = _session_fills_ok()
     led = load_ledger()
     px = slot_prices(led)
+    # 六源链在 DNS/接口故障时可能大面积缺价；收盘 marks 先补齐全部普通持仓
+    # （固定价值/逆回购除外），避免非核心槽按成本价估值造成失真。ensure_prices
+    # 会先重试六源链，仍缺时走腾讯直连（PR #100 起对股票/ETF 均生效）。
+    missing_hold = _missing_hold_quotes(led, px)
+    if missing_hold:
+        log.info("收盘补价: %d 只持仓缺价, 补齐行情", len(missing_hold))
+        ensure_prices(px, missing_hold)
+        still = _missing_hold_quotes(led, px)
+        if still:
+            log.warning("收盘补价后仍缺 %d 只: %s", len(still), ",".join(still[:10]))
     today = EX_DATE.isoformat()
     # 核心基准缺价时整轮顺延：否则 marks 会被记成「只剩现金」，且 close_done
     # 会让后续恢复的轮次不再补写。重试一次行情后仍缺即返回【异常】。
@@ -3227,6 +3250,11 @@ def _main_inner(args: argparse.Namespace) -> int:
             except Exception:  # noqa: BLE001 - 台账读取失败不改变收盘路径
                 pass
         out = run_intraday(args.dry_run) if args.mode == "intraday" else run_close(args.dry_run)
+    # 收盘/盘中核心缺价等【异常】必须反映到任务 LastTaskResult；旧实现一律 rc=0，
+    # 导致 15:00/15:30/16:00 close 缺价、close_done 未写时审计只能看到 exit=0。
+    if not args.dry_run and str(out).startswith("【异常】"):
+        print(out)
+        return 1
     print(out)
     return 0
 

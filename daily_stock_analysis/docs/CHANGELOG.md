@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [修复] 对比盘审计快照校验的 Python 原生 stderr 不再被 `$ErrorActionPreference=Stop` 终止；无效台账会记录 `INVALID_LEDGER` 而不是笼统的 ERROR。
 - [修复] PIT 增量/装配跨进程并发：`update_pit_tail` 与 `build_pit_snapshot` 共用 `data/pit/.pit_update.lock.json`，持锁进程存在时跳过；parquet 改临时文件 + `os.replace` 原子替换，避免 Windows PIT 任务与 server 09:00 管线在补跑时同时写 raw/parquet（2026-10-29 10:03/10:18 实测重叠）。
 - [修复] 每日管线在 assemble 后检查 PIT 末端是否达到最近完整交易日；落后则阻断操作单并 5 分钟重试（配合同步 PIT 锁），避免晚唤醒时用 T-2 PIT 推送操作单（2026-10-29 10:28 实例）。
+- [修复] 收盘缺价恢复：`run_close` 先补齐全部普通持仓行情（`ensure_prices` 六源重试+腾讯直连；固定价值/逆回购除外），核心 C/D 仍缺才整轮顺延；`--mode close/intraday` 的 `【异常】` 输出返回 rc=1，15:00/15:30/16:00 缺价不再以 exit=0 静默（2026-10-29 三轮回测 marks/close_done 均未写）。
+- [修复] 审计收盘缺口：15:10 后交易日若 marks 非今日或 close_done 非今日 → marks/注册表 FAIL（退出 1、飞书告警）；收盘快照 mtime 改为实际复制时间；Intraday `0x800710E0`（调度器拒绝重复实例）且执行日志最近 exit=0 时不再误报任务结果。
+- [修复] H 预计算在非调仓日无新目标时由 exit=1 改为成功跳过，避免任务结果/审计误报（2026-10-29 13:45 实例）。
 - [改进] 管理员密码最小长度 6→8（仅约束新建/修改，已有密码仍可登录）；同步前端提示、后端与前端测试。
 - [修复] `DSA_Deck_Close` 直接 `-Mode close` 由 `run_close` 自己写 `close_done`；已 close_done 的直接 close 轮直接跳过，避免 15:30/16:00 重复估值与通知。
 - [改进] keepalive 重启后等待端口 8000 健康（最多60s）；失败写日志并 best-effort 飞书告警（每日去重），避免“重启已发出但 server 仍不可用”静默。
