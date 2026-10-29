@@ -269,7 +269,7 @@ Register-ScheduledTask -TaskName 'DSA_Deck_Open' -Action $action -Trigger $trigg
 - `DSA_PIT_Daily`：周一至周六 07:30，`-Scope active`（约 330 只，预算 2700s）→ assemble，确保开盘前全活跃池有前收盘价。
 - `DSA_PIT_WeeklyFull`：周日 04:00，`-Scope full`（914 只，预算 9000s）→ assemble，维持完整历史截面；避开 09:00 管线。
 
-09:00 的 `daily_pipeline` 仍保留 `--limit 50` 增量作为兜底，但不再承担“保证截面完整”的职责。若任务因关机未运行，09:00 管线仍会刷新目标债并 assemble；收盘/审计侧的健康检查会按 PIT 末端滞后告警。
+09:00 的 `daily_pipeline` 仍保留 `--limit 50` 增量作为兜底，但不再承担“保证截面完整”的职责。`update_pit_tail` 与 `build_pit_snapshot` 共用 `data/pit/.pit_update.lock.json`：持锁进程存活且锁龄 <6h 时，另一进程跳过增量/assemble；parquet 用临时文件+`os.replace` 原子替换。2026-10-29 10:03/10:18 实测 Windows PIT 任务与 server 补跑管线并发，锁用于避免 raw/parquet 互写；管线若遇到 Windows 任务持锁会跳过 PIT/assemble；assemble 后日期护栏要求 PIT 末端达到最近完整交易日，落后则管线失败并 5 分钟重试，不导出/推送操作单（2026-10-29 10:28 曾用 T-2 PIT 推送，已补此闸）。
 
 **回滚**：`Unregister-ScheduledTask -TaskName 'DSA_PIT_Daily' -Confirm:$false`（周任务同理）；`update_pit_tail.py` 的列位/游标改动可 revert 对应提交，但会恢复 akshare 列位故障与 50 只固定头部停摆。
 

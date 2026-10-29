@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -42,6 +43,8 @@ _HERE = Path(__file__).resolve().parent
 _PROJECT_ROOT = _HERE.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
+
+from scripts import pit_lock
 
 from quant_research.backtest import (
     normalize_cb_symbol,
@@ -243,6 +246,15 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0
 
+    # 与 update_pit_tail / 另一 assemble 串行：避免读取半写的 raw CSV 或
+    # 并发覆盖 parquet。assemble-only 只需几秒到几分钟；持锁到进程退出。
+    pit_dir = out_path.parent
+    if not pit_lock.acquire(pit_dir):
+        logger.info("另一个 PIT 更新/装配进程运行中，跳过本次 assemble")
+        return 0
+    import atexit
+    atexit.register(pit_lock.release, pit_dir)
+
     symbols = _load_universe(args)
     if args.limit > 0:
         symbols = symbols[: args.limit]
@@ -374,7 +386,9 @@ def main(argv: list[str] | None = None) -> int:
         requested_symbols=symbols,
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    pit.to_parquet(out_path, index=False)
+    tmp_path = out_path.with_name(out_path.name + ".tmp")
+    pit.to_parquet(tmp_path, index=False)
+    os.replace(tmp_path, out_path)
     _write_coverage(report, symbols, raw_dir, pit, coverage_path)
     logger.info(f"已输出 {out_path}（{len(pit)} 行）")
     logger.info(f"覆盖率报告: {coverage_path}")
