@@ -283,7 +283,7 @@ Register-ScheduledTask -TaskName 'DSA_Deck_Open' -Action $action -Trigger $trigg
 
 **背景（2026-10-27 实测根因）**：东财 `RPTA_WEB_KZZ_LS` 接口新增两列后，akshare `bond_zh_cov_value_analysis` 的固定列位重命名直接 `ValueError`，PIT 尾部增量自 09-18 起全部失败；`--limit 50` 又每次都从固定排序头部开始，长期卡在退市券。结果是 PIT 末端停在 10-16、当日截面仅 17 只，E/H 的转债输入严重失真。
 
-**修复**：`quant_research/scripts/update_pit_tail.py` 改为按 `DATE`/`FCLOSE`/`SWAPOR` 字段名直连东财，不再依赖 akshare 列位；增量队列改为“当前目标债 → 活跃券（120 天内，按缓存最旧优先）→ 陈旧券”，并用 `.tail_cursor.json` 滚动游标续跑；新增 `--active-only`。`build_pit_snapshot.py --assemble-only --start 2018` 仍在增量后重组。
+**修复**：`quant_research/scripts/update_pit_tail.py` 改为按 `DATE`/`FCLOSE`/`SWAPOR` 字段名直连东财，不再依赖 akshare 列位；增量队列改为“当前目标债 → 活跃券（120 天内，按缓存最旧优先）→ 陈旧券”，并用 `.tail_cursor.json` 滚动游标续跑；新增 `--active-only`。`build_pit_snapshot.py --assemble-only --start 2018` 仍在增量后重组；raw CSV 与 parquet 均走临时文件 + `os.replace` 原子写，进程中断不会留下半文件。
 
 **任务**（均 `WakeToRun=True`、隐藏启动、日志 `daily_stock_analysis/logs/pit_refresh.log`）：
 
@@ -349,7 +349,7 @@ Register-ScheduledTask -TaskName 'DSA_Deck_Open' -Action $action -Trigger $trigg
 - **熔断指标**：国证2000（sz399303）为代理指标，非真正的微盘股指数（万得微盘股指数无免费实时源）；-3% 阈值为先验值，未回测校准。
 - **N 槽不可在干净克隆复现**：驱动 `quant_research/vendor/Sequoia-X/n_slot_driver.py`（vendored 第三方仓库，~299MB）与其回填行情数据均**不入库**（`.gitignore` 已忽略 `quant_research/vendor/`）。上表 N 行的"已激活"仅对本机工作区成立；干净克隆下 `sequoia_ready` 闸为假、N 槽**条件式跳过**（不报错、不参与调仓）。复现需自行 vendored Sequoia-X 并回填行情数据。
 - **运行在线依赖**：收盘轮/撮合窗要求交易日本机在 15:00-16:13 保持运行；休眠时由 `DSA_Deck_Close`（WakeToRun）唤醒，整机关机仍无法唤醒。若 15:00:30 唤醒后网络未就绪：核心 C/D 缺价会整轮顺延且不写 `close_done`，15:02/15:22/后续轮（交易所戳仍为 15:00:00）可补成交/补写 marks；若整日不可用，当日无成交且可能有 marks 缺口，注册表续做至下一窗口。不得用历史价回填。
-- **A/B 数据 as-of 差异**：B 走 `feeds_snapshot_v*.pkl`，文件 mtime 超 7 天**或末端数据日早于上一交易日**时重建；A/G/H 走 tushare loader。B 重建后数据源仍滞后时消息标注实际末端（如 `至 2026-10-16`）。解读 A/B 排名时需知悉该差异。
+- **A/B 数据 as-of 差异**：B 走 `feeds_snapshot_v*.pkl`，文件 mtime 超 7 天**或末端数据日早于上一交易日**时重建（构建脚本以临时文件 + `os.replace` 原子替换，避免半文件）；A/G/H 走 tushare loader。B 重建后数据源仍滞后时消息标注实际末端（如 `至 2026-10-16`）。解读 A/B 排名时需知悉该差异。
 - **收盘后备份**：每日 08:30 的 `DSA_Ledger_Backup` 仍早于收盘；17:25 `DSA_Ledger_CloseBackup` 已提供独立的收盘全量备份（`data/backups_close/<日期>`，DB/.env/台账，保留 14 份），17:30/20:00 审计会检查 `收盘备份` 目录。**仍与 live 同盘、未离机**；离机目标尚未配置，抗盘坏仍需第二存储。
 - **收盘快照**：17:30/20:00 审计前生成 `postclose/compare_strategies.YYYYMMDD.json`；审计要求快照与 live 台账**字节 sha 一致**且时间在 15:00 后，否则 WARN（避免盘前快照误判）。快照不是完整备份。
 - **评估窗口起点**：2026-10-27 首次形成主动槽持仓（11/13 有持仓；B 无轮动信号、N 无形态候选，保持现金）。因 09:31 本机唤醒时 DNS 全断，首建仓由 15:00 收盘轮按收盘价补建，`_control.eval_basis=close_fallback`；60 个交易日窗口自 10-27 起算。`prereg._meta` 已留痕：2026-12-31 改为中期检查，60 交易日硬复核顺延至 2027-01-31（≥60 交易日，节假日顺延），DSR 顺延至 2027-04-30（≥120 交易日）；不改变判定标准，只保持样本长度。

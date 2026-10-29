@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -225,7 +226,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
-    pd.to_pickle(feeds, out)
+    tmp = out.with_name(out.name + ".tmp")
+    pd.to_pickle(feeds, tmp)
+    os.replace(tmp, out)
     logger.info(
         f"快照已写入: {out}（{len(feeds)} 只, SHA-256 {_sha256(out)[:16]}...）"
     )
