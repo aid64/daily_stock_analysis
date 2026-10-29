@@ -641,13 +641,13 @@ def dividend_accrued(ts_code: str, since: str, qty: int,
         ts_code = _ts_code(ts_code)
         is_stock = asset_class == AssetClass.STOCK
         if is_stock:
-            df = ts_client().call("dividend", ts_code=ts_code, cache_ttl_days=7)
+            df = ts_client().call("dividend", ts_code=ts_code, cache_ttl_days=1)
             if df is None or df.empty:
                 return 0.0, "", 0.0
             df = df[df["div_proc"].astype(str).str.strip() == "实施"]
             cash_field, share_field = "cash_div", "stk_div"
         else:
-            df = ts_client().call("fund_div", ts_code=ts_code, cache_ttl_days=7)
+            df = ts_client().call("fund_div", ts_code=ts_code, cache_ttl_days=1)
             if df is None or df.empty:
                 return 0.0, "", 0.0
             cash_field, share_field = "div_cash", None

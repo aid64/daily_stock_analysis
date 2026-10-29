@@ -146,6 +146,7 @@ def test_daily_dividend_stock_uses_held_since_and_stock_api(monkeypatch):
         def call(self, api, **kw):
             assert api == "dividend"
             assert kw["ts_code"] == "600000.SH"    # 前缀式持仓需归一化
+            assert kw["cache_ttl_days"] == 1       # 分红事件按日刷新
             return pd.DataFrame([
                 {"ex_date": "20261020", "div_proc": "实施", "cash_div": 0.5, "stk_div": 0.0},
                 {"ex_date": "2026-10-28", "div_proc": "实施", "cash_div": 0.3, "stk_div": 0.3},
@@ -187,6 +188,7 @@ def test_daily_dividend_etf_uses_fund_div(monkeypatch):
     class FakeClient:
         def call(self, api, **kw):
             assert api == "fund_div"
+            assert kw["cache_ttl_days"] == 1
             return pd.DataFrame([
                 {"ex_date": "20261028", "div_proc": "实施", "div_cash": 0.05},
                 {"ex_date": "20261028", "div_proc": "实施", "div_cash": 0.05},
