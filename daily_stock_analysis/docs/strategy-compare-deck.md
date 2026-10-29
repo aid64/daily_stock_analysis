@@ -109,6 +109,27 @@
 
 **唤醒时序边界**：15:00:30 的 `DSA_Deck_Close` 可能在网络就绪前启动（10-22 15:00:32 DNS 全断）。旧实现仍写 `close_done`，把 15:02/15:22 的补做锁死；新收盘闸在 C/D 缺价时整轮顺延且不写 `close_done`。由于交易所戳在 15:00 后冻结为 15:00:00，后续 20 分钟轮仍可在网络恢复后补成交/补写 marks；若整日不恢复，当日 marks 缺失：17:30/20:00 审计在 15:10 后交易日会判 **marks/注册表 FAIL**（退出 1 + 飞书告警），并可用手工 `-Mode close`（收盘价口径）补写，而不是记成 -97% 假净值或被静默。顺延原因会在后续轮通过飞书推送（`dedup_key=deck_close_error_YYYYMMDD`，网络恢复后可见），不再只留在日志里。2026-10-29 实测三轮回测均缺核心价、旧 runner rc=0，已补 rc 与补价逻辑。
 
+**收盘缺失手工恢复 runbook（2026-10-29 实测）**：
+
+1. 确认 `_control.close_done` 不是当日、当日有持仓的槽需要 marks；网络至少 `qt.gtimg.cn` 可用。
+2. 补做收盘（收盘价口径，不写新成交）：
+   ```powershell
+   cd D:\daily_stock_analysis\daily_stock_analysis
+   py scripts/compare_deck_runner.py --mode close
+   ```
+   成功输出以 `【对比盘收盘` 开头并写 `close_done`/marks；若仍返回 `【异常】收盘缺价`，等行情源恢复后重跑，**不要**用历史价回填。
+3. 刷新收盘状态备份与第二副本：
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/backup_close.ps1
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/backup_offsite_task.ps1
+   ```
+4. 刷新收盘快照并审计：
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_deck_audit.ps1
+   ```
+5. 核对：`close_done`/marks 为当日、审计结论“正常”、收盘快照 mtime 在 15:00 后；若账户操作单也需补，走 09:00 管线/手工导出，**live 推送前先确认**。
+
+
 ## 3. 数据源
 
 - 实时行情：`data_provider.DataFetcherManager.get_realtime_quote`（六源降级+熔断；tushare 为 P-1 最高优先级，15000 积分账户）；prefetch 按 5 只分批（tickflow 上限）
