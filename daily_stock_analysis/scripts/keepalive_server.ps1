@@ -7,6 +7,9 @@
 # docs/REFACTOR-PLAN-STRATEGY-CENTRIC.md S0.5）；也可手动执行。
 # 行为：端口探测（2s 超时）不通才拉起，避免重复启动；
 # 拉起动作用 hidden 窗口 + 日志留痕（logs/keepalive.log）。
+# 2026-10-29: if the port is down but a main.py --serve process already
+# exists (startup in progress), wait for it instead of starting a second
+# server; observed duplicate at 02:01 when a manual and scheduled run raced.
 # ============================================================
 
 $ErrorActionPreference = "Stop"
@@ -34,31 +37,31 @@ function Test-ServerAlive {
     }
 }
 
-if (Test-ServerAlive) {
-    exit 0
+function Get-ServerProcesses {
+    try {
+        return @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+            $_.CommandLine -and $_.CommandLine -match 'main\.py\s+--serve'
+        })
+    } catch {
+        return @()
+    }
 }
 
-$stamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ss"
-try {
-    New-Item -ItemType Directory -Force -Path (Join-Path $ProjectRoot "logs") | Out-Null
-    Add-Content -Path $LogFile -Value "$stamp port $Port down - restarting server"
-    Start-Process -FilePath "py" -ArgumentList "main.py", "--serve" `
-        -WorkingDirectory $ProjectRoot -WindowStyle Hidden
-    Add-Content -Path $LogFile -Value "$stamp restart issued (py main.py --serve)"
-    $healthy = $false
+function Wait-ForPort {
     for ($i = 0; $i -lt 90; $i++) {
         Start-Sleep -Seconds 2
-        if (Test-ServerAlive) { $healthy = $true; break }
+        if (Test-ServerAlive) { return $true }
     }
-    if ($healthy) {
-        Add-Content -Path $LogFile -Value "$stamp restart healthy (port $Port)"
-        exit 0
-    }
-    Add-Content -Path $LogFile -Value "$stamp restart FAILED: port $Port not listening after 180s"
+    return $false
+}
+
+function Send-FailureAlert([string]$Reason) {
+    $now = Get-Date -Format "yyyy-MM-ddTHH:mm:ss"
+    Add-Content -Path $LogFile -Value "$now keepalive FAILED: $Reason"
     $py = "C:\WINDOWS\py.exe"
     if (-not (Test-Path $py)) { $py = "py" }
     $dedup = "keepalive_fail_" + (Get-Date -Format "yyyyMMdd")
-    $notifyCode = "import sys; sys.path.insert(0, r'" + $ProjectRoot + "'); from src.notification import NotificationService; NotificationService().send('DSA server keepalive: restart failed on port $Port', route_type='system_error', dedup_key='$dedup')"
+    $notifyCode = "import sys; sys.path.insert(0, r'" + $ProjectRoot + "'); from src.notification import NotificationService; NotificationService().send('DSA server keepalive: server not listening on port $Port', route_type='system_error', dedup_key='$dedup')"
     Set-Location $ProjectRoot
     # Native stderr must not become a terminating NativeCommandError before
     # the notification completes; the alert is best-effort and exit stays 1.
@@ -66,9 +69,44 @@ try {
     & $py -c $notifyCode 2>&1 | ForEach-Object { Add-Content -Path $LogFile -Value "$_" -Encoding UTF8 }
     $notifyExit = $LASTEXITCODE
     $ErrorActionPreference = "Stop"
-    Add-Content -Path $LogFile -Value "$stamp notify exit=$notifyExit"
+    $now = Get-Date -Format "yyyy-MM-ddTHH:mm:ss"
+    Add-Content -Path $LogFile -Value "$now notify exit=$notifyExit"
+}
+
+if (Test-ServerAlive) {
+    exit 0
+}
+
+try {
+    New-Item -ItemType Directory -Force -Path (Join-Path $ProjectRoot "logs") | Out-Null
+    $stamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ss"
+    $existing = @(Get-ServerProcesses)
+    if ($existing.Count -gt 0) {
+        $pids = ($existing | ForEach-Object { $_.ProcessId }) -join ","
+        Add-Content -Path $LogFile -Value "$stamp port $Port down but server process exists (pid=$pids) - waiting for startup"
+        if (Wait-ForPort) {
+            $now = Get-Date -Format "yyyy-MM-ddTHH:mm:ss"
+            Add-Content -Path $LogFile -Value "$now existing server healthy (port $Port)"
+            exit 0
+        }
+        Send-FailureAlert "existing server process did not listen after 180s (pid=$pids)"
+        exit 1
+    }
+
+    Add-Content -Path $LogFile -Value "$stamp port $Port down - starting server"
+    Start-Process -FilePath "py" -ArgumentList "main.py", "--serve" `
+        -WorkingDirectory $ProjectRoot -WindowStyle Hidden
+    $now = Get-Date -Format "yyyy-MM-ddTHH:mm:ss"
+    Add-Content -Path $LogFile -Value "$now start issued (py main.py --serve)"
+    if (Wait-ForPort) {
+        $now = Get-Date -Format "yyyy-MM-ddTHH:mm:ss"
+        Add-Content -Path $LogFile -Value "$now start healthy (port $Port)"
+        exit 0
+    }
+    Send-FailureAlert "port $Port not listening after 180s after start"
     exit 1
 } catch {
-    Add-Content -Path $LogFile -Value "$stamp restart FAILED: $($_.Exception.Message)"
+    $now = Get-Date -Format "yyyy-MM-ddTHH:mm:ss"
+    Add-Content -Path $LogFile -Value "$now keepalive FAILED: $($_.Exception.Message)"
     exit 1
 }

@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [修复] 对比盘撮合接入涨跌停与过期报价：六源昨收按板块规则计算涨跌停（主板10%/创业板科创板20%/北交所30%/主板ST5%/ETF10%/转债20%），腾讯直连优先用显式涨跌停；涨停买入、跌停卖出、`is_stale` 报价拒单；六源链缺价的股票也走腾讯直连兜底。
 - [修复] 对比盘分红：股票改用 tushare `dividend`（仅实施、税后现金），起算日纳入 `held_since`，按报告期+除息日去重（Tushare 同一事件多行），支持送转股调整份额；ETF 仍用 `fund_div`；前缀式代码（`SH600000`/`SZ301578`）同样覆盖。
 - [修复] `DSA_Server_Keepalive`：端口健康等待 60s→180s；失败告警的 Python 子进程改在 `$ErrorActionPreference=Continue` 下调用，避免原生 stderr 被当成终止错误；显式设置 `LITELLM_LOCAL_MODEL_COST_MAP=True`，避免 LiteLLM import 时远程 cost map 拉取把 server 首次监听拖过 60s（2026-10-28 23:51 实例）。
+- [修复] keepalive 在端口未通但已有 `main.py --serve` 进程（启动中）时只等待、不再启动第二个 server（2026-10-29 02:01 手动与计划任务并发实测重复进程）；健康/失败日志改记实际时间。
 - [修复] 纸面账本 SQLite 并发首开：`schema_version` 改为 `INSERT OR IGNORE` 后重读校验，消除两进程同时初始化时的 `UNIQUE constraint failed: meta.key` 抖动（CI 曾偶发）。
 - [改进] `.env.example` 默认启用 `LITELLM_LOCAL_MODEL_COST_MAP=True`（弱网服务端推荐），减少启动网络依赖；需要追踪最新模型成本时显式设为 False。
 - [修复] 对比盘分红查询缓存 7d→1d，避免新除息事件被长缓存遮蔽（价格先跌、现金晚记）；同步 `strategy-compare-deck.md` 口径说明。
