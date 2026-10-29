@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [修复] 对比盘分红查询缓存 7d→1d，避免新除息事件被长缓存遮蔽（价格先跌、现金晚记）；同步 `strategy-compare-deck.md` 口径说明。
 - [修复] 对比盘审计快照校验的 Python 原生 stderr 不再被 `$ErrorActionPreference=Stop` 终止；无效台账会记录 `INVALID_LEDGER` 而不是笼统的 ERROR。
 - [修复] PIT 增量/装配跨进程并发：`update_pit_tail` 与 `build_pit_snapshot` 共用 `data/pit/.pit_update.lock.json`，持锁进程存在时跳过；parquet 改临时文件 + `os.replace` 原子替换，避免 Windows PIT 任务与 server 09:00 管线在补跑时同时写 raw/parquet（2026-10-29 10:03/10:18 实测重叠）。
+- [修复] 每日管线在 assemble 后检查 PIT 末端是否达到最近完整交易日；落后则阻断操作单并 5 分钟重试（配合同步 PIT 锁），避免晚唤醒时用 T-2 PIT 推送操作单（2026-10-29 10:28 实例）。
 - [改进] 管理员密码最小长度 6→8（仅约束新建/修改，已有密码仍可登录）；同步前端提示、后端与前端测试。
 - [修复] `DSA_Deck_Close` 直接 `-Mode close` 由 `run_close` 自己写 `close_done`；已 close_done 的直接 close 轮直接跳过，避免 15:30/16:00 重复估值与通知。
 - [改进] keepalive 重启后等待端口 8000 健康（最多60s）；失败写日志并 best-effort 飞书告警（每日去重），避免“重启已发出但 server 仍不可用”静默。

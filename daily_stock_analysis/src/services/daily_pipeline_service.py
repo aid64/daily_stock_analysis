@@ -137,7 +137,9 @@ def _run_daily_pipeline_locked(force: bool = False) -> bool:
             _alert_failure(name)
             return False
         if name == "assemble":
-            _check_cross_section_coverage()
+            if not _check_cross_section_coverage():
+                _write_status(name, False, "PIT end behind last completed session")
+                return False
 
     # 3.4: 全市场扫描（买入侧原料线，蓝图 ②-A/②-B）——快照落库 + 规则漏斗。
     # 失败不阻塞主决策（买入观察池降级为空），但必须留痕到状态文件。
@@ -281,12 +283,20 @@ def _acquire_pipeline_lock():
         return None
 
 
-def _check_cross_section_coverage(min_bonds: int = 200) -> None:
-    """assemble 后护栏：PIT 末端截面券数过低说明增量管道断裂（9 月曾跌到 56）。
+def _check_cross_section_coverage(
+    min_bonds: int = 200,
+    expected_date: date | None = None,
+    today: date | None = None,
+) -> bool:
+    """assemble 后护栏：PIT 末端必须达到最近完整交易日。
 
-    只告警不失败——让 export 继续（目标债有优先队列保障），但用户会收到
-    system_error 提示去跑全量刷新。
+    - 日期滞后（如机器休眠后 Windows PIT 任务与 09:00 管线同时补跑，
+      管线在 Windows 任务 assemble 前读到 T-2）→ 返回 False 阻断操作单，
+      调度器 5 分钟后重试，待 PIT 追平后再生成。
+    - 截面券数过低只告警不失败（目标债优先队列仍可导出），返回 True。
+    - 日历不可用/读取异常 fail-open，返回 True。
     """
+    today = today or date.today()
     try:
         import pandas as pd
 
@@ -294,15 +304,32 @@ def _check_cross_section_coverage(min_bonds: int = 200) -> None:
                    / "convertible_pit.parquet")
         table = pd.read_parquet(parquet, columns=["as_of", "symbol"])
         latest = table["as_of"].max()
+        latest_date = pd.Timestamp(latest).date()
         n_bonds = int(table.loc[table["as_of"] == latest, "symbol"].nunique())
+
+        if expected_date is None:
+            from src.core.trading_calendar import get_effective_trading_date
+            expected_date = get_effective_trading_date("cn")
+        # 日历 fallback 返回今天时无法判断前一交易日，按 fail-open 处理。
+        if expected_date < today and latest_date < expected_date:
+            message = (
+                f"PIT 末端 {latest_date} 落后于最近完整交易日 {expected_date}"
+                "——今日不生成操作单；等待 PIT 增量/assemble 完成后重试"
+            )
+            _alert_failure_custom(message)
+            logger.warning("[pipeline] PIT stale: %s", message)
+            return False
+
         if n_bonds < min_bonds:
             _alert_failure_custom(
-                f"PIT 覆盖率过低：{pd.Timestamp(latest).date()} 截面仅 {n_bonds} 只"
+                f"PIT 覆盖率过低：{latest_date} 截面仅 {n_bonds} 只"
                 f"（阈值 {min_bonds}）——增量管道疑似断裂，请在周日全量刷新前"
                 "手动执行 py scripts/update_pit_tail.py（quant_research/）")
             logger.warning("[pipeline] cross-section coverage low: %d bonds", n_bonds)
+        return True
     except Exception as exc:  # noqa: BLE001 - 护栏失败不影响管线主流程
         logger.warning("[pipeline] coverage check failed: %r", exc)
+        return True
 
 
 def _alert_failure_custom(message: str) -> None:
