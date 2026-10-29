@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 import time
 from datetime import date, datetime, timedelta
@@ -33,6 +34,19 @@ _CURSOR_FILE = ".tail_cursor.json"
 # 活跃券窗口：缓存末日在此范围内的券优先刷新。日更 limit=50 时
 # 约 6 个交易日覆盖全部活跃券；退市/长期停牌券只在全量轮次处理。
 _ACTIVE_WINDOW_DAYS = 120
+
+
+def _write_csv_atomic(df: pd.DataFrame, path: Path) -> None:
+    """raw CSV 原子写：临时文件 + os.replace，避免中断留下半文件。"""
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        df.to_csv(tmp, index=False)
+        os.replace(tmp, path)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def _last_csv_date(sym_dir: Path) -> str:
@@ -247,10 +261,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                             row_df = pd.DataFrame([row])
                             combined = pd.concat([existing, row_df], ignore_index=True)
                             combined = combined.drop_duplicates(subset="date", keep="last").sort_values("date")
-                            combined.to_csv(year_file, index=False)
+                            _write_csv_atomic(combined, year_file)
                         else:
                             row_df = pd.DataFrame([row])
-                            row_df.to_csv(year_file, index=False)
+                            _write_csv_atomic(row_df, year_file)
                     updated += 1
                     new_count = len(new_rows)
                     logger.info("%s: +%d 行（%s → %s）", symbol, new_count,

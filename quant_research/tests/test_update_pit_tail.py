@@ -155,3 +155,14 @@ def test_fetch_history_uses_named_fields_not_column_positions(monkeypatch):
     assert df.to_dict("records") == [
         {"date": "2026-10-23", "close": 127.8, "premium_rate": 13.5},
     ]
+
+
+def test_write_csv_atomic_replaces_and_cleans(tmp_path):
+    path = tmp_path / "2026.csv"
+    path.write_text("date,close\n2026-10-01,100\n", encoding="utf-8")
+    df = pd.DataFrame({"date": ["2026-10-02"], "close": [101.0],
+                       "premium_rate": [4.0]})
+    update_pit_tail._write_csv_atomic(df, path)
+    assert not (tmp_path / "2026.csv.tmp").exists()
+    text = path.read_text(encoding="utf-8")
+    assert "2026-10-02" in text and "2026-10-01" not in text
