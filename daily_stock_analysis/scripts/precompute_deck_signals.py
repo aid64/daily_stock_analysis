@@ -65,8 +65,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     target = data.get("target")
     if not isinstance(target, dict) or not target:
-        logger.error("预计算无目标: %s", args.strategy)
-        return 1
+        # 非调仓日引擎可能没有新目标；预计算只是优化，不应让任务失败，
+        # 收盘轮会在需要时回退实时引擎（2026-10-29 13:45 实测）。
+        logger.warning("预计算无目标: %s（非调仓日/无新目标，跳过）", args.strategy)
+        return 0
 
     data["cache_date"] = date.today().isoformat()
     data["generated_at"] = datetime.now().isoformat(timespec="seconds")

@@ -28,7 +28,7 @@ def _ledger(marks_dates, strategies=None):
 
 
 def _run_audit(monkeypatch, tmp_path, ledger_dict, log_text, live=None, last_result="0",
-               backup=True, snapshot=True, close_backup=True):
+               backup=True, snapshot=True, close_backup=True, now=None):
     led = tmp_path / "ledger.json"
     led.write_text(json.dumps(ledger_dict, ensure_ascii=False), encoding="utf-8")
     log = tmp_path / "task.log"
@@ -58,12 +58,24 @@ def _run_audit(monkeypatch, tmp_path, ledger_dict, log_text, live=None, last_res
     def _fake_run(cmd, *a, **k):
         joined = " ".join(str(x) for x in cmd)
         if "LastTaskResult" in joined:
-            return SimpleNamespace(stdout=f"{last_result}\n", returncode=0)
+            value = last_result
+            if isinstance(last_result, dict):
+                task = next((n for n in last_result if n in joined), None)
+                value = last_result.get(task, "0") if task else "0"
+            return SimpleNamespace(stdout=f"{value}\n", returncode=0)
         if "DSA_Deck_Close" in joined and "/XML" in joined:
             return SimpleNamespace(stdout=close_xml, returncode=0)
         return SimpleNamespace(stdout="已启用", returncode=0)
 
     monkeypatch.setattr(mod.subprocess, "run", _fake_run)
+    fixed_now = now or datetime.now().replace(hour=10, minute=0, second=0, microsecond=0)
+
+    class _FakeDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now
+
+    monkeypatch.setattr(mod, "datetime", _FakeDateTime)
     fake_bs = SimpleNamespace(login=lambda: None, logout=lambda: None,
                               query_history_k_data_plus=lambda *a, **k:
                               SimpleNamespace(error_code="1"))
@@ -91,6 +103,34 @@ def test_audit_fails_marks_stale_over_15_days(monkeypatch, tmp_path):
     assert _row(rows, "marks 最新")["status"] == "FAIL"
     assert rc == 1
     assert "【异常】" in out
+
+
+def test_audit_fails_missing_close_after_close(monkeypatch, tmp_path):
+    """15:10 后仍是昨日 mark/无 close_done → marks/注册表 FAIL + 退出码1。"""
+    monkeypatch.setattr(mod, "_is_exchange_trading_day", lambda d: True)
+    after_close = datetime.now().replace(hour=16, minute=0, second=0, microsecond=0)
+    rc, out, rows = _run_audit(monkeypatch, tmp_path,
+                               _ledger([_today(1)]),
+                               f"{_today()}T15:30:00 intraday start\n{_today()}T15:30:01 intraday exit=0\n",
+                               now=after_close)
+    assert _row(rows, "marks 最新")["status"] == "FAIL"
+    assert _row(rows, "注册表")["status"] == "FAIL"
+    assert rc == 1
+    assert "【异常】" in out
+
+
+def test_audit_ignores_scheduler_refused_duplicate(monkeypatch, tmp_path):
+    """Intraday LastTaskResult=0x800710E0 但最近 runner exit=0 → 任务结果 PASS。"""
+    led = _ledger([_today()])
+    iso = datetime.strptime(_today(), "%Y-%m-%d").isocalendar()
+    week_key = f"{iso[0]}-W{int(iso[1]):02d}"
+    led["_control"] = {"close_done": _today(),
+                       "rebalance_done": {_today()[:7]: "all"},
+                       "week_rebalance_done": {week_key: "all"}}
+    rc, out, rows = _run_audit(monkeypatch, tmp_path, led,
+                               f"{_today()}T15:30:00 intraday start\n{_today()}T15:30:01 intraday exit=0\n",
+                               last_result={"DSA_Deck_Intraday": "2147946720"})
+    assert _row(rows, "任务结果")["status"] == "PASS"
 
 
 def test_audit_warns_marks_slightly_stale(monkeypatch, tmp_path):

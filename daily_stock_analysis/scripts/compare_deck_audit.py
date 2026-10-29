@@ -36,6 +36,16 @@ def check(name: str, status: str, detail: str) -> None:
     results.append({"check": name, "status": status, "detail": detail})
 
 
+def _is_exchange_trading_day(d: date) -> bool:
+    """本地交易所日历（XSHG）；不可用时按工作日 fail-open。"""
+    try:
+        import exchange_calendars as xcals
+        import pandas as pd
+        return bool(xcals.get_calendar("XSHG").is_session(pd.Timestamp(d)))
+    except Exception:
+        return d.weekday() < 5
+
+
 def tencent_live(codes6: list[str]) -> dict[str, float]:
     out = {}
     try:
@@ -137,22 +147,27 @@ def main() -> int:
         _emit()
         return 2
 
+    now = datetime.now()
+    after_close = (now.hour * 100 + now.minute) >= 1510
+    trading_today = _is_exchange_trading_day(now.date())
     marks = led.get("marks", [])
     if marks:
         last = marks[-1]
-        # 新鲜度三态: >15 天 FAIL(执行链实质断供) / >10 天 WARN / 新鲜 PASS。
-        # 旧实现只查非空, 2000-01-01 的陈旧 marks 也判 PASS。
+        last_date = str(last["date"])[:10]
+        # 新鲜度三态: 15:10 后今日 mark 缺失 FAIL / >15 天 FAIL / >10 天 WARN / 新鲜 PASS。
         try:
-            age_days = (datetime.now() - datetime.strptime(str(last["date"])[:10],
-                                                            "%Y-%m-%d")).days
+            age_days = (now - datetime.strptime(last_date, "%Y-%m-%d")).days
         except ValueError:
             age_days = 9999
-        if age_days > 15:
-            check("marks 最新", "FAIL", f"{last['date']} 距今 {age_days} 天 (>{15}天断供)")
+        if after_close and trading_today and last_date != now.date().isoformat():
+            check("marks 最新", "FAIL",
+                  f"{last_date}，15:10 后今日 mark 缺失（收盘未完成）")
+        elif age_days > 15:
+            check("marks 最新", "FAIL", f"{last_date} 距今 {age_days} 天 (>{15}天断供)")
         elif age_days > 10:
-            check("marks 最新", "WARN", f"{last['date']} 距今 {age_days} 天")
+            check("marks 最新", "WARN", f"{last_date} 距今 {age_days} 天")
         else:
-            check("marks 最新", "PASS", f"{last['date']} ({len(marks)} 条)")
+            check("marks 最新", "PASS", f"{last_date} ({len(marks)} 条)")
     else:
         check("marks 最新", "FAIL", "无任何净值记录")
 
@@ -162,7 +177,7 @@ def main() -> int:
 
     # 2b. 收盘完成度: 注册表 + 主动槽覆盖。首建仓只成交 C/D 时这里必须 WARN。
     close_done = str(ctrl.get("close_done") or "")
-    if close_done == datetime.now().strftime("%Y-%m-%d"):
+    if close_done == now.strftime("%Y-%m-%d"):
         pending = []
         month_key = close_done[:7]
         month_done = (ctrl.get("rebalance_done") or {}).get(month_key)
@@ -183,7 +198,11 @@ def main() -> int:
               f"{len(invested)}/{len(active)} 有持仓"
               + ("" if invested else "（仅基准/现金）"))
     else:
-        check("注册表", "WARN", f"今日未收盘 (close_done={close_done or '缺失'})")
+        if after_close and trading_today:
+            check("注册表", "FAIL",
+                  f"15:10 后今日仍未收盘 (close_done={close_done or '缺失'})")
+        else:
+            check("注册表", "WARN", f"今日未收盘 (close_done={close_done or '缺失'})")
         check("主动槽覆盖", "WARN", "今日未收盘")
 
     # 自洽: equity ≈ cash + Σ(qty×成本价) (容差 3% — 成本价≠现价的固有偏差上限)
@@ -272,6 +291,12 @@ def main() -> int:
     task_results = {n: _last_result(n) for n in
                     ("DSA_Deck_Intraday", "DSA_Deck_Close", "DSA_Ledger_Backup",
                      "DSA_PIT_Daily", "DSA_Deck_Precompute", "DSA_Offsite_Copy")}
+    # 0x800710E0 = Task Scheduler 拒绝重复实例（IgnoreNew）。以执行日志为准：
+    # 最近一轮 intraday exit=0 时不应把调度器拒绝算成 runner 失败。
+    intraday_exit = (recent.get("intraday") or {}).get("exit")
+    if (task_results.get("DSA_Deck_Intraday") == 2147946720
+            and isinstance(intraday_exit, tuple) and intraday_exit[1] == 0):
+        task_results["DSA_Deck_Intraday"] = 0
     missing_results = [n for n, v in task_results.items() if v is None]
     bad_results = [f"{n}={v}" for n, v in task_results.items() if v not in (None, 0)]
     if missing_results:

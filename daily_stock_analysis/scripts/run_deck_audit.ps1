@@ -41,6 +41,9 @@ try {
         $ErrorActionPreference = "Stop"
         if ($snapValid) {
             Move-Item -LiteralPath $SnapTmp -Destination $SnapPath -Force
+            # Copy-Item preserves the source ledger mtime; the audit's
+            # "after 15:00" check needs the actual snapshot time.
+            (Get-Item -LiteralPath $SnapPath).LastWriteTime = Get-Date
             $SnapHash = (Get-FileHash -Algorithm SHA256 $SnapPath).Hash.ToLower()
             Add-Content -Path $LogFile -Value "$stamp postclose snapshot=$SnapPath sha256=$SnapHash" -Encoding UTF8
             Get-ChildItem -Path $SnapDir -Filter "compare_strategies.*.json" |
