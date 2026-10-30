@@ -283,7 +283,7 @@ Register-ScheduledTask -TaskName 'DSA_Deck_Open' -Action $action -Trigger $trigg
 
 **背景（2026-10-27 实测根因）**：东财 `RPTA_WEB_KZZ_LS` 接口新增两列后，akshare `bond_zh_cov_value_analysis` 的固定列位重命名直接 `ValueError`，PIT 尾部增量自 09-18 起全部失败；`--limit 50` 又每次都从固定排序头部开始，长期卡在退市券。结果是 PIT 末端停在 10-16、当日截面仅 17 只，E/H 的转债输入严重失真。
 
-**修复**：`quant_research/scripts/update_pit_tail.py` 改为按 `DATE`/`FCLOSE`/`SWAPOR` 字段名直连东财，不再依赖 akshare 列位；增量队列改为“当前目标债 → 活跃券（120 天内，按缓存最旧优先）→ 陈旧券”，并用 `.tail_cursor.json` 滚动游标续跑；新增 `--active-only`。`build_pit_snapshot.py --assemble-only --start 2018` 仍在增量后重组；raw CSV 与 parquet 均走临时文件 + `os.replace` 原子写，进程中断不会留下半文件。
+**修复**：`quant_research/scripts/update_pit_tail.py` 改为按 `DATE`/`FCLOSE`/`SWAPOR` 字段名直连东财，不再依赖 akshare 列位；增量队列改为“当前目标债 → 活跃券（120 天内，按缓存最旧优先）→ 陈旧券”，并用 `.tail_cursor.json` 滚动游标续跑；新增 `--active-only`。`build_pit_snapshot.py --assemble-only --start 2018` 仍在增量后重组；raw CSV 与 parquet 均走临时文件 + `os.replace` 原子写，进程中断不会留下半文件。PIT 增量只写入已完成交易日（15:30 前排除当天盘中行，并清理 raw 中晚于 cutoff 的行），盘中重试/手工补跑不会再污染 PIT 截面。
 
 **任务**（均 `WakeToRun=True`、隐藏启动、日志 `daily_stock_analysis/logs/pit_refresh.log`）：
 

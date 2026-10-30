@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -155,6 +156,44 @@ def test_fetch_history_uses_named_fields_not_column_positions(monkeypatch):
     assert df.to_dict("records") == [
         {"date": "2026-10-23", "close": 127.8, "premium_rate": 13.5},
     ]
+
+
+def test_completed_cutoff_excludes_intraday_until_1530():
+    assert update_pit_tail._completed_cutoff(datetime(2026, 10, 30, 9, 0)) == date(2026, 10, 29)
+    assert update_pit_tail._completed_cutoff(datetime(2026, 10, 30, 15, 29)) == date(2026, 10, 29)
+    assert update_pit_tail._completed_cutoff(datetime(2026, 10, 30, 15, 30)) == date(2026, 10, 30)
+
+
+def test_clean_partial_rows_removes_unfinished_day(tmp_path):
+    sym = tmp_path / "110001.SH"
+    sym.mkdir()
+    pd.DataFrame({
+        "date": ["2026-10-28", "2026-10-29", "2026-10-30"],
+        "close": [100.0, 101.0, 102.0],
+    }).to_csv(sym / "2026.csv", index=False)
+    removed = update_pit_tail._clean_partial_rows(tmp_path, date(2026, 10, 29))
+    assert removed == 1
+    kept = pd.read_csv(sym / "2026.csv")
+    assert kept["date"].tolist() == ["2026-10-28", "2026-10-29"]
+
+
+def test_tail_excludes_current_intraday_bar(tmp_path, monkeypatch):
+    _seed(tmp_path, ["110001.SH"])
+    monkeypatch.setattr(
+        update_pit_tail, "_fetch_history",
+        lambda code: pd.DataFrame({
+            "date": ["2026-10-29", "2026-10-30"],
+            "close": [101.0, 102.0],
+            "premium_rate": [4.0, 3.0],
+        }),
+    )
+    monkeypatch.setattr(update_pit_tail, "_completed_cutoff", lambda: date(2026, 10, 29))
+    rc = update_pit_tail.main([
+        "--raw-dir", str(tmp_path), "--throttle", "0", "--symbols", "110001.SH",
+    ])
+    assert rc == 0
+    df = pd.read_csv(tmp_path / "110001.SH" / "2026.csv")
+    assert df["date"].tolist() == ["2026-10-01", "2026-10-29"]
 
 
 def test_write_csv_atomic_replaces_and_cleans(tmp_path):

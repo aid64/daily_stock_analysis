@@ -49,6 +49,40 @@ def _write_csv_atomic(df: pd.DataFrame, path: Path) -> None:
             pass
 
 
+def _completed_cutoff(now: datetime | None = None) -> date:
+    """PIT 只允许写入已完成交易日：15:30 前排除当天（盘中 bar 不入库）。"""
+    current = now or datetime.now()
+    if (current.hour, current.minute) >= (15, 30):
+        return current.date()
+    return current.date() - timedelta(days=1)
+
+
+def _clean_partial_rows(raw_dir: Path, cutoff: date) -> int:
+    """清理 raw 中晚于 cutoff 的盘中/未来行，避免同日行在后续被跳过而不修正。"""
+    years = {cutoff.year, date.today().year}
+    removed = 0
+    for sym_dir in raw_dir.iterdir():
+        if not sym_dir.is_dir():
+            continue
+        for year in years:
+            year_file = sym_dir / f"{year}.csv"
+            if not year_file.exists():
+                continue
+            try:
+                df = pd.read_csv(year_file)
+            except Exception:
+                continue
+            if "date" not in df.columns:
+                continue
+            mask = df["date"].astype(str).str[:10] > cutoff.isoformat()
+            if not mask.any():
+                continue
+            kept = df[~mask]
+            _write_csv_atomic(kept, year_file)
+            removed += int(mask.sum())
+    return removed
+
+
 def _last_csv_date(sym_dir: Path) -> str:
     year_files = sorted(sym_dir.glob("????.csv"))
     if not year_files:
@@ -154,6 +188,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 0
     try:
         state_path = Path(args.state_file) if args.state_file else raw_dir / _CURSOR_FILE
+        cutoff = _completed_cutoff()
+        removed = _clean_partial_rows(raw_dir, cutoff)
+        if removed:
+            logger.info("清理 %d 行未完成交易日数据（cutoff=%s）", removed, cutoff)
         updated, skipped_current, failed = 0, 0, 0
 
         # 优先队列：当前目标债必须当日有价，否则导出的 t1_close=0，
@@ -247,6 +285,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 if hist is None:
                     failed += 1
                     continue
+                hist = hist[hist["date"] <= cutoff.isoformat()]
                 new_rows = hist[hist["date"] > last_date]
                 if new_rows.empty:
                     skipped_current += 1

@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [修复] 审计收盘缺口：15:10 后交易日若 marks 非今日或 close_done 非今日 → marks/注册表 FAIL（退出 1、飞书告警）；收盘快照 mtime 改为实际复制时间；Intraday `0x800710E0`（调度器拒绝重复实例）且执行日志最近 exit=0 时不再误报任务结果。
 - [修复] H 预计算在非调仓日无新目标时由 exit=1 改为成功跳过，避免任务结果/审计误报（2026-10-29 13:45 实例）。
 - [改进] PIT raw CSV 与 A/B feeds 快照改为临时文件 + `os.replace` 原子写，避免进程中断/断电留下半文件；PIT parquet 已在 #104 原子替换。
+- [修复] PIT 增量只写入已完成交易日：15:30 前排除当天盘中行，并清理 raw 中晚于 cutoff 的行（避免同日行后续被跳过而永久保留）；server 09:00 管线盘中重试/手工补跑不再污染 PIT（2026-10-30 09:35 实例）。
 - [文档] 补充对比盘收盘缺失手工恢复 runbook（close → 收盘备份 → 第二副本 → 审计；账户操作单 live 推送需确认），并记录 2026-10-29 实测三轮回测缺核心价、20:49 手工恢复。
 - [改进] 管理员密码最小长度 6→8（仅约束新建/修改，已有密码仍可登录）；同步前端提示、后端与前端测试。
 - [修复] `DSA_Deck_Close` 直接 `-Mode close` 由 `run_close` 自己写 `close_done`；已 close_done 的直接 close 轮直接跳过，避免 15:30/16:00 重复估值与通知。
