@@ -343,7 +343,7 @@ openai>=1.0.0               # OpenAI SDK (transitive dependency of litellm, kept
 
 
 
-PyYAML>=6.0                 # YAML parser for LITELLM_CONFIG support
+PyYAML>=6.0.3                 # YAML parser for LITELLM_CONFIG support
 
 
 
