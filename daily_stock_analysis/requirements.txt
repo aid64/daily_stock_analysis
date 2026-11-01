@@ -182,7 +182,7 @@ longbridge>=4.0.5,<5; platform_system != "Linux" or python_version >= "3.12"
 
 
 
-tickflow>=0.1.24           # TickFlow official SDK; 0.1.24 verified for klines/get batch quotes/universes
+tickflow>=0.1.25           # TickFlow official SDK; 0.1.24 verified for klines/get batch quotes/universes
 
 
 
