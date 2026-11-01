@@ -62,7 +62,7 @@ sqlalchemy>=2.0.0           # ORM database access
 
 
 
-schedule>=1.2.0             # Scheduled task runner
+schedule>=1.2.2             # Scheduled task runner
 
 
 
